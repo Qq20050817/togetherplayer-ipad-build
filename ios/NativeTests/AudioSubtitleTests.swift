@@ -66,7 +66,9 @@ final class AudioSubtitleTests:XCTestCase {
   let captionPlayer=AVPlayer(playerItem:captionItem)
   let captions=ExternalSubtitles(player:captionPlayer)
   captions.attachNativeOutput(to:captionItem)
-  captionItem.select(group.options.first,in:group)
+  let captionGroup=try XCTUnwrap(subtitles)
+  captionItem.select(captionGroup.options.first,in:captionGroup)
+  XCTAssertTrue(captionItem.currentMediaSelection.selectedMediaOption(in:captionGroup) === captionGroup.options.first)
   captionPlayer.play()
   for _ in 0..<100 {
    if captions.text.contains("Embedded subtitle test") {break}

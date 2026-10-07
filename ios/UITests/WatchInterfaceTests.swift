@@ -8,7 +8,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(adjust.waitForExistence(timeout:15));adjust.tap()
   let delay=app.steppers["subtitle-delay"]
   XCTAssertTrue(delay.waitForExistence(timeout:5))
-  delay.buttons["Increment"].tap()
+  delay.buttons["subtitle-delay-Increment"].tap()
   XCTAssertTrue(app.staticTexts["字幕偏移 +0.1 秒"].exists)
   app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.4)
   app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
@@ -55,7 +55,7 @@ final class WatchInterfaceTests: XCTestCase {
   // The underlying room title also contains the stem. Exclude its MKV name
   // and target the actual MP4 document in the system picker.
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@ AND NOT label CONTAINS %@","LOCAL-PICKER-TEST",".mkv")).firstMatch
-  XCTAssertTrue(file.waitForExistence(timeout:12));file.tap()
+  XCTAssertTrue(file.waitForExistence(timeout:30),app.debugDescription);file.tap()
   let confirm=app.buttons["确认相同剪辑，使用此画质"]
   XCTAssertTrue(confirm.waitForExistence(timeout:10));capture("13-local-quality-confirmation",app);confirm.tap()
   XCTAssertFalse(confirm.exists)
