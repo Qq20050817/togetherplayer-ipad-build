@@ -1,6 +1,30 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testSubtitleAdjustmentPanelChangesValuesAndResets() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let adjust=app.buttons["subtitle-adjustments"].firstMatch
+  XCTAssertTrue(adjust.waitForExistence(timeout:15));adjust.tap()
+  let delay=app.steppers["subtitle-delay"]
+  XCTAssertTrue(delay.waitForExistence(timeout:5))
+  delay.buttons["Increment"].tap()
+  XCTAssertTrue(app.staticTexts["字幕偏移 +0.1 秒"].exists)
+  app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.4)
+  app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
+  XCTAssertTrue(app.staticTexts["subtitle-style-preview"].exists)
+  app.buttons["reset-subtitle-adjustments"].tap()
+  XCTAssertTrue(app.staticTexts["字幕字号 24"].exists)
+  XCTAssertTrue(app.staticTexts["距画面底部 7%"].exists)
+  capture("15-subtitle-adjustments",app)
+  app.buttons["close-subtitle-adjustments"].tap()
+  app.buttons["全屏观影"].firstMatch.tap()
+  let fullscreenAdjust=app.buttons["subtitle-adjustments"].firstMatch
+  XCTAssertTrue(fullscreenAdjust.waitForExistence(timeout:5));fullscreenAdjust.tap()
+  XCTAssertTrue(app.sliders["字幕文字大小"].waitForExistence(timeout:5))
+  app.buttons["close-subtitle-adjustments"].tap()
+  XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
+ }
  func testSubtitleImportReturnsFromFiles() {importSubtitle(fullscreen:false)}
  func testFullscreenSubtitleImportReturnsAndKeepsControlsVisible() {importSubtitle(fullscreen:true)}
  private func importSubtitle(fullscreen:Bool) {

@@ -62,6 +62,21 @@ final class AudioSubtitleTests:XCTestCase {
   let cues=try XCTUnwrap(String(data:cueData,encoding:.utf8))
   XCTAssertTrue(cues.contains("WEBVTT"))
   XCTAssertTrue(cues.contains("Embedded subtitle test"),"The original subtitle content must reach the player, not just a menu label")
+  let captionItem=AVPlayerItem(asset:asset)
+  let captionPlayer=AVPlayer(playerItem:captionItem)
+  let captions=ExternalSubtitles(player:captionPlayer)
+  captions.attachNativeOutput(to:captionItem)
+  captionItem.select(group.options.first,in:group)
+  captionPlayer.play()
+  for _ in 0..<100 {
+   if captions.text.contains("Embedded subtitle test") {break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
+  XCTAssertTrue(captions.text.contains("Embedded subtitle test"),"The adjustable native subtitle layer must actually receive and display source text")
+  captions.delay=10;XCTAssertEqual(captions.text,"")
+  captions.delay = -0.1
+  XCTAssertTrue(captions.text.contains("Embedded subtitle test"))
+  captionPlayer.pause()
   remux.stop()
  }
  func testEmptyOptionSubtypeUsesUnambiguousTrackFormats() {

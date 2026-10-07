@@ -167,7 +167,7 @@ import UniformTypeIdentifiers
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
     if !subtitles.text.isEmpty {
-     Text(subtitles.text).font(.system(size:min(32,max(19,geometry.size.width/35)),weight:.semibold)).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:3,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(Color.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius:6)).padding(.horizontal,24).padding(.bottom,max(16,geometry.size.height*0.07)+bottomInset).allowsHitTesting(false)
+     Text(subtitles.text).font(.system(size:SubtitleAppearance.font(subtitles.fontSize),weight:.semibold)).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:3,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(Color.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius:6)).padding(.horizontal,24).padding(.bottom,max(16,geometry.size.height*SubtitleAppearance.position(subtitles.bottomFraction))+bottomInset).allowsHitTesting(false)
     }
    }.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
@@ -212,27 +212,25 @@ import UniformTypeIdentifiers
  @ObservedObject var model: TestClient
  @ObservedObject var subtitles: ExternalSubtitles
  @State private var importing=false
+ @State private var adjustingSubtitles=false
  var modalChanged: (Bool) -> Void = {_ in}
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
    ViewThatFits(in:.horizontal) {
-    HStack {audioMenu;subtitleMenu;importButton;Spacer()}
-    VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};importButton}
+    HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
+    VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}
    }
    if subtitles.available {
     Text(subtitles.name).font(.caption).lineLimit(1).foregroundStyle(.secondary)
-    HStack {
-     Stepper(value:$subtitles.delay,in:-120...120,step:0.5) {Text(String(format:"字幕延迟 %+.1f 秒",subtitles.delay)).font(.caption)}.frame(maxWidth:300)
-     Button("重置") {subtitles.delay=0}
-     Button("移除",role:.destructive) {subtitles.clear();model.chooseSubtitle(-1)}
-    }
+    Button("移除外挂字幕",role:.destructive) {subtitles.clear();model.chooseSubtitle(-1)}
    }
    if !subtitles.status.isEmpty {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
-   .onChange(of:importing) {modalChanged($0)}
+   .onChange(of:importing || adjustingSubtitles) {modalChanged($0)}
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
+   .sheet(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles)}
  }
  private var audioMenu: some View {
   Menu {
@@ -250,6 +248,7 @@ import UniformTypeIdentifiers
    if subtitles.available {Button {model.enableExternalSubtitle()} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
   } label:{Label("字幕",systemImage:"captions.bubble")}
  }
+ private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier("subtitle-adjustments")}
  private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier("import-subtitle")}
 }
 @MainActor final class FullscreenControlState: ObservableObject {
@@ -423,7 +422,7 @@ import UniformTypeIdentifiers
  @State private var picker: Picker?
  var body: some View {
   Form {
-   Section("TogetherPlayer 0.4.6") {
+   Section("TogetherPlayer 0.4.7") {
     TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
     TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled()
     HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(.borderless)
