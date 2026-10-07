@@ -23,7 +23,7 @@ final class WatchInterfaceTests: XCTestCase {
   app.sliders["字幕字间距"].adjust(toNormalizedSliderPosition:0.7)
   line.adjust(toNormalizedSliderPosition:0.5)
   XCTAssertFalse(app.staticTexts["字间距 +0.00"].exists)
-  XCTAssertFalse(app.staticTexts["行间距 0"].exists)
+  XCTAssertFalse(app.staticTexts["行间距 +0.0"].exists)
   XCTAssertTrue(app.staticTexts["subtitle-style-preview"].exists)
   let reset=app.buttons["reset-subtitle-adjustments"]
   for _ in 0..<5 {if reset.isHittable {break};app.swipeUp()}
@@ -31,7 +31,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.staticTexts["字幕字号 24"].exists)
   XCTAssertTrue(app.staticTexts["距画面底部 7%"].exists)
   XCTAssertTrue(app.staticTexts["字间距 +0.00"].exists)
-  XCTAssertTrue(app.staticTexts["行间距 0"].exists)
+  XCTAssertTrue(app.staticTexts["行间距 +0.0"].exists)
   XCTAssertTrue(app.buttons["subtitle-font-family"].label.contains("系统"))
   XCTAssertTrue(app.buttons["subtitle-font-weight"].label.contains("常规"))
   capture("15-subtitle-adjustments",app)

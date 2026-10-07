@@ -42,6 +42,6 @@ final class SubtitleAdjustmentTests:XCTestCase {
   XCTAssertEqual(SubtitleAppearance.letterSpacing(.nan),0)
   XCTAssertEqual(SubtitleAppearance.letterSpacing(-100),-2)
   XCTAssertEqual(SubtitleAppearance.lineSpacing(100),20)
-  XCTAssertEqual(SubtitleAppearance.lineSpacing(-1),0)
+  XCTAssertEqual(SubtitleAppearance.lineSpacing(-100),-8)
  }
 }

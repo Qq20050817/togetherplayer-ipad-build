@@ -16,7 +16,7 @@ struct SubtitleAppearance: Equatable {
  var bottomFraction: Double=0.07
  static func font(_ value:Double)->Double {value.isFinite ? min(64,max(16,value)) : 24}
  static func letterSpacing(_ value:Double)->Double {value.isFinite ? min(6,max(-2,value)) : 0}
- static func lineSpacing(_ value:Double)->Double {value.isFinite ? min(20,max(0,value)) : 0}
+ static func lineSpacing(_ value:Double)->Double {value.isFinite ? min(20,max(-8,value)) : 0}
  static func position(_ value:Double)->Double {value.isFinite ? min(0.85,max(0.02,value)) : 0.07}
 }
 

@@ -24,10 +24,10 @@ import SwiftUI
      Menu {ForEach(SubtitleFontWeight.allCases) {weight in Button(weight.label) {subtitles.fontWeight=weight}}} label:{Text("粗细：\(subtitles.fontWeight.label)")}.accessibilityIdentifier("subtitle-font-weight")
      Text(String(format:"字间距 %+.2f",subtitles.letterSpacing))
      Slider(value:$subtitles.letterSpacing,in:-2...6,step:0.25).accessibilityLabel("字幕字间距")
-     Text("行间距 \(Int(subtitles.lineSpacing))")
-     Slider(value:$subtitles.lineSpacing,in:0...20,step:1).accessibilityLabel("字幕行间距")
+     Text(String(format:"行间距 %+.1f",subtitles.lineSpacing))
+     Slider(value:$subtitles.lineSpacing,in:-8...20,step:0.5).accessibilityLabel("字幕行间距")
      Text("字幕预览 Aa 中文\n第二行 Subtitle preview").font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).accessibilityIdentifier("subtitle-style-preview")
-     Text("字距向右增大，向左收紧；行距向右增大。背景透明。")
+     Text("字距向右增大，向左收紧；行距向右增大、向左收紧。背景透明。")
     }
     Section {
      Button("恢复默认") {subtitles.resetAdjustments()}.accessibilityIdentifier("reset-subtitle-adjustments")
