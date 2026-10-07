@@ -44,7 +44,7 @@ final class MediaPreparationTests: XCTestCase {
   XCTAssertTrue(model.usingLocalFile)
   XCTAssertEqual((model.adapter.player.currentItem?.asset as? AVURLAsset)?.url,url)
  }
- @MainActor func testLocalSameFileMatchesButDifferentBytesAreRejected() async throws {
+ @MainActor func testLocalSameFileMatchesButDifferentBytesRequireConfirmation() async throws {
   UserDefaults.standard.removeObject(forKey:"credentials")
   let url=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".mp4")
   try Data("hello".utf8).write(to:url);defer {try? FileManager.default.removeItem(at:url)}
@@ -59,7 +59,10 @@ final class MediaPreparationTests: XCTestCase {
   model.beginLocalFileSelection();model.useLocalFile(url)
   try await Task.sleep(nanoseconds:100_000_000)
   XCTAssertFalse(model.usingLocalFile)
-  XCTAssertTrue(model.requestStatus.contains("不是同一文件"))
+  XCTAssertTrue(model.requestStatus.contains("文件指纹不同"))
+  XCTAssertNotNil(model.localQualityCandidate)
+  XCTAssertNil(model.adapter.player.currentItem)
+  model.cancelLocalQuality();XCTAssertNil(model.localQualityCandidate)
  }
  func testPlayingWithThirtyFiveSecondsCachedIgnoresStaleEmptyHint() {
   let value=readiness(playing:true,bufferedMs:35000)

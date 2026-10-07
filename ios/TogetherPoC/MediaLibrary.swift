@@ -40,8 +40,6 @@ struct SavedMedia: Codable, Identifiable {
   let nextPlaying=player.timeControlStatus == .playing;let nextBuffering=player.timeControlStatus == .waitingToPlayAtSpecifiedRate;if playing != nextPlaying {playing=nextPlaying};if buffering != nextBuffering {buffering=nextBuffering}
  }
  static func time(_ seconds: Double) -> String {
-  guard seconds.isFinite,seconds>=0 else {return "00:00"}
-  let value=Int(min(seconds,864000))
-  return value>=3600 ? String(format:"%d:%02d:%02d",value/3600,(value/60)%60,value%60) : String(format:"%02d:%02d",value/60,value%60)
+  PlaybackTime.clock(seconds)
  }
 }

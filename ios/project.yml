@@ -45,7 +45,7 @@ targets:
      - UIInterfaceOrientationPortraitUpsideDown
      - UIInterfaceOrientationLandscapeLeft
      - UIInterfaceOrientationLandscapeRight
-    NSLocalNetworkUsageDescription: 连接家里的路由器读取影片，并安全卸载 U 盘。
+    NSLocalNetworkUsageDescription: Connect to your Together PoC test server.
     NSAppTransportSecurity:
      NSAllowsArbitraryLoads: true
  TogetherPoCCoreTests:

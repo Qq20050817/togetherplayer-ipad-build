@@ -29,9 +29,10 @@ import CoreMedia
  var usingBaiduSource: Bool {baiduPlaybackURL != nil && activeLocalSource==baiduPlaybackURL?.absoluteString && localSourceRoomURL==engine.room?.mediaUrl && localSourceRoomID==engine.room?.roomId}
  var usingLocalFile: Bool {localFileURL != nil && localSourceRoomURL==engine.room?.mediaUrl && localSourceRoomID==engine.room?.roomId}
  var sourceNotice: String {
+  if usingDifferentQuality {return variantNotice}
   if BaiduMediaReference(value:engine.room?.mediaUrl ?? "") != nil {
-   if usingLocalFile && hasBaiduMatch {return "本地同一文件已匹配；影片直接从这台 iPad 读取，当前成员准备好后由房主播放。"}
-   return hasBaiduMatch ? "百度同一文件已匹配；当前成员准备好后由房主播放。" : "等待选片：可选择本地同一文件，或授权百度网盘并选择好友转存的同一文件。"
+   if usingLocalFile && hasBaiduMatch {return "本地同一文件已匹配；影片直接从这台 iPad 读取，等待双方准备好后由房主播放。"}
+   return hasBaiduMatch ? "百度同一文件已匹配；等待双方准备好后由房主播放。" : "等待选片：可选择本地同一文件，或授权百度网盘并选择好友转存的同一文件。"
   }
   if usingLocalFile {return "仅本机文件：影片直接从这台 iPad 读取，不会上传到服务器或发给好友。双方需确认同一剪辑版本。"}
   guard !activeLocalSource.isEmpty,localSourceRoomURL==engine.room?.mediaUrl,localSourceRoomID==engine.room?.roomId else {return ""}
@@ -50,6 +51,23 @@ import CoreMedia
  private var localSelectionMedia=""
  private var localSelectionPublishes=true
  private var pendingLocalFile: URL?
+ @Published var localQualityCandidate: LocalQualityCandidate?
+ private var variantRoomID=""
+ private var variantMediaURL=""
+ private var variantReferenceDuration=0.0
+ var usingDifferentQuality: Bool {hasBaiduMatch && variantRoomID==engine.room?.roomId && variantMediaURL==engine.room?.mediaUrl}
+ var variantDurationCheck: MovieVariantPolicy.DurationCheck {
+  guard usingDifferentQuality else {return .compatible}
+  return MovieVariantPolicy.duration(localMs:adapter.duration,offsetMs:engine.timelineOffset,roomMs:variantReferenceDuration)
+ }
+ var variantNotice: String {
+  guard usingDifferentQuality else {return ""}
+  switch variantDurationCheck {
+  case .waiting:return "已确认另一画质；等待读取双方时长，暂不进入同步。"
+  case .compatible:return "已确认同一影片的另一画质，时长核对通过；若片头不同，可在房间设置校准时间偏移。"
+  case .different:return "另一画质与房间时长相差超过5秒，已暂停同步。请确认相同剪辑，或校准片头时间偏移。"
+  }
+ }
  private let mkvRemux=MKVRemux()
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
  private var currentOriginalURL: URL?
@@ -67,6 +85,10 @@ import CoreMedia
  private var inFlight: [String:Any]?
  private var inFlightSequence: Int64=0
  private var operationRetry=0
+ private var inFlightStartedAt: Double?
+ private var pendingRoomMedia: PendingRoomMedia?
+ let mediaFeedback=ClientFeedback()
+ @Published private(set) var isSettingRoomMedia=false
  private var outbox: [String:[String:Any]]=[:]
  private var outboxRoom=""
  let feedback=ClientFeedback()
@@ -97,6 +119,12 @@ import CoreMedia
  private var credentialServer=UserDefaults.standard.string(forKey:"server") ?? "https://together.xiaokai123.de5.net"
  private var credentials: [String:Any]?
  private var socket: URLSessionWebSocketTask?
+ private var connectionStartedAt=0.0
+ private var lastMessageAt=0.0
+ private var disconnectCount=0
+ private var lastDisconnectReason=""
+ private var ignoredFrames=0
+ private let messageSender: (([String:Any])->Void)?
  private var generation=0;private var attempt=0;private var sequence: Int64=0
  private var connected=false {didSet {if isConnected != connected {isConnected=connected}}};private var loadedURL="";private var ticks=0
  private var timer: Timer?
@@ -105,8 +133,9 @@ import CoreMedia
  private var observers: [NSObjectProtocol]=[]
  private var playerObservation: NSKeyValueObservation?
  private var itemObservation: NSKeyValueObservation?
- init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil) {
+ init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil) {
   self.compatibilityPreparation=compatibilityPreparation
+  self.messageSender=messageSender
   do {try AVAudioSession.sharedInstance().setCategory(.playback,mode:.moviePlayback);try AVAudioSession.sharedInstance().setSupportsMultichannelContent(true);try AVAudioSession.sharedInstance().setActive(true)} catch {requestStatus="音频会话设置失败"}
   for name in [Notification.Name.AVPlayerItemPlaybackStalled,Notification.Name.AVPlayerItemNewAccessLogEntry,Notification.Name.AVPlayerItemNewErrorLogEntry] {
    observers.append(NotificationCenter.default.addObserver(forName:name,object:nil,queue:.main) { [weak self] note in
@@ -120,12 +149,16 @@ import CoreMedia
    Task { @MainActor in self?.diagnostic("timeControlStatusChanged") }
   }
   if let data=UserDefaults.standard.data(forKey: "credentials"),let c=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] {credentials=c;roomID=c["roomId"] as? String ?? ""}
+  #if DEBUG
+  if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {credentials=["roomId":"media-ui-test","userId":"media-ui-host","token":String(repeating:"a",count:64)];roomID="media-ui-test"}
+  #endif
   timer=Timer.scheduledTimer(withTimeInterval: 0.1,repeats: true) { [weak self] _ in Task { @MainActor in self?.tick() } }
-  if credentials != nil {connect()}
+  if automaticallyConnect,credentials != nil {connect()}
  }
  deinit {for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func diagnostic(_ event: String) {
   var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.4.5","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
    if let raw=log.uri,let u=URL(string:raw),u.host=="devstreaming-cdn.apple.com" {data["appleAccessLogPath"]=u.path}
@@ -246,43 +279,26 @@ import CoreMedia
     }
     else if observed.status == .readyToPlay {
      if self.requestStatus=="兼容片源已准备，正在读取播放信息。" {self.requestStatus=""}
-     self.inspectFormats();self.loadTrackSelections(observed)
+     self.inspectFormats()
     }
    }
   }
-  loadTrackSelections(item)
- }
- private func loadTrackSelections(_ item:AVPlayerItem) {
   Task {
    do {
     let group=try await item.asset.loadMediaSelectionGroup(for:.audible)
-    let tracks=(try? await item.asset.loadTracks(withMediaType:.audio)) ?? []
-    var details:[AudioTrackDetail]=[]
-    for track in tracks {
-     let formats=(try? await track.load(.formatDescriptions)) ?? []
-     let extended=try? await track.load(.extendedLanguageTag)
-     let legacy=try? await track.load(.languageCode)
-     let language=extended ?? legacy
-     let codecs=Array(Set(formats.map {fourCC(CMFormatDescriptionGetMediaSubType($0))})).sorted()
-     let channels=formats.compactMap {CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame}.first
-     details.append(AudioTrackDetail(language:language,codecs:codecs,channels:channels))
-    }
     guard adapter.player.currentItem === item else {return}
     audioGroup=group
-    audioLabels=group?.options.enumerated().map {index,option in
-     AudioTrackDetail.label(name:option.displayName,index:index,language:option.extendedLanguageTag ?? option.locale?.identifier,
-      subtypes:option.mediaSubTypes.map {fourCC($0.uint32Value)},tracks:details,optionCount:group?.options.count ?? 0)
+    audioLabels=group?.options.map {option in
+     let codecs=option.mediaSubTypes.map {fourCC($0.uint32Value)}.joined(separator:",")
+     return "\(option.displayName) [\(codecs.isEmpty ? "编码未知" : codecs)]"
     } ?? []
     if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedAudioIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
     updateMediaInfo();diagnostic("audioOptionsLoaded")
-   } catch {guard adapter.player.currentItem === item else {return};mediaInfo="音轨列表暂不可用"}
-   // Subtitle loading must not be skipped when audible metadata is unavailable.
-   do {
     let subtitles=try await item.asset.loadMediaSelectionGroup(for:.legible)
     guard adapter.player.currentItem === item else {return}
     subtitleGroup=subtitles;subtitleLabels=subtitles?.options.map {$0.displayName} ?? []
     if externalSubtitles.enabled,let subtitles=subtitles {item.select(nil,in:subtitles)}
-   } catch { /* External subtitles remain available independently. */ }
+   } catch {guard adapter.player.currentItem === item else {return};mediaInfo="音轨列表暂不可用"}
   }
  }
  func importSubtitle(_ url: URL) {
@@ -345,7 +361,7 @@ import CoreMedia
   }
  }
  func connect() {
-  localVideoTest=false;queuedOperations=[];inFlight=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
+  localVideoTest=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
   guard foreground,let token=credentials?["token"] as? String else {return}
   generation += 1;let g=generation;socket?.cancel(with:.goingAway,reason:nil);connected=false;engine.resetSession();pending=nil;requestStatus=""
   guard var components=URLComponents(string:credentialServer) else {status="无效 URL";return}
@@ -353,6 +369,7 @@ import CoreMedia
   guard let url=components.url else {return}
   var request=URLRequest(url:url);request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")
   let ws=URLSession.shared.webSocketTask(with:request);socket=ws;ws.resume()
+  connectionStartedAt=clock.localNow();lastMessageAt=connectionStartedAt;status="正在连接房间…"
   Task {
    do {
     while g == generation {
@@ -360,34 +377,49 @@ import CoreMedia
      let data: Data
      switch message {case .string(let s):data=Data(s.utf8);case .data(let d):data=d;@unknown default:continue}
      guard g==generation else {return}
-     if let obj=try JSONSerialization.jsonObject(with:data) as? [String:Any] {receive(obj,t4:t4)}
+     receiveFrame(data,t4:t4)
     }
-   } catch {if g==generation {if let http=ws.response as? HTTPURLResponse,http.statusCode==401 {clearRoom();requestStatus="房间已过期，请重新创建或加入"} else {status="连接中断，自动重连";reconnect(g)}}}
+   } catch {if g==generation {if let http=ws.response as? HTTPURLResponse,http.statusCode==401 {clearRoom();requestStatus="房间已过期，请重新创建或加入"} else {reconnect(g)}}}
   }
  }
- private func reconnect(_ g: Int) {
+ private func reconnect(_ g: Int,reason: String="receive") {
+  guard g==generation,foreground,credentials != nil else {return}
+  // Invalidate both send and receive callbacks before scheduling one retry.
+  generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil
   connected=false;engine.resetSession();attempt += 1
+  disconnectCount += 1;lastDisconnectReason=reason
+  inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
+  status="连接中断，自动重连"
+  if pendingRoomMedia != nil {mediaFeedback.requestStatus="连接中断，换片请求已保留；重连后继续确认…"}
   let delay=min(15.0,pow(2.0,Double(min(attempt,5)))*0.5)
-  Task {try? await Task.sleep(nanoseconds:UInt64(delay*1e9));if g==generation {connect()} }
+  Task {try? await Task.sleep(nanoseconds:UInt64(delay*1e9));if next==generation {connect()} }
  }
  private func send(_ value: [String:Any]) {
+  if connected,let messageSender=messageSender {messageSender(value);return}
   guard connected,let data=try? JSONSerialization.data(withJSONObject:value),let text=String(data:data,encoding:.utf8),let ws=socket else {return}
   let g=generation
-  Task {do {try await ws.send(.string(text))}catch {if g==generation {generation += 1;socket?.cancel(with:.goingAway,reason:nil);reconnect(generation)}}}
+  Task {do {try await ws.send(.string(text))}catch {reconnect(g,reason:"send")}}
+ }
+ func receiveFrame(_ data: Data,t4: Double) {
+  // Empty control/proxy frames and malformed payloads are not transport failures.
+  guard let obj=RoomEnvelope.decode(data) else {ignoredFrames += 1;return}
+  receive(obj,t4:t4)
  }
  private func pingBurst() {
   let g=generation
   Task {for _ in 0..<5 {guard g==generation else {return};send(["type":"PING","t1":clock.localNow()]);try? await Task.sleep(nanoseconds:200_000_000)} }
  }
  func receive(_ obj: [String:Any],t4: Double) {
+  lastMessageAt=clock.localNow()
   let type=obj["type"] as? String ?? ""
   if type=="PONG",let t1=obj["t1"] as? Double,let t2=obj["t2"] as? Double,let t3=obj["t3"] as? Double {clock.add(t1,t2,t3,t4);return}
   if type=="WELCOME" {connected=true;attempt=0;sequence=(obj["lastSequence"] as? NSNumber)?.int64Value ?? 0;pingBurst()}
   if let raw=obj["room"] as? [String:Any],let data=try? JSONSerialization.data(withJSONObject:raw),let room=try? JSONDecoder().decode(Room.self,from:data) {
    if outboxRoom != room.roomId {outbox=[:];outboxRoom=room.roomId}
    engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
+   if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
    chat.reset(room.roomId);let nextTitle=room.title?.isEmpty == false ? room.title! : "一起看电影";if roomTitle != nextTitle {roomTitle=nextTitle};let nextWait=room.waitForPeer ?? false;if waitForPeer != nextWait {waitForPeer=nextWait}
-   let reasons=["buffering":"等待对方缓冲","disconnected":"等待对方重新连接","server_restart":"服务器已恢复，影片保持暂停；请点播放继续","ended":"播放完毕，点播放可重播","source":"等待当前房间成员选择并匹配同一影片"]
+   let reasons=["buffering":"等待对方缓冲","disconnected":"等待对方重新连接","ended":"播放完毕，点播放可重播","source":"等待双方授权并匹配同一百度影片"]
    let nextNotice=reasons[room.pauseReason ?? ""] ?? "";if roomNotice != nextNotice {roomNotice=nextNotice}
    if let rawMembers=obj["members"],let data=try? JSONSerialization.data(withJSONObject:rawMembers),let roster=try? JSONDecoder().decode([RoomMember].self,from:data) {applyMembers(roster)}
    if BaiduMediaReference(value:room.mediaUrl) != nil {
@@ -406,6 +438,7 @@ import CoreMedia
   if type=="CONTROL_REQUEST" {pending=obj["data"] as? [String:Any]}
   if type=="PRESENCE",let raw=obj["members"],let data=try? JSONSerialization.data(withJSONObject:raw),let roster=try? JSONDecoder().decode([RoomMember].self,from:data) {applyMembers(roster)}
   if type=="WELCOME" {
+   restorePendingRoomMedia()
    if let list=obj["messages"] as? [[String:Any]] {for message in list {acceptChat(message)}}
    send(["type":"PROFILE_UPDATE","data":["name":nickname,"timelineOffset":Double(offsetSeconds).map {$0*1000} ?? 0]])
    for message in outbox.values {send(message)}
@@ -415,12 +448,15 @@ import CoreMedia
   if type=="REACTION",let emoji=obj["emoji"] as? String {chat.reaction(emoji,now:clock.localNow())}
   if type=="CHAT_TYPING",obj["userId"] as? String != credentials?["userId"] as? String {chat.typing(obj["name"] as? String ?? "好友",now:clock.localNow())}
   if type=="ROOM_CLOSE" || type=="ROOM_LEAVE" {clearRoom();return}
-  if obj["ackUserId"] as? String == credentials?["userId"] as? String,(obj["ackSequence"] as? NSNumber)?.int64Value == inFlightSequence {inFlight=nil;operationRetry=0;flushOperations()}
+  if obj["ackUserId"] as? String == credentials?["userId"] as? String,(obj["ackSequence"] as? NSNumber)?.int64Value == inFlightSequence,inFlight != nil {
+   if inFlight?["type"] as? String=="ROOM_MEDIA",let change=pendingRoomMedia,let room=engine.room,change.matches(room) {finishRoomMedia("房间影片已设置；双方正在加载新影片。")}
+   inFlight=nil;inFlightStartedAt=nil;operationRetry=0;flushOperations()
+  }
   if type=="ERROR" {
    let code=obj["error"] as? String ?? "ERROR"
    if code=="EXPIRED" {clearRoom();requestStatus="房间已过期";return}
-   if code=="STALE_VERSION",let operation=inFlight,operationRetry<1 {operationRetry += 1;inFlight=nil;queuedOperations.insert(operation,at:0);flushOperations()}
-   else {inFlight=nil;queuedOperations=[];requestStatus=errorText(code)}
+   if code=="STALE_VERSION",let operation=inFlight,operationRetry<1 {operationRetry += 1;inFlight=nil;inFlightStartedAt=nil;queuedOperations.insert(operation,at:0);flushOperations()}
+   else {inFlight=nil;inFlightStartedAt=nil;queuedOperations=[];requestStatus=errorText(code);if pendingRoomMedia != nil {finishRoomMedia(errorText(code))}}
   }
  }
  func retryCompatibility() {
@@ -451,7 +487,13 @@ import CoreMedia
  private func tick() {
   if localVideoTest {ticks += 1;if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
-  guard connected else {return};let error=engine.tick();ticks += 1
+  if socket != nil {
+   if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
+  }
+  guard connected else {return}
+  let error: Double?
+  if variantDurationCheck == .compatible {error=engine.tick()} else {adapter.pause();error=nil}
+  ticks += 1
   if clock.ready {flushOperations()}
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
@@ -463,8 +505,11 @@ import CoreMedia
    if recovering {if recoveryStartedAt==nil {recoveryStartedAt=clock.localNow()}} else {recoveryStartedAt=nil}
    let fallback=recovering && prerollPrepared && item?.isPlaybackLikelyToKeepUp == true && clock.localNow()-(recoveryStartedAt ?? clock.localNow())>=10000
    let readiness=PlaybackReadinessPolicy.evaluate(prepared:adapter.ready,waiting:adapter.buffering,playing:adapter.player.timeControlStatus == .playing,bufferEmpty:item?.isPlaybackBufferEmpty ?? true,bufferedMs:adapter.bufferedAheadMs,positionMs:adapter.position,durationMs:adapter.duration,recovering:recovering && !usingLocalFile,preparedFallback:fallback)
-   let bufferReady=sourceValid && readiness.ready
-   send(["type":"PLAYER_STATUS","data":["sourceId":hasBaiduMatch ? baiduSourceID : "","ready":bufferReady,"buffering":readiness.buffering,"position":max(0,adapter.position-engine.timelineOffset),"duration":adapter.duration]])
+   let bufferReady=sourceValid && variantDurationCheck == .compatible && readiness.ready
+   // A host's alternate encode must not redefine the canonical room duration,
+   // otherwise a mismatched cut could pass its own check on the next snapshot.
+   let reportedDuration=usingDifferentQuality && isHost ? (variantReferenceDuration>0 ? variantReferenceDuration+engine.timelineOffset : 0) : adapter.duration
+   send(["type":"PLAYER_STATUS","data":["sourceId":hasBaiduMatch ? baiduSourceID : "","ready":bufferReady,"buffering":readiness.buffering,"position":max(0,adapter.position-engine.timelineOffset),"duration":reportedDuration]])
    if recovering && !bufferReady && adapter.ready && !prerolling && clock.localNow()-lastPrerollAt>=3000 {
     prerolling=true;lastPrerollAt=clock.localNow();prerollGeneration += 1;let pg=prerollGeneration
     adapter.player.preroll(atRate:1) { [weak self] ready in Task { @MainActor in
@@ -481,7 +526,8 @@ import CoreMedia
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
    let telemetry: [String:Any]=["clientVersion":"0.4.5","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
-   send(["type":"TELEMETRY","data":telemetry])
+   var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
+   send(["type":"TELEMETRY","data":connectionTelemetry])
    status="0.4.5 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
   }
   if ticks%50 == 0 {inspectFormats();updateMediaInfo()}
@@ -512,12 +558,15 @@ extension TestClient {
   localFileSecurityScoped=false;localFileURL=nil;localFileName=""
  }
  private func errorText(_ code: String) -> String {
-  let messages=["STALE_VERSION":"房间状态刚发生变化，请再试一次","HOST_REQUIRED":"只有房主可以执行此操作","HOST_OFFLINE":"房主已离线","SEEK_AFTER_END":"跳转位置超出影片时长","ROOM_FULL":"房间已满","INVALID_SOURCE":"片源链接无效或包含账户凭据","SOURCE_NOT_READY":"当前房间成员需要选择同一影片并完成加载后才能播放","RATE_LIMIT":"操作过于频繁，请稍后再试","EXPIRED":"房间已过期","INVALID_MESSAGE":"消息为空或过长"]
+  let messages=["STALE_VERSION":"房间状态刚发生变化，请再试一次","HOST_REQUIRED":"只有房主可以执行此操作","HOST_OFFLINE":"房主已离线","SEEK_AFTER_END":"跳转位置超出影片时长","ROOM_FULL":"房间已满","INVALID_SOURCE":"片源链接无效或包含账户凭据","SOURCE_NOT_READY":"等待两端匹配同一百度影片并准备好后再播放","RATE_LIMIT":"操作过于频繁，请稍后再试","EXPIRED":"房间已过期","INVALID_MESSAGE":"消息为空或过长"]
   return messages[code] ?? code
  }
  private func flushOperations() {
-  guard isHost,connected,clock.ready,inFlight==nil,!queuedOperations.isEmpty else {return}
+  guard isHost,connected,engine.room != nil,inFlight==nil,let first=queuedOperations.first else {return}
+  // Changing metadata uses the room snapshot/version, not a playback clock.
+  guard clock.ready || ["ROOM_MEDIA","ROOM_SETTINGS"].contains(first["type"] as? String ?? "") else {return}
   let operation=queuedOperations.removeFirst();sequence += 1;inFlightSequence=sequence;inFlight=operation
+  inFlightStartedAt=clock.localNow()
   var command=operation;command["sequence"]=sequence;command["baseVersion"]=engine.room?.version ?? 0
   send(command)
  }
@@ -534,9 +583,25 @@ extension TestClient {
   return library.items.indices.contains(i+direction)
  }
  func setRoomMedia() {
-  guard connected,isHost,let url=MediaSourceCatalog.resolve(mediaURL),MediaSourceCatalog.canShare(mediaURL) else {requestStatus="房主连接房间后才能换片；公用链接不能包含账户凭据";return}
-  guard movieTitle.count<=160 else {requestStatus="影片标题过长";return}
-  queuedOperations.append(["type":"ROOM_MEDIA","data":["mediaUrl":url.absoluteString,"title":movieTitle]]);flushOperations()
+  guard !isSettingRoomMedia else {return}
+  guard isHost,let room=credentials?["roomId"] as? String else {mediaFeedback.requestStatus="只有房主可以设置房间影片，请先创建或加入房间。";return}
+  guard let url=MediaSourceCatalog.resolve(mediaURL),MediaSourceCatalog.canShare(mediaURL) else {mediaFeedback.requestStatus="片源链接无效或包含账户凭据，请检查 HTTP / HLS / WebDAV 文件链接。";return}
+  let title=movieTitle.trimmingCharacters(in:.whitespacesAndNewlines)
+  guard title.unicodeScalars.count<=160 else {mediaFeedback.requestStatus="影片标题过长（最多160字）。";return}
+  guard queuedOperations.count<8 else {mediaFeedback.requestStatus="请等待前面的操作完成。";return}
+  let change=PendingRoomMedia(roomID:room,url:url.absoluteString,title:title)
+  pendingRoomMedia=change;isSettingRoomMedia=true
+  mediaFeedback.requestStatus=connected ? "正在设置房间影片，等待服务器确认…" : "换片请求已保留，等待房间重连…"
+  if connected {queuedOperations.append(change.operation);flushOperations()}
+ }
+ private func finishRoomMedia(_ text: String) {
+  pendingRoomMedia=nil;isSettingRoomMedia=false;mediaFeedback.requestStatus=text
+ }
+ private func restorePendingRoomMedia() {
+  guard let change=pendingRoomMedia,let room=engine.room else {return}
+  guard change.roomID==room.roomId,isHost else {finishRoomMedia("房间或房主已改变，请重新设置影片。");return}
+  if change.matches(room) {finishRoomMedia("房间影片已设置；重连后已确认。")}
+  else {mediaFeedback.requestStatus="连接已恢复，正在设置房间影片…";queuedOperations.append(change.operation);flushOperations()}
  }
  func applyLocalSource() {
   guard let roomURL=engine.room?.mediaUrl,let room=URL(string:roomURL) else {requestStatus="请先加入房间";return}
@@ -546,19 +611,22 @@ extension TestClient {
   requestStatus=localMediaURL.isEmpty ? "恢复房间片源" : "本机片源已应用；链接未传给服务器或对方，请确认同一剪辑版本"
  }
  func beginLocalFileSelection(publishRoom: Bool=true) {
+  localQualityCandidate=nil
   requestStatus="请选择已下载的本地影片。"
   localSelectionGeneration += 1;pendingLocalFile=nil
   localSelectionRoom=engine.room?.roomId ?? (credentials?["roomId"] as? String ?? "")
   localSelectionMedia=engine.room?.mediaUrl ?? "";localSelectionPublishes=publishRoom
  }
  func cancelLocalFileSelection() {requestStatus="已取消选择本地影片。"}
- func useLocalFile(_ url: URL) {
+ func useLocalFile(_ url: URL,confirmedVariant: LocalQualityCandidate? = nil) {
   requestStatus="已选中 \(url.lastPathComponent)，正在读取本地影片…"
   guard connected,let room=engine.room else {
+   if confirmedVariant != nil {releaseLocalFileAccess();requestStatus="连接已改变，请重连后重新选择另一画质。";return}
    if !localSelectionRoom.isEmpty {pendingLocalFile=url;requestStatus="本地影片已选择，正在恢复房间连接…"}
    else {requestStatus="请先创建或加入房间，再选择本地影片"}
    return
   }
+  if let candidate=confirmedVariant,room.roomId != candidate.roomID || room.mediaUrl != candidate.mediaURL {releaseLocalFileAccess();requestStatus="房间或影片已改变，请重新选择另一画质。";return}
   if !localSelectionRoom.isEmpty && (room.roomId != localSelectionRoom || (!localSelectionMedia.isEmpty && room.mediaUrl != localSelectionMedia)) {requestStatus="房间或影片已改变，请重新选择本地影片";return}
   localSelectionGeneration += 1;let selection=localSelectionGeneration
   releaseLocalFileAccess()
@@ -574,8 +642,9 @@ extension TestClient {
     let identity=try await Task.detached(priority:.userInitiated) {try BaiduFileIdentity.localFile(url)}.value
     guard selection==localSelectionGeneration,engine.room?.roomId==room.roomId,engine.room?.mediaUrl==room.mediaUrl else {return}
     if let target=existing {
-     guard target.matches(fingerprint:identity.fingerprint,size:identity.size) else {
-      releaseLocalFileAccess();requestStatus="本地文件与房间影片不是同一文件，请选择与对方百度网盘完全相同的版本。";return
+     if !target.matches(fingerprint:identity.fingerprint,size:identity.size),confirmedVariant==nil {
+      localQualityCandidate=LocalQualityCandidate(url:url,roomID:room.roomId,mediaURL:room.mediaUrl,roomTitle:roomTitle)
+      requestStatus="文件指纹不同；如果这是同一影片的另一画质，请核对剪辑后确认。";return
      }
     } else if isHost {
      reference=BaiduMediaReference.create(fingerprint:identity.fingerprint,size:identity.size)
@@ -583,6 +652,9 @@ extension TestClient {
     }
    }
    baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomID=room.roomId
+   variantRoomID=confirmedVariant == nil ? "" : room.roomId
+   variantMediaURL=confirmedVariant == nil ? "" : room.mediaUrl
+   variantReferenceDuration=confirmedVariant == nil ? 0 : room.duration ?? 0
    if let reference=reference {
     guard !isHost || queuedOperations.count<8 else {releaseLocalFileAccess();requestStatus="请等待前面的操作完成";return}
     baiduSourceID=reference.value;baiduSourceRoom=room.roomId;localSourceRoomURL=reference.value
@@ -590,7 +662,7 @@ extension TestClient {
      queuedOperations.append(["type":"ROOM_MEDIA","data":["mediaUrl":reference.value,"title":String(url.lastPathComponent.prefix(160))]]);flushOperations()
      requestStatus="本地影片已设为房间文件；好友选择本地或百度网盘里的同一文件即可同步。"
     } else {
-     loadMedia(url);requestStatus="本地同一文件已匹配；影片只从这台 iPad 读取，不会上传或共享。"
+     loadMedia(url);requestStatus=confirmedVariant == nil ? "本地同一文件已匹配；影片只从这台 iPad 读取，不会上传或共享。" : "已使用本地另一画质，等待双方时长核对。"
     }
    } else {
     baiduSourceID="";baiduSourceRoom="";localSourceRoomURL=room.mediaUrl
@@ -602,7 +674,18 @@ extension TestClient {
   }
   }
  }
+ func confirmLocalQuality(_ selected: LocalQualityCandidate? = nil) {
+  // SwiftUI can dismiss the alert binding before invoking its button action.
+  // The button passes the actual reviewed selection, independent of that order.
+  guard let candidate=selected ?? localQualityCandidate else {return}
+  localQualityCandidate=nil;useLocalFile(candidate.url,confirmedVariant:candidate)
+ }
+ func cancelLocalQuality() {
+  guard localQualityCandidate != nil else {return}
+  localQualityCandidate=nil;releaseLocalFileAccess();requestStatus="已取消使用另一画质。"
+ }
  func clearLocalFileSource() {
+  localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
   localSelectionGeneration += 1;pendingLocalFile=nil
   guard let room=engine.room else {releaseLocalFileAccess();requestStatus="本地影片已清除";return}
   let wasMatched=BaiduMediaReference(value:room.mediaUrl) != nil
@@ -617,23 +700,27 @@ extension TestClient {
  private func stopUnmatchedMedia() {
   mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();currentOriginalURL=nil
  }
- func useBaiduSource(_ url: URL,file: BaiduFile) -> Bool {
+ func useBaiduSource(_ url: URL,file: BaiduFile,confirmedRoomID: String? = nil,confirmedMediaURL: String? = nil) -> Bool {
   guard connected,let room=engine.room else {requestStatus="请先创建或加入房间，再选择百度影片";return false}
   guard BaiduSourceAdapter.allowedURL(url),let identity=BaiduMediaReference.create(fingerprint:file.fingerprint,size:file.size) else {requestStatus="百度未提供可核对的文件指纹/大小，无法匹配；请重新读取文件。";return false}
   let reference: String
-  if isHost {reference=identity.value}
+  let variant=confirmedRoomID != nil && confirmedMediaURL != nil
+  if variant,room.roomId != confirmedRoomID || room.mediaUrl != confirmedMediaURL {requestStatus="房间或影片已改变，请重新核对另一画质。";return false}
+  if isHost && !variant {reference=identity.value}
   else {
    guard let target=BaiduMediaReference(value:room.mediaUrl) else {requestStatus="请等待房主先选择百度影片";return false}
-   guard target.matches(fingerprint:file.fingerprint,size:file.size) else {requestStatus="所选文件与房间影片不同。请转存房主分享的同一文件。";return false}
+   guard variant || target.matches(fingerprint:file.fingerprint,size:file.size) else {requestStatus="所选文件指纹不同；可以转存同一文件，或核对后选择同一影片的另一画质。";return false}
    reference=target.value
   }
-  guard !isHost || queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";return false}
+  guard !isHost || variant || queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";return false}
   releaseLocalFileAccess();baiduSourceID=reference;baiduSourceRoom=room.roomId;baiduPlaybackURL=url;baiduFileName=file.name
   activeLocalSource=url.absoluteString;localSourceRoomURL=reference;localSourceRoomID=room.roomId;localMediaURL=""
-  if isHost {
+  variantRoomID=variant ? room.roomId : "";variantMediaURL=variant ? room.mediaUrl : ""
+  variantReferenceDuration=variant ? room.duration ?? 0 : 0
+  if isHost && !variant {
    queuedOperations.append(["type":"ROOM_MEDIA","data":["mediaUrl":reference,"title":String(file.name.prefix(160))]]);flushOperations()
    requestStatus="正在设置房间百度影片；好友需在自己的网盘选择同一文件。"
-  } else {loadMedia(url);requestStatus="同一百度文件已匹配；当前成员准备好后由房主播放。"}
+  } else {loadMedia(url);requestStatus=variant ? "已使用百度另一画质，等待双方时长核对。" : "同一百度文件已匹配；等待双方准备好后由房主播放。"}
   return true
  }
  func restoreRoomSource() {
@@ -644,6 +731,7 @@ extension TestClient {
   requestStatus="已恢复房间片源；这是房间当前影片，不会把百度影片传给好友。"
  }
  func clearBaiduSource() {
+  variantRoomID="";variantMediaURL=""
   guard let url=baiduPlaybackURL else {return}
   baiduPlaybackURL=nil;baiduFileName="";baiduSourceID="";baiduSourceRoom=""
   if activeLocalSource==url.absoluteString {
@@ -672,13 +760,15 @@ extension TestClient {
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
  func leaveRoom() {guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
+  localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
+  if pendingRoomMedia != nil {finishRoomMedia("已离开房间，换片请求已取消。")}
   localSelectionGeneration += 1;pendingLocalFile=nil;localSelectionRoom="";localSelectionMedia=""
   externalSubtitles.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
-  mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
-  outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
+  mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
+  outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
- func handleBackground() {mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步"}
+ func handleBackground() {mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}

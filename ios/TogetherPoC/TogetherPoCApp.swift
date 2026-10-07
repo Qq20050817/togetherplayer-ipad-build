@@ -3,7 +3,7 @@ import AVKit
 import UniformTypeIdentifiers
 
 @main @MainActor struct TogetherPoCApp: App {
- @StateObject private var model=TestClient()
+ @StateObject private var model=TestClient(automaticallyConnect:ProcessInfo.processInfo.environment["TOGETHER_UI_TEST"] != "1")
  @Environment(\.scenePhase) private var scenePhase
  var body: some Scene {
   WindowGroup {TestView(model:model,chat:model.chat)}
@@ -24,6 +24,8 @@ import UniformTypeIdentifiers
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
+   if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {try? LocalPickerUITestFixture.installRoomMediaValidation(into:model)}
+   if ProcessInfo.processInfo.environment["TOGETHER_LOCAL_QUALITY_TEST"]=="1" {try? LocalPickerUITestFixture.installQualitySelection(into:model)}
    #endif
   }
  }
@@ -182,7 +184,7 @@ import UniformTypeIdentifiers
    HStack(spacing:10) {
     Text(PlaybackMonitor.time(dragging ? target : playback.position)).font(.caption.monospacedDigit()).frame(minWidth:45)
     Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0}),in:0...max(1,playback.duration),onEditingChanged:{editing in if editing {target=playback.position};dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度")
-    Text(playback.duration>0 ? PlaybackMonitor.time(playback.duration) : "--:--").font(.caption.monospacedDigit()).frame(minWidth:45)
+    Text(PlaybackTime.remaining(duration:playback.duration,position:dragging ? target : playback.position)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
    }
    ViewThatFits(in:.horizontal) {
     HStack(spacing:18) {volumeControl.frame(width:140);Spacer();transport;Spacer()}
@@ -227,11 +229,8 @@ import UniformTypeIdentifiers
    if !subtitles.status.isEmpty {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
    .onChange(of:importing) {modalChanged($0)}
-   .sheet(isPresented:$importing) {
-    LocalMovieDocumentPicker(asCopy:true,types:[.data,.plainText],pickerID:"subtitle-document-picker",onPick:{url in
-     importing=false
-     DispatchQueue.main.async {model.importSubtitle(url)}
-    },onCancel:{importing=false;subtitles.cancelImport()})
+   .fileImporter(isPresented:$importing,allowedContentTypes:[UTType(filenameExtension:"srt") ?? .plainText,UTType(filenameExtension:"vtt") ?? .plainText,UTType(filenameExtension:"ass") ?? .plainText,UTType(filenameExtension:"ssa") ?? .plainText,.plainText],allowsMultipleSelection:false) {result in
+    switch result {case .success(let urls):if let url=urls.first {model.importSubtitle(url)};case .failure: model.requestStatus="字幕文件无法打开，请重新选择"}
    }
  }
  private var audioMenu: some View {
@@ -244,12 +243,11 @@ import UniformTypeIdentifiers
   Menu {
    Button {model.chooseSubtitle(-1)} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
    Button {model.chooseSubtitle(-2)} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
-   if model.subtitleLabels.isEmpty {Text("未读取到可选内置字幕；可导入外挂字幕")}
    ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index)} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
    if subtitles.available {Button {model.enableExternalSubtitle()} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
   } label:{Label("字幕",systemImage:"captions.bubble")}
  }
- private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier("import-subtitle")}
+ private var importButton: some View {Button {importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}}
 }
 @MainActor final class FullscreenControlState: ObservableObject {
  @Published var visible=true
@@ -276,23 +274,36 @@ import UniformTypeIdentifiers
  @State private var composing=false
  @State private var adjustingDanmaku=false
  var body: some View {
-  ZStack {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:controls.visible ? 250 : 0)
+  VStack(spacing:0) {
+   ZStack {
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:controls.visible && !composing ? 250 : 0)
+    .accessibilityElement(children:.contain)
+    .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
+     guard !composing else {return}
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     }
-   DanmakuOverlay(chat:chat).padding(.top,controls.visible ? 60 : 12).allowsHitTesting(false)
-   if controls.visible {VStack {
+   DanmakuOverlay(chat:chat).padding(.top,controls.visible && !composing ? 60 : 12).allowsHitTesting(false)
+   if controls.visible && !composing {VStack {
     HStack {Text(model.roomTitle).lineLimit(1);Spacer();Button("退出全屏") {dismiss()}}.padding(12).background(Color.black.opacity(0.65))
     Spacer()
     VStack {PlaybackControls(model:model);HStack {Button {composing=true} label:{Label("发弹幕",systemImage:"text.bubble.fill")}.buttonStyle(.bordered).disabled(!model.isConnected);Button("弹幕字号") {adjustingDanmaku=true}.buttonStyle(.bordered).popover(isPresented:$adjustingDanmaku) {DanmakuSettings().frame(width:280).padding(20)}};TrackControls(model:model,subtitles:model.externalSubtitles,modalChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}})}.padding(12).background(Color.black.opacity(0.8))
    }.simultaneousGesture(TapGesture().onEnded {scheduleHide()})}
+   }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
+   if composing {
+    // Keep the movie in its own region above the composer and keyboard.
+    // A modal sheet covers/dims the movie and expands while editing on iPad.
+    VStack(spacing:8) {
+     HStack {Text("发弹幕").font(.caption);Spacer();Button("收起") {composing=false}.accessibilityIdentifier("close-danmaku-input")}
+     ChatEntry(model:model,draft:model.chatDraft,placeholder:"和对方说点什么…",onSent:{composing=false})
+     RequestFeedback(feedback:model.feedback)
+    }.padding(12).background(Color(white:0.08))
+   }
   }.background(Color.black).preferredColorScheme(.dark)
    .onAppear {scheduleHide()}.onDisappear {controls.cancel()}
    .onChange(of:composing) {if $0 {controls.cancel()} else {scheduleHide()}}
    .onChange(of:adjustingDanmaku) {if $0 {controls.cancel()} else {scheduleHide()}}
-   .sheet(isPresented:$composing) {DanmakuComposer(model:model,onSent:{composing=false}).presentationDetents([.height(220)]).preferredColorScheme(.dark)}
  }
  private func scheduleHide() {controls.schedule(allowed:!selectingFile && !composing && !adjustingDanmaku)}
 }
@@ -369,7 +380,7 @@ import UniformTypeIdentifiers
  @FocusState private var focused: Bool
  var body: some View {
   HStack {
-   TextField(placeholder,text:$draft.text).textFieldStyle(.roundedBorder).focused($focused).submitLabel(.send).accessibilityIdentifier("chat-input").onSubmit {send()}.onChange(of:draft.text) {_ in model.sendTyping()}
+   TextField(placeholder,text:$draft.text).textFieldStyle(.roundedBorder).focused($focused).submitLabel(.send).accessibilityIdentifier(placeholder == "输入消息" ? "chat-input" : "danmaku-input").onSubmit {send()}.onChange(of:draft.text) {_ in model.sendTyping()}
    Button("发送") {send()}.buttonStyle(.borderedProminent).disabled(!model.isConnected || draft.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
   }.onAppear {if placeholder != "输入消息" {focused=true}}
  }
@@ -391,11 +402,20 @@ import UniformTypeIdentifiers
  @ObservedObject var feedback: ClientFeedback
  var body: some View {Text(model.isConnected ? "已连接房间：\(model.roomID)" : feedback.status).font(.caption)}
 }
+@MainActor struct RoomMediaAction: View {
+ @ObservedObject var model: TestClient
+ @ObservedObject var feedback: ClientFeedback
+ var body: some View {
+  VStack(alignment:.leading,spacing:8) {
+   Button(model.isSettingRoomMedia ? "正在设置房间影片…" : "设置房间影片") {model.setRoomMedia()}
+    .buttonStyle(.borderless).disabled(!model.isRoomHost || model.isSettingRoomMedia).accessibilityIdentifier("set-room-media")
+   if !feedback.requestStatus.isEmpty {Text(feedback.requestStatus).font(.caption).foregroundColor(.orange).accessibilityIdentifier("room-media-feedback")}
+  }.frame(maxWidth:.infinity,alignment:.leading)
+ }
+}
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
- @StateObject private var routerUSB=RouterUSB()
- @State private var usbPassword=""
  private enum Picker: String, Identifiable {case baidu,local,localCopy;var id:String {rawValue}}
  @State private var picker: Picker?
  var body: some View {
@@ -412,8 +432,8 @@ import UniformTypeIdentifiers
    Section("房间影片") {
     TextField("影片名称",text:$model.movieTitle)
     TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-    Button("设置房间影片") {model.setRoomMedia()}.disabled(!model.isRoomHost)
-    Button("苹果 HDR / Atmos 测试片") {model.useHighQualityTestSource();model.movieTitle="苹果 HDR / Atmos 测试片";if model.isRoomHost {model.setRoomMedia()}}
+    RoomMediaAction(model:model,feedback:model.mediaFeedback)
+    Button("苹果 HDR / Atmos 测试片") {model.useHighQualityTestSource();model.movieTitle="苹果 HDR / Atmos 测试片";if model.isRoomHost {model.setRoomMedia()}}.buttonStyle(.borderless).disabled(model.isSettingRoomMedia)
     Text("视频由设备直接读取。更换房间影片会暂停并让双方重新加载。").font(.caption)
    }
    Section("百度网盘 · 个人体验") {
@@ -440,17 +460,7 @@ import UniformTypeIdentifiers
     } else {
      Button("应用本机片源") {model.applyLocalSource()}
     }
-    Text("本地文件直接从这台 iPad 读取，不上传也不分享。百度房间会核对文件大小及首/中/尾采样，只有同一文件才加入同步。").font(.caption)
-   }
-   Section("路由器 U 盘 · 安全弹出") {
-    SecureField("U 盘影片管理密码",text:$usbPassword).textContentType(.password).accessibilityIdentifier("usb-management-password")
-    Button(routerUSB.working ? "安全弹出中…" : "停止观影并安全弹出 U 盘") {
-     if model.isConnected && model.isRoomHost {model.control("PAUSE")}
-     let password=usbPassword;usbPassword=""
-     Task {await routerUSB.eject(password:password)}
-    }.disabled(routerUSB.working).accessibilityIdentifier("safe-eject-usb")
-    Text(routerUSB.status).font(.caption).foregroundColor(routerUSB.safeToRemove ? .green : .secondary)
-    Text("需连接家里的 Wi-Fi，并允许 App 访问本地网络。输入影片管理页的密码，不是百度或路由器登录密码；密码仅用于本次局域网登录，不保存、不上传 Muse。等待“可以拔出”再拔下。").font(.caption)
+    Text("本地文件直接读取，不额外复制。精确匹配会核对首/中/尾采样；百度下载的另一画质可在选片后确认相同剪辑，时长校验通过后同步。").font(.caption)
    }
    Section("身份与时间校准") {
     TextField("昵称",text:$model.nickname)
@@ -475,26 +485,28 @@ import UniformTypeIdentifiers
     Button("模拟断线3秒") {model.disconnectForTest()}
     Text("当前为前台观影；切后台会暂停本机，返回后恢复房间状态。").font(.caption)
    }
-  }.accessibilityIdentifier("room-settings-form").buttonStyle(.borderless).fullScreenCover(item:$picker) {selection in
+  }.buttonStyle(.borderless).sheet(item:$picker) {selection in
     switch selection {
     case .baidu:
-     NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
+     NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
     case .local,.localCopy:
      LocalMovieDocumentPicker(asCopy:selection == .localCopy,onPick:{url in
       picker=nil
       DispatchQueue.main.async {model.useLocalFile(url)}
      },onCancel:{picker=nil;model.cancelLocalFileSelection()})
     }
+   }.alert("使用同一影片的另一画质？",isPresented:Binding(get:{model.localQualityCandidate != nil},set:{if !$0 {model.cancelLocalQuality()}}),presenting:model.localQualityCandidate) {candidate in
+    Button("确认相同剪辑，使用此画质") {model.confirmLocalQuality(candidate)}
+    Button("取消",role:.cancel) {model.cancelLocalQuality()}
+   } message:{candidate in
+    Text("房间：\(candidate.roomTitle)\n本机：\(candidate.url.lastPathComponent)\n\(MovieVariantPolicy.namesSuggestSameMovie(candidate.roomTitle,candidate.url.lastPathComponent) ? "去除画质标记后名称相近。" : "文件名称不同，请仔细核对。")名称相近不代表相同剪辑；确认后还会核对双方时长，差异超过5秒暂停同步。")
    }
  }
 }
 // Use one presentation route for this screen. In particular, the document
-// browser uses a full-screen presentation even when RoomScreen is inside a settings
-// sheet. Nested adaptive sheets can leave the system Files browser unresponsive.
+// browser must also work when RoomScreen itself is shown inside a settings sheet.
 struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  var asCopy=false
- var types:[UTType]=Self.contentTypes
- var pickerID="local-movie-document-picker"
  static var contentTypes:[UTType] {
   // .item includes folders; explicit file types do not depend on Infuse's UTI.
   // .data also keeps uncommon containers selectable.
@@ -504,11 +516,11 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  let onCancel:()->Void
  func makeCoordinator()->Coordinator {Coordinator(onPick:onPick,onCancel:onCancel)}
  func makeUIViewController(context:Context)->UIDocumentPickerViewController {
-  let controller=UIDocumentPickerViewController(forOpeningContentTypes:types,asCopy:asCopy)
+  let controller=UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:asCopy)
   controller.allowsMultipleSelection=false;controller.delegate=context.coordinator
   controller.shouldShowFileExtensions=true
   if let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask).first {controller.directoryURL=documents}
-  controller.view.accessibilityIdentifier=pickerID
+  controller.view.accessibilityIdentifier="local-movie-document-picker"
   return controller
  }
  func updateUIViewController(_ controller:UIDocumentPickerViewController,context:Context) {}

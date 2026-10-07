@@ -20,8 +20,6 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)}}
- func beginSelection() {status="请选择SRT、VTT、ASS或SSA字幕；选中后会复制并读取"}
- func cancelImport() {status="已取消字幕选择"}
  func clear() {generation+=1;document=nil;name="";text="";status="";enabled=false;delay=0}
  func importFile(_ url: URL) async -> Bool {
   generation+=1;let current=generation;status="正在读取字幕…"

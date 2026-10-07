@@ -126,13 +126,19 @@ import AVFoundation
  @ObservedObject var model: BaiduBrowserModel
  let useSource: (URL,BaiduFile) -> Void
  var requiredTitle: String=""
+ var variantContext: (String,String)?
+ var useVariant: (URL,BaiduFile,String,String) -> Void = {_,_,_,_ in}
  let clearSource: () -> Void
+ @State private var variantSelection: BaiduFile?
+ @State private var variantURL: URL?
+ @State private var confirmingVariant=false
+ @State private var confirmedRoom: (String,String)?
  @Environment(\.scenePhase) private var phase
  var body: some View {
   ScrollView {
    VStack(alignment:.leading,spacing:12) {
     Text("百度网盘 · 房间选片").font(.title2)
-    if !requiredTitle.isEmpty {Text("当前房间影片：\(requiredTitle)。请从自己的网盘选择转存的同一文件。").foregroundColor(.orange)}
+    if !requiredTitle.isEmpty {Text("当前房间影片：\(requiredTitle)。可选择同一文件，或确认同一剪辑的另一画质。").foregroundColor(.orange)}
     Text("个人限时体验，非正式接入。官方授权页应用名mcp_server，请求网盘读写权限；本探针只调用读取接口，不上传、删除或创建分享。视频和授权信息不发给Muse或好友。").font(.caption)
     Link("查看百度官方个人体验说明",destination:URL(string:"https://github.com/baidu-netdisk/mcp#使用准备")!)
     Link("打开官方体验授权页面",destination:URL(string:"https://openapi.baidu.com/oauth/2.0/authorize?client_id=QHOuRXiepJBMjtk0esLhrPoNlQyYd0mF&redirect_uri=oob&response_type=token&scope=basic%2Cnetdisk")!)
@@ -145,12 +151,25 @@ import AVFoundation
     if !model.selectedName.isEmpty {
      Divider();Text(model.selectedName)
      Button("将此影片用于 Together 同步") {if let url=model.selectedSource,let file=model.selectedFile {model.pause();useSource(url,file)}}.disabled(model.selectedSource==nil || model.busy)
+     if !requiredTitle.isEmpty {
+      Button("使用同一影片的另一画质…") {
+       variantSelection=model.selectedFile;variantURL=model.selectedSource;confirmedRoom=variantContext;confirmingVariant=true
+      }.disabled(model.selectedSource==nil || model.busy).accessibilityIdentifier("use-quality-variant")
+     }
      VideoPlayer(player:model.player).frame(height:260)
      HStack {Button("检查Range") {model.testRange()}.disabled(model.busy);Button("播放") {model.play()};Button("兼容重试") {model.play(forceRemux:true)};Button("暂停") {model.pause()};Button("跳到120秒") {model.seek()}}
      Text(model.rangeResult).font(.caption);Text(model.position).font(.system(.caption,design:.monospaced))
     }
-    Text("支持MP4原生路径及MKV本机封装试用。读取列表或取得直链，不等于已通过解码、HDR、Atmos或同步。选片后点击用于Together同步。房主选片后更新房间影片标识；好友必须转存同一文件，并在自己设备授权选片。核对文件指纹和大小后才允许同步播放，本机直链不会共享。MKV本机封装为试用功能；TrueHD Atmos对象信息不保留，ISO/BDMV未支持。授权过期后需重新授权；退出App不保存Token。").font(.caption)
+    Text("MP4原生播放，MKV本机封装试用。精确匹配核对文件指纹和大小；另一画质需确认相同剪辑并核对时长，相差超过5秒暂停同步。画质仅影响本机，不替换好友文件，授权链接不会共享。百度App下载的低画质副本也可用“选择本地影片”直接读取，不再复制一份。TrueHD Atmos和ISO/BDMV未支持；退出App不保存Token。").font(.caption)
    }.padding()
+  }.alert("使用同一影片的另一画质？",isPresented:$confirmingVariant) {
+   Button("确认相同剪辑，使用此画质") {
+    if let url=variantURL,let file=variantSelection,let context=confirmedRoom {model.pause();useVariant(url,file,context.0,context.1)}
+    variantSelection=nil;variantURL=nil;confirmedRoom=nil
+   }
+   Button("取消",role:.cancel) {variantSelection=nil;variantURL=nil;confirmedRoom=nil}
+  } message:{
+   Text("房间：\(requiredTitle)\n本机：\(variantSelection?.name ?? "")\n确认是相同剪辑；名称和画质标记仅作提示。读取双方时长后才允许同步，差异超过5秒暂停；此选择只改变本机画质。")
   }.onAppear {UIApplication.shared.isIdleTimerDisabled=true}.onChange(of:phase) {p in if p == .background {model.stopPreview()} else if p != .active {model.pause()}}
  }
 }
