@@ -22,7 +22,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCUIDevice.shared.orientation = .landscapeLeft
   let settings=app.buttons["打开房间与片源"];XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
   let eject=app.buttons["safe-eject-usb"]
-  for _ in 0..<10 {if eject.isHittable {break};app.swipeUp()}
+  for _ in 0..<10 {if eject.isHittable {break};roomForm(app).swipeUp()}
   XCTAssertTrue(eject.isHittable);XCTAssertTrue(eject.isEnabled)
   XCTAssertTrue(app.secureTextFields["usb-management-password"].exists)
   capture("09-native-safe-eject",app)
@@ -41,10 +41,11 @@ final class WatchInterfaceTests: XCTestCase {
   let settings=app.buttons["打开房间与片源"]
   XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
   let choose=app.buttons[copy ? "import-local-movie-copy" : "choose-local-movie"]
-  for _ in 0..<6 {if choose.isHittable {break};app.swipeUp()}
+  for _ in 0..<6 {if choose.isHittable {break};roomForm(app).swipeUp()}
   XCTAssertTrue(choose.isHittable);choose.tap()
-  let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@", "LOCAL-PICKER-TEST")).firstMatch
-  XCTAssertTrue(file.waitForExistence(timeout:12),app.debugDescription)
+  let file=app.staticTexts["LOCAL-PICKER-TEST"].firstMatch
+  XCTAssertTrue(file.waitForExistence(timeout:20),app.debugDescription)
+  XCTAssertTrue(file.isHittable,app.debugDescription)
   file.tap()
   let local=app.staticTexts["本地影片：LOCAL-PICKER-TEST.MP4"]
   XCTAssertTrue(local.waitForExistence(timeout:12),app.debugDescription)
@@ -57,7 +58,7 @@ final class WatchInterfaceTests: XCTestCase {
   let settings=app.buttons["打开房间与片源"]
   XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
   let choose=app.buttons["choose-local-movie"]
-  for _ in 0..<6 {if choose.isHittable {break};app.swipeUp()}
+  for _ in 0..<6 {if choose.isHittable {break};roomForm(app).swipeUp()}
   XCTAssertTrue(choose.isHittable);choose.tap()
   let browser=app.otherElements["local-movie-document-picker"]
   let cancel=app.buttons["Cancel"].firstMatch
@@ -101,7 +102,10 @@ final class WatchInterfaceTests: XCTestCase {
   let input=app.textFields["chat-input"].firstMatch
   XCTAssertTrue(input.waitForExistence(timeout:15));input.tap()
   let draft="typing stays local 2026"
+  XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout:10))
   input.typeText(draft)
+  let typed=expectation(for:NSPredicate(format:"value == %@",draft),evaluatedWith:input)
+  wait(for:[typed],timeout:10)
   XCTAssertEqual(input.value as? String,draft)
   app.buttons["打开房间与片源"].tap()
   let room=app.textFields["房间编号"]
@@ -110,6 +114,11 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(input.waitForExistence(timeout:5))
   XCTAssertEqual(input.value as? String,draft)
   capture("06-chat-draft-after-room-update",app)
+ }
+ private func roomForm(_ app:XCUIApplication)->XCUIElement {
+  let form=app.collectionViews["room-settings-form"].firstMatch
+  XCTAssertTrue(form.waitForExistence(timeout:5),app.debugDescription)
+  return form
  }
  private func capture(_ name: String,_ app: XCUIApplication) {
   let attachment=XCTAttachment(screenshot:app.screenshot());attachment.name=name;attachment.lifetime = .keepAlways;add(attachment)
