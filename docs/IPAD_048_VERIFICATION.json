@@ -1,0 +1,50 @@
+{
+  "version": "0.4.8",
+  "build": 48,
+  "bundle_id": "dev.together.poc",
+  "ipa_bytes": 13157065,
+  "ipa_sha256": "537af23cb21da22f4e6f98cf76336eed2ef9b4cbd4ff1f4f9fcb16f5a36a6182",
+  "source_files_verified": 46,
+  "artifact_zip_sha256": "fdbc9f7353a013aab4b319570af634c6bf8e58b3314dd987b01632b26fa5ec29",
+  "source_commit": "c4dc73172b60756ed5083cc363e9ce1ad5270be2",
+  "baseline_commit": "2e4195dd1a162fcc875eb2373811995f9be193e9",
+  "run_id": 37698101966,
+  "job_id": 113054701302,
+  "artifact_id": 11516707218,
+  "native_tests": 51,
+  "ui_tests": 12,
+  "failures": 0,
+  "validation": "passed",
+  "scope": [
+    "transparent subtitle background and regular font default",
+    "persisted font family, weight, letter spacing and line spacing",
+    "two-line preview and reset in normal and fullscreen panels",
+    "original embedded text subtitle output, offset and end time",
+    "existing subtitle import, local movie selection and keyboard layout checks"
+  ],
+  "offset_step_seconds": 0.1,
+  "offset_range_seconds": [
+    -120,
+    120
+  ],
+  "font_range": [
+    16,
+    64
+  ],
+  "vertical_bottom_fraction_range": [
+    0.02,
+    0.85
+  ],
+  "letter_spacing_range": [
+    -2,
+    6
+  ],
+  "letter_spacing_step": 0.25,
+  "line_spacing_range": [
+    -8,
+    20
+  ],
+  "line_spacing_step": 0.5,
+  "source_zip_bytes": 646513,
+  "source_zip_sha256": "a3b3c13cef192123424310527fb0230a64c64200bad818b727fa5a54c27d57ad"
+}
