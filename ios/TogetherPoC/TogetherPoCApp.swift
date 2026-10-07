@@ -161,17 +161,22 @@ import UniformTypeIdentifiers
  @ObservedObject var subtitles: ExternalSubtitles
  @ObservedObject var chat: ChatEngine
  var bottomInset: Double=0
+ @State private var captionHeight:CGFloat=0
  var body: some View {
   GeometryReader {geometry in
    ZStack(alignment:.bottom) {
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
     if !subtitles.text.isEmpty {
-     Text(subtitles.text).font(.system(size:SubtitleAppearance.font(subtitles.fontSize),weight:.semibold)).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:3,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(Color.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius:6)).padding(.horizontal,24).padding(.bottom,max(16,geometry.size.height*SubtitleAppearance.position(subtitles.bottomFraction))+bottomInset).allowsHitTesting(false)
+     Text(subtitles.text).font(.system(size:SubtitleAppearance.font(subtitles.fontSize),weight:.semibold)).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:3,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(Color.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius:6)).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).padding(.horizontal,24).padding(.bottom,min(max(16,geometry.size.height*SubtitleAppearance.position(subtitles.bottomFraction))+bottomInset,max(16,geometry.size.height-captionHeight-16))).allowsHitTesting(false)
     }
-   }.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
+   }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
  }
+}
+struct SubtitleHeightKey:PreferenceKey {
+ static var defaultValue:CGFloat=0
+ static func reduce(value:inout CGFloat,nextValue:()->CGFloat) {value=max(value,nextValue())}
 }
 @MainActor struct PlaybackControls: View {
  @ObservedObject var model: TestClient

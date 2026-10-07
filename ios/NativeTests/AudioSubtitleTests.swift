@@ -76,6 +76,13 @@ final class AudioSubtitleTests:XCTestCase {
   captions.delay=10;XCTAssertEqual(captions.text,"")
   captions.delay = -0.1
   XCTAssertTrue(captions.text.contains("Embedded subtitle test"))
+  captions.delay=0
+  for _ in 0..<200 {
+   if captionPlayer.currentTime().seconds>3.5 {break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
+  XCTAssertGreaterThan(captionPlayer.currentTime().seconds,3.5)
+  XCTAssertEqual(captions.text,"","Native subtitle must disappear at its real end time")
   captionPlayer.pause()
   remux.stop()
  }
