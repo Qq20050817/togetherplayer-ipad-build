@@ -1,0 +1,39 @@
+{
+  "version": "0.4.7",
+  "build": 47,
+  "bundle_id": "dev.together.poc",
+  "ipa_bytes": 13139532,
+  "ipa_sha256": "1150f4f1f04ec22ded65728513d99e279f1b914324f0ca36847291de8528a97e",
+  "source_files_verified": 45,
+  "artifact_zip_sha256": "6b7cab19410deef62da430633ae2d822c96030b2bab1ef71aef9296395329c72",
+  "source_commit": "2e4195dd1a162fcc875eb2373811995f9be193e9",
+  "baseline_commit": "5c37ad27005a8d278d2211db8d2bcb77120c4d1f",
+  "run_id": 37660863466,
+  "job_id": 112927721599,
+  "artifact_id": 11501917254,
+  "native_tests": 51,
+  "ui_tests": 12,
+  "failures": 0,
+  "validation": "passed",
+  "scope": [
+    "external and original embedded text subtitle timing",
+    "persisted vertical position and font size",
+    "normal and fullscreen subtitle adjustment controls",
+    "native subtitle output and end time"
+  ],
+  "offset_step_seconds": 0.1,
+  "offset_range_seconds": [
+    -120,
+    120
+  ],
+  "font_range": [
+    16,
+    64
+  ],
+  "vertical_bottom_fraction_range": [
+    0.02,
+    0.85
+  ],
+  "source_zip_bytes": 642421,
+  "source_zip_sha256": "a0a33646462ff86f623cd876164874e6692f6e30a2b3f1fc7e7cae18cad9bc9b"
+}
