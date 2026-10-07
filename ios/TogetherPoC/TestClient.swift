@@ -304,7 +304,9 @@ import CoreMedia
    if let assetTracks=try? await item.asset.load(.tracks) {
     for track in assetTracks where track.mediaType == .audio {
      let formats=(try? await track.load(.formatDescriptions)) ?? []
-     let language=(try? await track.load(.extendedLanguageTag)) ?? (try? await track.load(.languageCode))
+     let extended=try? await track.load(.extendedLanguageTag)
+     let code=try? await track.load(.languageCode)
+     let language=extended ?? code
      let codecs=formats.map {fourCC(CMFormatDescriptionGetMediaSubType($0))}
      let channels=formats.first.flatMap {CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame}
      tracks.append(AudioTrackDetail(language:language,codecs:codecs,channels:channels))

@@ -70,10 +70,10 @@ struct MKVAudioTrackPresentation: Equatable {
  ) -> [MKVAudioTrackPresentation] {
   let deliveryByIndex=Dictionary(uniqueKeysWithValues:deliveries.map {($0.streamIndex,$0.delivery)})
   let objectByIndex=Dictionary(uniqueKeysWithValues:objectFindings.map {($0.streamIndex,$0.isObjectAudio)})
-  return tracks.compactMap {track in
+  return tracks.enumerated().compactMap {ordinal,track in
    guard let delivery=deliveryByIndex[track.streamIndex],
          delivery == .streamCopy || delivery == .bridged else {return nil}
-   let displayName=sourceDisplayName(track)
+   let displayName=sourceDisplayName(track,ordinal:ordinal)
    let confirmedObjectAudio=objectByIndex[track.streamIndex] ?? track.isObjectAudio
    let sourceCodec=humanCodec(track,objectAudio:confirmedObjectAudio)
    let channels=channelLabel(track.channelCount)
@@ -98,12 +98,12 @@ struct MKVAudioTrackPresentation: Equatable {
    )
   }
  }
- private static func sourceDisplayName(_ track: AudioTrackInfo) -> String {
+ private static func sourceDisplayName(_ track: AudioTrackInfo,ordinal:Int) -> String {
   if let title=track.title?.trimmingCharacters(in:.whitespacesAndNewlines),!title.isEmpty {return title}
   if let language=track.language,language != "und",!language.isEmpty {
    return Locale.current.localizedString(forLanguageCode:language) ?? language
   }
-  return "Audio \(track.streamIndex + 1)"
+  return "Audio \(ordinal + 1)"
  }
  private static func humanCodec(_ track: AudioTrackInfo,objectAudio: Bool?=nil) -> String {
   let codec=track.codecName.lowercased()
