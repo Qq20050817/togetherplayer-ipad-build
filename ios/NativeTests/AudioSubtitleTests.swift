@@ -30,7 +30,7 @@ final class AudioSubtitleTests:XCTestCase {
   XCTAssertEqual(subtitles?.options.count,1,"Embedded SRT must survive remux and reach AVPlayer")
   XCTAssertTrue(remux.audioTrackSummary.joined().contains("AAC"))
   XCTAssertTrue(remux.audioTrackSummary.joined().contains("1.0"))
-  let model=TestClient(automaticallyConnect:false,compatibilityPreparation:{_,_ in playlist})
+  let model=TestClient(compatibilityPreparation:{_,_ in playlist},automaticallyConnect:false)
   let timeline:[String:Any]=["state":"paused","position":0,"updatedAt":0,"playbackRate":1]
   model.receive(["type":"WELCOME","room":["roomId":"embedded-tracks-test","hostId":"fixture-host","mediaUrl":"https://example.org/movie.mp4","version":1,"executeAt":0,"state":"paused","position":0,"updatedAt":0,"playbackRate":1,"before":timeline]],t4:0)
   model.beginLocalFileSelection();model.useLocalFile(url)
