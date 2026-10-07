@@ -475,7 +475,7 @@ import UniformTypeIdentifiers
     Button("模拟断线3秒") {model.disconnectForTest()}
     Text("当前为前台观影；切后台会暂停本机，返回后恢复房间状态。").font(.caption)
    }
-  }.accessibilityIdentifier("room-settings-form").buttonStyle(.borderless).sheet(item:$picker) {selection in
+  }.accessibilityIdentifier("room-settings-form").buttonStyle(.borderless).fullScreenCover(item:$picker) {selection in
     switch selection {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
@@ -489,7 +489,8 @@ import UniformTypeIdentifiers
  }
 }
 // Use one presentation route for this screen. In particular, the document
-// browser must also work when RoomScreen itself is shown inside a settings sheet.
+// browser uses a full-screen presentation even when RoomScreen is inside a settings
+// sheet. Nested adaptive sheets can leave the system Files browser unresponsive.
 struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  var asCopy=false
  var types:[UTType]=Self.contentTypes
