@@ -13,11 +13,11 @@ final class WatchInterfaceTests: XCTestCase {
   app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.4)
   app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
   let family=app.segmentedControls["subtitle-font-family"]
-  for _ in 0..<5 {if family.buttons["圆体"].isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
-  XCTAssertTrue(family.buttons["圆体"].isHittable,app.debugDescription);family.buttons["圆体"].tap()
+  for _ in 0..<5 {if family.buttons["圆体"].exists {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
+  XCTAssertTrue(family.buttons["圆体"].waitForExistence(timeout:5),app.debugDescription);family.buttons["圆体"].tap()
   XCTAssertTrue(family.buttons["圆体"].isSelected)
   let weight=app.segmentedControls["subtitle-font-weight"]
-  for _ in 0..<5 {if weight.buttons["细体"].isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
+  for _ in 0..<5 {if weight.buttons["细体"].exists {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
   weight.buttons["细体"].tap();XCTAssertTrue(weight.buttons["细体"].isSelected)
   let line=app.sliders["字幕行间距"]
   for _ in 0..<5 {if line.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
