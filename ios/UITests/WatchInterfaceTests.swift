@@ -224,6 +224,8 @@ final class WatchInterfaceTests: XCTestCase {
   capture("06-chat-draft-after-room-update",app)
  }
  private func capture(_ name: String,_ app: XCUIApplication) {
-  let attachment=XCTAttachment(screenshot:app.screenshot());attachment.name=name;attachment.lifetime = .keepAlways;add(attachment)
+  // Capture the display directly: app-scoped capture can time out after a
+  // document picker returns to the fullscreen AVPlayer view on hosted runners.
+  let attachment=XCTAttachment(screenshot:XCUIScreen.main.screenshot());attachment.name=name;attachment.lifetime = .keepAlways;add(attachment)
  }
 }
