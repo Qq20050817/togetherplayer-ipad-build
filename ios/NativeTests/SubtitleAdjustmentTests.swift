@@ -23,16 +23,25 @@ final class SubtitleAdjustmentTests:XCTestCase {
   let defaults=UserDefaults(suiteName:suite)!;defer {defaults.removePersistentDomain(forName:suite)}
   let subtitles=ExternalSubtitles(player:AVPlayer(),preferences:defaults)
   subtitles.fontSize=40;subtitles.bottomFraction=0.4;subtitles.delay=2
+  subtitles.fontFamily = .rounded;subtitles.fontWeight = .light;subtitles.letterSpacing=1.25;subtitles.lineSpacing=8
   let restored=ExternalSubtitles(player:AVPlayer(),preferences:defaults)
   XCTAssertEqual(restored.fontSize,40);XCTAssertEqual(restored.bottomFraction,0.4)
+  XCTAssertEqual(restored.fontFamily,.rounded);XCTAssertEqual(restored.fontWeight,.light)
+  XCTAssertEqual(restored.letterSpacing,1.25);XCTAssertEqual(restored.lineSpacing,8)
   XCTAssertEqual(restored.delay,0,"A different movie must not inherit timing")
   subtitles.resetAdjustments();XCTAssertEqual(subtitles.fontSize,24)
   XCTAssertEqual(subtitles.bottomFraction,0.07);XCTAssertEqual(subtitles.delay,0)
+  XCTAssertEqual(subtitles.fontFamily,.system);XCTAssertEqual(subtitles.fontWeight,.regular)
+  XCTAssertEqual(subtitles.letterSpacing,0);XCTAssertEqual(subtitles.lineSpacing,0)
  }
  func testAppearanceRejectsInvalidAndOffscreenValues() {
   XCTAssertEqual(SubtitleAppearance.font(.nan),24)
   XCTAssertEqual(SubtitleAppearance.font(1000),64)
   XCTAssertEqual(SubtitleAppearance.position(-1),0.02)
   XCTAssertEqual(SubtitleAppearance.position(.infinity),0.07)
+  XCTAssertEqual(SubtitleAppearance.letterSpacing(.nan),0)
+  XCTAssertEqual(SubtitleAppearance.letterSpacing(-100),-2)
+  XCTAssertEqual(SubtitleAppearance.lineSpacing(100),20)
+  XCTAssertEqual(SubtitleAppearance.lineSpacing(-1),0)
  }
 }

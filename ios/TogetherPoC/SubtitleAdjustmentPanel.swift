@@ -18,11 +18,20 @@ import SwiftUI
     Section("文字大小") {
      Text("字幕字号 \(Int(subtitles.fontSize))")
      Slider(value:$subtitles.fontSize,in:16...64,step:1).accessibilityLabel("字幕文字大小")
-     Text("字幕预览 Aa 中文").font(.system(size:SubtitleAppearance.font(subtitles.fontSize))).accessibilityIdentifier("subtitle-style-preview")
+    }
+    Section("字体与间距") {
+     Menu {ForEach(SubtitleFontFamily.allCases) {family in Button(family.label) {subtitles.fontFamily=family}}} label:{Text("字体：\(subtitles.fontFamily.label)")}.accessibilityIdentifier("subtitle-font-family")
+     Menu {ForEach(SubtitleFontWeight.allCases) {weight in Button(weight.label) {subtitles.fontWeight=weight}}} label:{Text("粗细：\(subtitles.fontWeight.label)")}.accessibilityIdentifier("subtitle-font-weight")
+     Text(String(format:"字间距 %+.2f",subtitles.letterSpacing))
+     Slider(value:$subtitles.letterSpacing,in:-2...6,step:0.25).accessibilityLabel("字幕字间距")
+     Text("行间距 \(Int(subtitles.lineSpacing))")
+     Slider(value:$subtitles.lineSpacing,in:0...20,step:1).accessibilityLabel("字幕行间距")
+     Text("字幕预览 Aa 中文\n第二行 Subtitle preview").font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).accessibilityIdentifier("subtitle-style-preview")
+     Text("字距向右增大，向左收紧；行距向右增大。背景透明。")
     }
     Section {
      Button("恢复默认") {subtitles.resetAdjustments()}.accessibilityIdentifier("reset-subtitle-adjustments")
-     Text("字号和位置会保存。时间偏移用于当前影片，切换影片或导入新的外挂字幕后重置。内置文字字幕与外挂字幕使用同一组设置。")
+     Text("字体、粗细、字距、行距、字号和位置会保存。时间偏移用于当前影片，切换影片或导入新的外挂字幕后重置。内置文字字幕与外挂字幕使用同一组设置。")
     }
    }.navigationTitle("字幕调整").toolbar {Button("完成") {dismiss()}.accessibilityIdentifier("close-subtitle-adjustments")}
   }.preferredColorScheme(.dark)

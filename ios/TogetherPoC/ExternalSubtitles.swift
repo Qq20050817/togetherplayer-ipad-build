@@ -10,6 +10,10 @@ import AVFoundation
  @Published var delay=0.0 {didSet {refresh()}}
  @Published var fontSize:Double {didSet {preferences.set(SubtitleAppearance.font(fontSize),forKey:"subtitle-font-size")}}
  @Published var bottomFraction:Double {didSet {preferences.set(SubtitleAppearance.position(bottomFraction),forKey:"subtitle-bottom-fraction")}}
+ @Published var fontFamily:SubtitleFontFamily {didSet {preferences.set(fontFamily.rawValue,forKey:"subtitle-font-family")}}
+ @Published var fontWeight:SubtitleFontWeight {didSet {preferences.set(fontWeight.rawValue,forKey:"subtitle-font-weight")}}
+ @Published var letterSpacing:Double {didSet {preferences.set(SubtitleAppearance.letterSpacing(letterSpacing),forKey:"subtitle-letter-spacing")}}
+ @Published var lineSpacing:Double {didSet {preferences.set(SubtitleAppearance.lineSpacing(lineSpacing),forKey:"subtitle-line-spacing")}}
  private let preferences:UserDefaults
  private var nativeTimeline=NativeSubtitleTimeline()
  private var legibleOutput:AVPlayerItemLegibleOutput?
@@ -25,13 +29,17 @@ import AVFoundation
   self.player=player;self.preferences=preferences
   fontSize=SubtitleAppearance.font(preferences.object(forKey:"subtitle-font-size") as? Double ?? 24)
   bottomFraction=SubtitleAppearance.position(preferences.object(forKey:"subtitle-bottom-fraction") as? Double ?? 0.07)
+  fontFamily=SubtitleFontFamily(rawValue:preferences.string(forKey:"subtitle-font-family") ?? "") ?? .system
+  fontWeight=SubtitleFontWeight(rawValue:preferences.string(forKey:"subtitle-font-weight") ?? "") ?? .regular
+  letterSpacing=SubtitleAppearance.letterSpacing(preferences.double(forKey:"subtitle-letter-spacing"))
+  lineSpacing=SubtitleAppearance.lineSpacing(preferences.double(forKey:"subtitle-line-spacing"))
   observer=player.addPeriodicTimeObserver(forInterval:CMTime(seconds:0.15,preferredTimescale:600),queue:.main) {[weak self] _ in
    Task {@MainActor in self?.refresh()}
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)}}
  func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();enabled=false;delay=0}
- func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07}
+ func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if let old=legibleOutput,let attachedItem=attachedItem {attachedItem.remove(old)}
   nativeTimeline.clear();nativeEnabled=true;attachedItem=item

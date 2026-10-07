@@ -12,12 +12,28 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.staticTexts["字幕偏移 +0.1 秒"].exists)
   app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.4)
   app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
+  let family=app.buttons["subtitle-font-family"]
+  for _ in 0..<5 {if family.isHittable {break};app.swipeUp()}
+  XCTAssertTrue(family.isHittable);family.tap();app.buttons["圆体"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["subtitle-font-family"].label.contains("圆体"))
+  app.buttons["subtitle-font-weight"].tap();app.buttons["细体"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["subtitle-font-weight"].label.contains("细体"))
+  let line=app.sliders["字幕行间距"]
+  for _ in 0..<5 {if line.isHittable {break};app.swipeUp()}
+  app.sliders["字幕字间距"].adjust(toNormalizedSliderPosition:0.7)
+  line.adjust(toNormalizedSliderPosition:0.5)
+  XCTAssertFalse(app.staticTexts["字间距 +0.00"].exists)
+  XCTAssertFalse(app.staticTexts["行间距 0"].exists)
   XCTAssertTrue(app.staticTexts["subtitle-style-preview"].exists)
   let reset=app.buttons["reset-subtitle-adjustments"]
   for _ in 0..<5 {if reset.isHittable {break};app.swipeUp()}
   XCTAssertTrue(reset.isHittable);reset.tap()
   XCTAssertTrue(app.staticTexts["字幕字号 24"].exists)
   XCTAssertTrue(app.staticTexts["距画面底部 7%"].exists)
+  XCTAssertTrue(app.staticTexts["字间距 +0.00"].exists)
+  XCTAssertTrue(app.staticTexts["行间距 0"].exists)
+  XCTAssertTrue(app.buttons["subtitle-font-family"].label.contains("系统"))
+  XCTAssertTrue(app.buttons["subtitle-font-weight"].label.contains("常规"))
   capture("15-subtitle-adjustments",app)
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()

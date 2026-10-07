@@ -1,9 +1,22 @@
 import Foundation
 
+enum SubtitleFontFamily:String,CaseIterable,Identifiable {
+ case system,rounded,serif
+ var id:String {rawValue}
+ var label:String {switch self {case .system:return "系统";case .rounded:return "圆体";case .serif:return "衬线"}}
+}
+enum SubtitleFontWeight:String,CaseIterable,Identifiable {
+ case light,regular,semibold,bold
+ var id:String {rawValue}
+ var label:String {switch self {case .light:return "细体";case .regular:return "常规";case .semibold:return "半粗";case .bold:return "粗体"}}
+}
+
 struct SubtitleAppearance: Equatable {
  var fontSize: Double=24
  var bottomFraction: Double=0.07
  static func font(_ value:Double)->Double {value.isFinite ? min(64,max(16,value)) : 24}
+ static func letterSpacing(_ value:Double)->Double {value.isFinite ? min(6,max(-2,value)) : 0}
+ static func lineSpacing(_ value:Double)->Double {value.isFinite ? min(20,max(0,value)) : 0}
  static func position(_ value:Double)->Double {value.isFinite ? min(0.85,max(0.02,value)) : 0.07}
 }
 
