@@ -63,12 +63,20 @@ final class AudioSubtitleTests:XCTestCase {
   XCTAssertTrue(cues.contains("WEBVTT"))
   XCTAssertTrue(cues.contains("Embedded subtitle test"),"The original subtitle content must reach the player, not just a menu label")
   let captionItem=AVPlayerItem(asset:asset)
-  let captionPlayer=AVPlayer(playerItem:captionItem)
+  let captionPlayer=AVPlayer()
   let captions=ExternalSubtitles(player:captionPlayer)
   captions.attachNativeOutput(to:captionItem)
+  captionPlayer.replaceCurrentItem(with:captionItem)
+  for _ in 0..<150 {
+   if captionItem.status != .unknown {break}
+   try await Task.sleep(nanoseconds:100_000_000)
+  }
+  XCTAssertEqual(captionItem.status,.readyToPlay,"Wait for actual HLS readiness before checking timed subtitle output")
   let captionGroup=try XCTUnwrap(subtitles)
   captionItem.select(captionGroup.options.first,in:captionGroup)
   XCTAssertTrue(captionItem.currentMediaSelection.selectedMediaOption(in:captionGroup) === captionGroup.options.first)
+  let prerollReady=await captionPlayer.preroll(atRate:1)
+  XCTAssertTrue(prerollReady)
   captionPlayer.play()
   for _ in 0..<100 {
    if captions.text.contains("Embedded subtitle test") {break}

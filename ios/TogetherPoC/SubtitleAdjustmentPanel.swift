@@ -20,8 +20,8 @@ import SwiftUI
      Slider(value:$subtitles.fontSize,in:16...64,step:1).accessibilityLabel("字幕文字大小")
     }
     Section("字体与间距") {
-     Menu {ForEach(SubtitleFontFamily.allCases) {family in Button(family.label) {subtitles.fontFamily=family}}} label:{Text("字体：\(subtitles.fontFamily.label)")}.accessibilityIdentifier("subtitle-font-family")
-     Menu {ForEach(SubtitleFontWeight.allCases) {weight in Button(weight.label) {subtitles.fontWeight=weight}}} label:{Text("粗细：\(subtitles.fontWeight.label)")}.accessibilityIdentifier("subtitle-font-weight")
+     Menu {ForEach(SubtitleFontFamily.allCases) {family in Button(family.label) {subtitles.fontFamily=family}}} label:{Text("字体：\(subtitles.fontFamily.label)").frame(maxWidth:.infinity,alignment:.leading).contentShape(Rectangle())}.accessibilityIdentifier("subtitle-font-family")
+     Menu {ForEach(SubtitleFontWeight.allCases) {weight in Button(weight.label) {subtitles.fontWeight=weight}}} label:{Text("粗细：\(subtitles.fontWeight.label)").frame(maxWidth:.infinity,alignment:.leading).contentShape(Rectangle())}.accessibilityIdentifier("subtitle-font-weight")
      Text(String(format:"字间距 %+.2f",subtitles.letterSpacing))
      Slider(value:$subtitles.letterSpacing,in:-2...6,step:0.25).accessibilityLabel("字幕字间距")
      Text(String(format:"行间距 %+.1f",subtitles.lineSpacing))

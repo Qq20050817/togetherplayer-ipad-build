@@ -97,10 +97,10 @@ final class SubtitleLegibleDelegate:NSObject,AVPlayerItemLegibleOutputPushDelega
  init(owner:ExternalSubtitles) {self.owner=owner}
  func legibleOutput(_ output:AVPlayerItemLegibleOutput,didOutputAttributedStrings strings:[NSAttributedString],nativeSampleBuffers:[Any],forItemTime itemTime:CMTime) {
   let text=strings.map(\.string).joined(separator:"\n")
-  Task {@MainActor [weak owner] in owner?.receiveNative(output,text:text,time:itemTime.seconds)}
+  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds)}
  }
  func outputSequenceWasFlushed(_ output:AVPlayerItemOutput) {
   guard let output=output as? AVPlayerItemLegibleOutput else {return}
-  Task {@MainActor [weak owner] in owner?.flushNative(output)}
+  MainActor.assumeIsolated {owner?.flushNative(output)}
  }
 }
