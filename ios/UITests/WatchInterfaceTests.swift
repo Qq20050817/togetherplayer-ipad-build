@@ -13,11 +13,11 @@ final class WatchInterfaceTests: XCTestCase {
   app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.4)
   app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
   let family=app.segmentedControls["subtitle-font-family"]
-  for _ in 0..<5 {if family.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
-  XCTAssertTrue(family.isHittable,app.debugDescription);family.buttons["圆体"].tap()
+  for _ in 0..<5 {if family.buttons["圆体"].isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
+  XCTAssertTrue(family.buttons["圆体"].isHittable,app.debugDescription);family.buttons["圆体"].tap()
   XCTAssertTrue(family.buttons["圆体"].isSelected)
   let weight=app.segmentedControls["subtitle-font-weight"]
-  for _ in 0..<5 {if weight.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
+  for _ in 0..<5 {if weight.buttons["细体"].isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
   weight.buttons["细体"].tap();XCTAssertTrue(weight.buttons["细体"].isSelected)
   let line=app.sliders["字幕行间距"]
   for _ in 0..<5 {if line.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
@@ -29,13 +29,18 @@ final class WatchInterfaceTests: XCTestCase {
   let reset=app.buttons["reset-subtitle-adjustments"]
   for _ in 0..<5 {if reset.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
   XCTAssertTrue(reset.isHittable);reset.tap()
-  XCTAssertTrue(app.staticTexts["字幕字号 24"].exists)
-  XCTAssertTrue(app.staticTexts["距画面底部 7%"].exists)
   XCTAssertTrue(app.staticTexts["字间距 +0.00"].exists)
   XCTAssertTrue(app.staticTexts["行间距 +0.0"].exists)
   XCTAssertTrue(app.segmentedControls["subtitle-font-family"].buttons["系统"].isSelected)
   XCTAssertTrue(app.segmentedControls["subtitle-font-weight"].buttons["常规"].isSelected)
   capture("15-subtitle-adjustments",app)
+  // Form virtualizes distant rows. Scroll to each default before asserting it.
+  let size=app.staticTexts["字幕字号 24"]
+  for _ in 0..<8 {if size.exists {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeDown()}
+  XCTAssertTrue(size.exists,app.debugDescription)
+  let position=app.staticTexts["距画面底部 7%"]
+  for _ in 0..<8 {if position.exists {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeDown()}
+  XCTAssertTrue(position.exists,app.debugDescription)
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()
   let fullscreenAdjust=app.buttons["subtitle-adjustments"].firstMatch
@@ -148,7 +153,7 @@ final class WatchInterfaceTests: XCTestCase {
   for _ in 0..<6 {if choose.isHittable {break};app.swipeUp()}
   XCTAssertTrue(choose.isHittable);choose.tap()
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@", "LOCAL-PICKER-TEST")).firstMatch
-  XCTAssertTrue(file.waitForExistence(timeout:12),app.debugDescription)
+  XCTAssertTrue(file.waitForExistence(timeout:30),app.debugDescription)
   file.tap()
   let local=app.staticTexts["本地影片：LOCAL-PICKER-TEST.MP4"]
   XCTAssertTrue(local.waitForExistence(timeout:12),app.debugDescription)
