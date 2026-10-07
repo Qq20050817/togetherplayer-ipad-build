@@ -12,14 +12,13 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.staticTexts["字幕偏移 +0.1 秒"].exists)
   app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.4)
   app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
-  let family=app.buttons["subtitle-font-family"]
+  let family=app.segmentedControls["subtitle-font-family"]
   for _ in 0..<5 {if family.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
-  XCTAssertTrue(family.isHittable);family.tap()
-  let rounded=app.buttons["圆体"].firstMatch;XCTAssertTrue(rounded.waitForExistence(timeout:5));rounded.tap()
-  XCTAssertTrue(app.buttons["subtitle-font-family"].label.contains("圆体"))
-  app.buttons["subtitle-font-weight"].tap()
-  let light=app.buttons["细体"].firstMatch;XCTAssertTrue(light.waitForExistence(timeout:5));light.tap()
-  XCTAssertTrue(app.buttons["subtitle-font-weight"].label.contains("细体"))
+  XCTAssertTrue(family.isHittable,app.debugDescription);family.buttons["圆体"].tap()
+  XCTAssertTrue(family.buttons["圆体"].isSelected)
+  let weight=app.segmentedControls["subtitle-font-weight"]
+  for _ in 0..<5 {if weight.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
+  weight.buttons["细体"].tap();XCTAssertTrue(weight.buttons["细体"].isSelected)
   let line=app.sliders["字幕行间距"]
   for _ in 0..<5 {if line.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
   app.sliders["字幕字间距"].adjust(toNormalizedSliderPosition:0.7)
@@ -34,8 +33,8 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.staticTexts["距画面底部 7%"].exists)
   XCTAssertTrue(app.staticTexts["字间距 +0.00"].exists)
   XCTAssertTrue(app.staticTexts["行间距 +0.0"].exists)
-  XCTAssertTrue(app.buttons["subtitle-font-family"].label.contains("系统"))
-  XCTAssertTrue(app.buttons["subtitle-font-weight"].label.contains("常规"))
+  XCTAssertTrue(app.segmentedControls["subtitle-font-family"].buttons["系统"].isSelected)
+  XCTAssertTrue(app.segmentedControls["subtitle-font-weight"].buttons["常规"].isSelected)
   capture("15-subtitle-adjustments",app)
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()
