@@ -168,7 +168,7 @@ import UniformTypeIdentifiers
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
     if !subtitles.text.isEmpty {
-     Text(subtitles.text).font(Font.system(size:CGFloat(SubtitleAppearance.font(subtitles.fontSize)),weight:.semibold)).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:3,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(Color.black.opacity(0.55)).clipShape(RoundedRectangle(cornerRadius:6)).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).padding(.horizontal,24).padding(.bottom,min(max(16,geometry.size.height*CGFloat(SubtitleAppearance.position(subtitles.bottomFraction)))+CGFloat(bottomInset),max(16,geometry.size.height-captionHeight-16))).allowsHitTesting(false)
+     Text(subtitles.text).font(Font.system(size:CGFloat(SubtitleAppearance.font(subtitles.fontSize)),weight:.semibold)).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).padding(.horizontal,24).padding(.bottom,min(max(16,geometry.size.height*CGFloat(SubtitleAppearance.position(subtitles.bottomFraction)))+CGFloat(bottomInset),max(16,geometry.size.height-captionHeight-16))).allowsHitTesting(false)
     }
    }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
@@ -427,7 +427,7 @@ struct SubtitleHeightKey:PreferenceKey {
  @State private var picker: Picker?
  var body: some View {
   Form {
-   Section("TogetherPlayer 0.4.7") {
+   Section("TogetherPlayer 0.4.8") {
     TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
     TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled()
     HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(.borderless)
