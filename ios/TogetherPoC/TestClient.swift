@@ -329,7 +329,7 @@ import CoreMedia
    guard generation==trackSelectionGeneration,adapter.player.currentItem === item else {return}
    subtitleGroup=group
    subtitleLabels=group?.options.map {$0.displayName} ?? []
-   if externalSubtitles.enabled,let group=group {item.select(nil,in:group)}
+   if (externalSubtitles.enabled || selectedSubtitleIndex == -2),let group=group {item.select(nil,in:group)}
    else if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedSubtitleIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
    diagnostic("subtitleOptionsLoaded")
   }
