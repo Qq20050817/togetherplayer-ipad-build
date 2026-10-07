@@ -1,0 +1,77 @@
+name: TogetherPoC
+options:
+ bundleIdPrefix: dev.together
+ deploymentTarget:
+  iOS: "16.0"
+settings:
+ base:
+  SWIFT_VERSION: "5.0"
+  MARKETING_VERSION: "0.4.5"
+  CURRENT_PROJECT_VERSION: "45"
+  TARGETED_DEVICE_FAMILY: "1,2"
+packages:
+ PrismCore:
+  url: https://github.com/Wenzlik/PrismCore.git
+  revision: 36c841bc4c8e91fb83532860d2f2f04957d8c0e5
+ MPVKit:
+  url: https://github.com/mpvkit/MPVKit.git
+  exactVersion: 1.0.0
+targets:
+ TogetherPoC:
+  type: application
+  platform: iOS
+  sources: [TogetherPoC]
+  dependencies:
+   - package: PrismCore
+   - package: MPVKit
+  settings:
+   base:
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc
+    GENERATE_INFOPLIST_FILE: YES
+  info:
+   path: Info.plist
+   properties:
+    CFBundleDisplayName: TogetherPlayer
+    UIFileSharingEnabled: true
+    LSSupportsOpeningDocumentsInPlace: true
+    UILaunchScreen: {}
+    UISupportedInterfaceOrientations:
+     - UIInterfaceOrientationPortrait
+     - UIInterfaceOrientationPortraitUpsideDown
+     - UIInterfaceOrientationLandscapeLeft
+     - UIInterfaceOrientationLandscapeRight
+    UISupportedInterfaceOrientations~ipad:
+     - UIInterfaceOrientationPortrait
+     - UIInterfaceOrientationPortraitUpsideDown
+     - UIInterfaceOrientationLandscapeLeft
+     - UIInterfaceOrientationLandscapeRight
+    NSLocalNetworkUsageDescription: 连接家里的路由器读取影片，并安全卸载 U 盘。
+    NSAppTransportSecurity:
+     NSAllowsArbitraryLoads: true
+ TogetherPoCCoreTests:
+  type: bundle.unit-test
+  platform: iOS
+  sources: [NativeTests]
+  dependencies:
+   - target: TogetherPoC
+  settings:
+   base:
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.coretests
+    GENERATE_INFOPLIST_FILE: YES
+ TogetherPoCUITests:
+  type: bundle.ui-testing
+  platform: iOS
+  sources: [UITests]
+  dependencies:
+   - target: TogetherPoC
+  settings:
+   base:
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.uitests
+    GENERATE_INFOPLIST_FILE: YES
+schemes:
+ TogetherPoC:
+  build:
+   targets:
+    TogetherPoC: all
+  test:
+   targets: [TogetherPoCCoreTests, TogetherPoCUITests]

@@ -1,0 +1,5 @@
+apple-build-derived/
+apple-build-logs/
+apple-delivery/
+ios/TogetherPoC.xcodeproj/
+.DS_Store

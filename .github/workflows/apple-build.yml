@@ -1,0 +1,124 @@
+name: Build iPad unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'tools/package_unsigned_ipa.py'
+      - 'tools/patch_prism_swift61.py'
+      - '.github/workflows/apple-build.yml'
+
+concurrency:
+  group: apple-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  apple-build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record Apple toolchain
+        run: |
+          mkdir -p apple-build-logs
+          xcodebuild -version | tee apple-build-logs/toolchain.txt
+          swift --version | tee -a apple-build-logs/toolchain.txt
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Verify external subtitle parser
+        run: |
+          xcrun swiftc ios/TogetherPoC/SubtitleParser.swift ios/tests/SubtitleParserRegression.swift -o /tmp/together-subtitle-check
+          /tmp/together-subtitle-check
+          xcrun swiftc ios/TogetherPoC/DanmakuQueue.swift ios/tests/DanmakuRegression.swift -o /tmp/together-danmaku-check
+          /tmp/together-danmaku-check
+          xcrun swiftc ios/TogetherPoC/DanmakuQueue.swift ios/TogetherPoC/ChatEngine.swift ios/tests/ChatRefreshRegression.swift -o /tmp/together-chat-refresh-check
+          /tmp/together-chat-refresh-check
+          xcrun swiftc ios/TogetherPoC/BaiduMediaReference.swift ios/tests/BaiduReferenceRegression.swift -o /tmp/together-baidu-reference-check
+          /tmp/together-baidu-reference-check
+          xcrun swiftc ios/TogetherPoC/SyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/together-sync-check
+          /tmp/together-sync-check
+          xcrun swiftc ios/TogetherPoC/DanmakuMotion.swift ios/tests/DanmakuMotionRegression.swift -o /tmp/together-danmaku-motion-check
+          /tmp/together-danmaku-motion-check
+      - name: Build for physical iPad architecture without signing
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
+            -derivedDataPath apple-build-derived 2>&1 | tee apple-build-logs/resolve.log
+          python3 tools/patch_prism_swift61.py apple-build-derived/SourcePackages/checkouts/PrismCore
+          xcodebuild \
+            -project ios/TogetherPoC.xcodeproj \
+            -scheme TogetherPoC \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath apple-build-derived \
+            -resultBundlePath apple-build-logs/Build.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee apple-build-logs/build.log
+      - name: Verify iPad interface on native simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/together-simulators.json
+          DEVICE_ID=$(python3 -c 'import json; devices=json.load(open("/tmp/together-simulators.json"))["devices"]; print(next(d["udid"] for values in devices.values() for d in values if "iPad" in d["name"]))')
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath apple-build-derived \
+            -resultBundlePath apple-build-logs/Interface.xcresult \
+            CODE_SIGNING_ALLOWED=NO test 2>&1 | tee apple-build-logs/interface.log
+      - name: Export native interface screenshots
+        if: always()
+        run: |
+          if [ -d apple-build-logs/Interface.xcresult ]; then
+            xcrun xcresulttool export attachments --path apple-build-logs/Interface.xcresult --output-path apple-build-logs/screenshots
+          fi
+      - name: Preserve interface screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPad-native-interface-screenshots
+          path: apple-build-logs/screenshots/
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Package unsigned IPA for on-device signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/package_unsigned_ipa.py \
+            apple-build-derived/Build/Products/Release-iphoneos/TogetherPoC.app \
+            apple-delivery/TogetherPlayer-unsigned.ipa \
+            --notices ios/TogetherPoC.swiftpm/Licenses
+          mkdir -p apple-delivery/source
+          cp -R ios apple-delivery/source/ios
+          cp tools/package_unsigned_ipa.py apple-delivery/source/
+          cp tools/patch_prism_swift61.py apple-delivery/source/
+          mkdir -p apple-delivery/source/PrismCore
+          cp -R apple-build-derived/SourcePackages/checkouts/PrismCore/Sources apple-delivery/source/PrismCore/
+          cp apple-build-derived/SourcePackages/checkouts/PrismCore/Package.swift apple-delivery/source/PrismCore/
+          cp apple-build-derived/SourcePackages/checkouts/PrismCore/LICENSE apple-delivery/source/PrismCore/
+          cp docs/APPLE_CLOUD_BUILD.md apple-delivery/
+          cp .github/workflows/apple-build.yml apple-delivery/source/
+          shasum -a 256 apple-delivery/TogetherPlayer-unsigned.ipa > apple-delivery/SHA256SUMS.txt
+      - name: Upload IPA and relink source
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-unsigned-iPad
+          path: apple-delivery/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve compiler diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-compiler-diagnostics
+          path: apple-build-logs/
+          retention-days: 7
+          if-no-files-found: warn
