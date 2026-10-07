@@ -31,7 +31,7 @@ final class MediaPreparationTests: XCTestCase {
  @MainActor func testLocalSelectionSurvivesFilePickerBackgroundAndReconnect() async throws {
   UserDefaults.standard.removeObject(forKey:"credentials")
   let url=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".mp4")
-  try Data("hello".utf8).write(to:url);defer {try? FileManager.default.removeItem(at:url)}
+  try TestMovieFixture.mp4.write(to:url);defer {try? FileManager.default.removeItem(at:url)}
   let model=TestClient()
   var fixture=roomFixture();fixture["mediaUrl"]="https://example.org/movie.mp4"
   model.receive(["type":"WELCOME","room":fixture],t4:0)
@@ -40,7 +40,10 @@ final class MediaPreparationTests: XCTestCase {
   model.useLocalFile(url)
   XCTAssertTrue(model.requestStatus.contains("恢复房间连接"))
   model.receive(["type":"WELCOME","room":fixture],t4:0)
-  try await Task.sleep(nanoseconds:50_000_000)
+  for _ in 0..<100 {
+   if (model.adapter.player.currentItem?.asset as? AVURLAsset)?.url==url {break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
   XCTAssertTrue(model.usingLocalFile)
   XCTAssertEqual((model.adapter.player.currentItem?.asset as? AVURLAsset)?.url,url)
  }

@@ -162,7 +162,10 @@ final class WatchInterfaceTests: XCTestCase {
   let input=app.textFields["chat-input"].firstMatch
   XCTAssertTrue(input.waitForExistence(timeout:15));input.tap()
   let draft="typing stays local 2026"
+  XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout:5))
   input.typeText(draft)
+  let committed=expectation(for:NSPredicate(format:"value == %@",draft),evaluatedWith:input)
+  wait(for:[committed],timeout:10)
   XCTAssertEqual(input.value as? String,draft)
   app.buttons["打开房间与片源"].tap()
   let room=app.textFields["房间编号"]
