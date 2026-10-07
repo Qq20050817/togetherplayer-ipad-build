@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
   }.preferredColorScheme(.dark).tint(.blue).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
+   if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {try? LocalPickerUITestFixture.installRoomMediaValidation(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_LOCAL_QUALITY_TEST"]=="1" {try? LocalPickerUITestFixture.installQualitySelection(into:model)}
@@ -229,25 +230,27 @@ import UniformTypeIdentifiers
    if !subtitles.status.isEmpty {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
    .onChange(of:importing) {modalChanged($0)}
-   .fileImporter(isPresented:$importing,allowedContentTypes:[UTType(filenameExtension:"srt") ?? .plainText,UTType(filenameExtension:"vtt") ?? .plainText,UTType(filenameExtension:"ass") ?? .plainText,UTType(filenameExtension:"ssa") ?? .plainText,.plainText],allowsMultipleSelection:false) {result in
-    switch result {case .success(let urls):if let url=urls.first {model.importSubtitle(url)};case .failure: model.requestStatus="字幕文件无法打开，请重新选择"}
+   .sheet(isPresented:$importing) {
+    SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
  }
  private var audioMenu: some View {
   Menu {
    Button {model.chooseAudio(-1)} label:{Label("自动选择",systemImage:model.selectedAudioIndex == -1 ? "checkmark" : "waveform")}
+   if model.audioLabels.isEmpty {Text("未读取到可选音轨")}
    ForEach(model.audioLabels.indices,id:\.self) {index in Button {model.chooseAudio(index)} label:{Label(model.audioLabels[index],systemImage:model.selectedAudioIndex==index ? "checkmark" : "waveform")}}
-  } label:{Label("音轨",systemImage:"waveform")}.disabled(model.audioLabels.isEmpty)
+  } label:{Label("音轨",systemImage:"waveform")}
  }
  private var subtitleMenu: some View {
   Menu {
    Button {model.chooseSubtitle(-1)} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
    Button {model.chooseSubtitle(-2)} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
+   if model.subtitleLabels.isEmpty {Text("未读取到可选内置文字字幕；可导入外挂字幕")}
    ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index)} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
    if subtitles.available {Button {model.enableExternalSubtitle()} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
   } label:{Label("字幕",systemImage:"captions.bubble")}
  }
- private var importButton: some View {Button {importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}}
+ private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier("import-subtitle")}
 }
 @MainActor final class FullscreenControlState: ObservableObject {
  @Published var visible=true
@@ -420,7 +423,7 @@ import UniformTypeIdentifiers
  @State private var picker: Picker?
  var body: some View {
   Form {
-   Section("TogetherPlayer 0.4.5") {
+   Section("TogetherPlayer 0.4.6") {
     TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
     TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled()
     HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(.borderless)

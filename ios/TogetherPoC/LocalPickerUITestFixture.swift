@@ -3,6 +3,12 @@ import Foundation
 
 // Only used by the simulator UI test, never included in Release.
 @MainActor enum LocalPickerUITestFixture {
+ static func installSubtitle(into model: TestClient) throws {
+  let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
+  let directory=documents.appendingPathComponent("SubtitleUITest",isDirectory:true)
+  try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+  try Data("1\n00:00:00,000 --> 00:00:03,000\nSUBTITLE-IMPORT-OK\n".utf8).write(to:directory.appendingPathComponent("LOCAL-SUBTITLE-TEST.SRT"))
+ }
  static func installQualitySelection(into model: TestClient) throws {
   try install(into:model)
   let reference=BaiduMediaReference.create(fingerprint:String(repeating:"a",count:32),size:2000)!

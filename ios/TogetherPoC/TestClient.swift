@@ -69,6 +69,9 @@ import CoreMedia
   }
  }
  private let mkvRemux=MKVRemux()
+ private var remuxAudioLabelsByDisplayName: [String:[String]] = [:]
+ private var remuxAudioTrackSummary: [String] = []
+ private var trackSelectionGeneration=0
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
  private var currentOriginalURL: URL?
  private var activeLocalSource=""
@@ -157,7 +160,7 @@ import CoreMedia
  }
  deinit {for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func diagnostic(_ event: String) {
-  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.4.5","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.4.6","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
@@ -210,7 +213,8 @@ import CoreMedia
    }
    guard adapter.player.currentItem === item else {return}
    let nextBadges=NSOrderedSet(array:badges).array as? [String] ?? badges;if videoBadges != nextBadges {videoBadges=nextBadges}
-   let nextStreamInfo="播放轨道报告：音频 \(audio.isEmpty ? "未提供" : audio.joined(separator:", "))；视频 \(video.isEmpty ? "未提供" : video.joined(separator:", "))\n编码/声道报告不能单独证明Atmos输出。"
+   let audioReport=remuxAudioTrackSummary.isEmpty ? (audio.isEmpty ? "未提供" : audio.joined(separator:", ")) : remuxAudioTrackSummary.joined(separator:"；")
+   let nextStreamInfo="播放轨道报告：音频 \(audioReport)；视频 \(video.isEmpty ? "未提供" : video.joined(separator:", "))\n兼容音轨转换会明确标出；编码与声道不能单独证明Atmos输出。"
    if streamInfo != nextStreamInfo {streamInfo=nextStreamInfo;diagnostic("playbackFormats")}
   }
  }
@@ -224,7 +228,7 @@ import CoreMedia
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
   let needsRemux=forceRemux || MKVRemux.needed(url:url,fileName:url==baiduPlaybackURL ? baiduFileName : nil)
   adapter.pause();adapter.player.replaceCurrentItem(with:nil)
-  mkvRemux.stop()
+  mkvRemux.stop();remuxAudioLabelsByDisplayName=[:];remuxAudioTrackSummary=[]
   Task {
    guard g==mediaLoadGeneration else {return}
    do {
@@ -234,7 +238,12 @@ import CoreMedia
      requestStatus="正在本机准备兼容播放；视频不经过Muse。"
      let headers=url==baiduPlaybackURL ? ["User-Agent":"pan.baidu.com"] : [:]
      if let prepare=compatibilityPreparation {playbackURL=try await prepare(url,headers)}
-     else {playbackURL=try await mkvRemux.prepare(url,headers:headers)}
+     else {
+      playbackURL=try await mkvRemux.prepare(url,headers:headers)
+      guard g==mediaLoadGeneration else {return}
+      remuxAudioLabelsByDisplayName=mkvRemux.audioLabelsByDisplayName
+      remuxAudioTrackSummary=mkvRemux.audioTrackSummary
+     }
     } else {playbackURL=url}
     guard g==mediaLoadGeneration else {return}
     if needsRemux {requestStatus="兼容片源已准备，正在读取播放信息。"}
@@ -279,26 +288,48 @@ import CoreMedia
     }
     else if observed.status == .readyToPlay {
      if self.requestStatus=="兼容片源已准备，正在读取播放信息。" {self.requestStatus=""}
-     self.inspectFormats()
+     self.loadTrackSelections(observed);self.inspectFormats()
     }
    }
   }
+  loadTrackSelections(item)
+ }
+ // HLS groups can appear only after the item becomes ready. Each group is
+ // independent so unavailable audio metadata never prevents subtitle discovery.
+ private func loadTrackSelections(_ item: AVPlayerItem) {
+  trackSelectionGeneration += 1;let generation=trackSelectionGeneration
   Task {
-   do {
-    let group=try await item.asset.loadMediaSelectionGroup(for:.audible)
-    guard adapter.player.currentItem === item else {return}
-    audioGroup=group
-    audioLabels=group?.options.map {option in
-     let codecs=option.mediaSubTypes.map {fourCC($0.uint32Value)}.joined(separator:",")
-     return "\(option.displayName) [\(codecs.isEmpty ? "编码未知" : codecs)]"
-    } ?? []
-    if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedAudioIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
-    updateMediaInfo();diagnostic("audioOptionsLoaded")
-    let subtitles=try await item.asset.loadMediaSelectionGroup(for:.legible)
-    guard adapter.player.currentItem === item else {return}
-    subtitleGroup=subtitles;subtitleLabels=subtitles?.options.map {$0.displayName} ?? []
-    if externalSubtitles.enabled,let subtitles=subtitles {item.select(nil,in:subtitles)}
-   } catch {guard adapter.player.currentItem === item else {return};mediaInfo="音轨列表暂不可用"}
+   let group=try? await item.asset.loadMediaSelectionGroup(for:.audible)
+   var tracks:[AudioTrackDetail]=[]
+   if let assetTracks=try? await item.asset.load(.tracks) {
+    for track in assetTracks where track.mediaType == .audio {
+     let formats=(try? await track.load(.formatDescriptions)) ?? []
+     let language=(try? await track.load(.extendedLanguageTag)) ?? (try? await track.load(.languageCode))
+     let codecs=formats.map {fourCC(CMFormatDescriptionGetMediaSubType($0))}
+     let channels=formats.first.flatMap {CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame}
+     tracks.append(AudioTrackDetail(language:language,codecs:codecs,channels:channels))
+    }
+   }
+   guard generation==trackSelectionGeneration,adapter.player.currentItem === item else {return}
+   audioGroup=group
+   var remuxLabels=remuxAudioLabelsByDisplayName
+   audioLabels=group?.options.enumerated().map {index,option in
+    if var choices=remuxLabels[option.displayName],let first=choices.first {
+     choices.removeFirst();remuxLabels[option.displayName]=choices;return first
+    }
+    return AudioTrackDetail.label(name:option.displayName,index:index,language:option.extendedLanguageTag ?? option.locale?.identifier,subtypes:option.mediaSubTypes.map {fourCC($0.uint32Value)},tracks:tracks,optionCount:group?.options.count ?? 0)
+   } ?? []
+   if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedAudioIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
+   updateMediaInfo();diagnostic("audioOptionsLoaded")
+  }
+  Task {
+   let group=try? await item.asset.loadMediaSelectionGroup(for:.legible)
+   guard generation==trackSelectionGeneration,adapter.player.currentItem === item else {return}
+   subtitleGroup=group
+   subtitleLabels=group?.options.map {$0.displayName} ?? []
+   if externalSubtitles.enabled,let group=group {item.select(nil,in:group)}
+   else if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedSubtitleIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
+   diagnostic("subtitleOptionsLoaded")
   }
  }
  func importSubtitle(_ url: URL) {
@@ -419,7 +450,7 @@ import CoreMedia
    engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
    if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
    chat.reset(room.roomId);let nextTitle=room.title?.isEmpty == false ? room.title! : "一起看电影";if roomTitle != nextTitle {roomTitle=nextTitle};let nextWait=room.waitForPeer ?? false;if waitForPeer != nextWait {waitForPeer=nextWait}
-   let reasons=["buffering":"等待对方缓冲","disconnected":"等待对方重新连接","ended":"播放完毕，点播放可重播","source":"等待双方授权并匹配同一百度影片"]
+   let reasons=["buffering":"等待对方缓冲","disconnected":"等待对方重新连接","ended":"播放完毕，点播放可重播","source":"等待双方授权并匹配同一百度影片","server_restart":"同步服务器已恢复，影片保持暂停；点播放继续"]
    let nextNotice=reasons[room.pauseReason ?? ""] ?? "";if roomNotice != nextNotice {roomNotice=nextNotice}
    if let rawMembers=obj["members"],let data=try? JSONSerialization.data(withJSONObject:rawMembers),let roster=try? JSONDecoder().decode([RoomMember].self,from:data) {applyMembers(roster)}
    if BaiduMediaReference(value:room.mediaUrl) != nil {
@@ -525,10 +556,10 @@ import CoreMedia
    let target=engine.target();let position=adapter.position
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
-   let telemetry: [String:Any]=["clientVersion":"0.4.5","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+   let telemetry: [String:Any]=["clientVersion":"0.4.6","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
    var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
    send(["type":"TELEMETRY","data":connectionTelemetry])
-   status="0.4.5 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
+   status="0.4.6 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
   }
   if ticks%50 == 0 {inspectFormats();updateMediaInfo()}
   if ticks%150 == 0 {pingBurst()}

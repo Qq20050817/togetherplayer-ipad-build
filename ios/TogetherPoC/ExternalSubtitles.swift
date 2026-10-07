@@ -21,6 +21,8 @@ import AVFoundation
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)}}
  func clear() {generation+=1;document=nil;name="";text="";status="";enabled=false;delay=0}
+ func beginSelection() {status="请选择字幕文件"}
+ func cancelImport() {status="已取消选择字幕"}
  func importFile(_ url: URL) async -> Bool {
   generation+=1;let current=generation;status="正在读取字幕…"
   let ext=url.pathExtension.lowercased()

@@ -1,6 +1,23 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testSubtitleImportReturnsFromFiles() {importSubtitle(fullscreen:false)}
+ func testFullscreenSubtitleImportReturnsAndKeepsControlsVisible() {importSubtitle(fullscreen:true)}
+ private func importSubtitle(fullscreen:Bool) {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_SUBTITLE_SELECTION_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  if fullscreen {let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()}
+  let choose=app.buttons["import-subtitle"].firstMatch
+  XCTAssertTrue(choose.waitForExistence(timeout:15));choose.tap()
+  let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@","LOCAL-SUBTITLE-TEST")).firstMatch
+  XCTAssertTrue(file.waitForExistence(timeout:12),app.debugDescription);file.tap()
+  XCTAssertTrue(app.staticTexts["已加载1条字幕"].waitForExistence(timeout:12),app.debugDescription)
+  XCTAssertFalse(app.otherElements["subtitle-document-picker"].exists)
+  capture(fullscreen ? "11-fullscreen-subtitle-import" : "10-subtitle-import",app)
+ }
+
+
  func testLocalQualitySelectionRequiresReviewedConfirmation() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1"
   app.launchEnvironment["TOGETHER_LOCAL_QUALITY_TEST"]="1";app.launch()
