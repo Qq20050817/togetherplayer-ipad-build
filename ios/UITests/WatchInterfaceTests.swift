@@ -43,10 +43,12 @@ final class WatchInterfaceTests: XCTestCase {
   let choose=app.buttons[copy ? "import-local-movie-copy" : "choose-local-movie"]
   for _ in 0..<6 {if choose.isHittable {break};roomForm(app).swipeUp()}
   XCTAssertTrue(choose.isHittable);choose.tap()
-  let file=app.staticTexts["LOCAL-PICKER-TEST"].firstMatch
+  let file=app.cells.matching(NSPredicate(format:"label CONTAINS %@","LOCAL-PICKER-TEST")).firstMatch
   XCTAssertTrue(file.waitForExistence(timeout:20),app.debugDescription)
   XCTAssertTrue(file.isHittable,app.debugDescription)
-  file.tap()
+  // Files icon cells include a large metadata area beneath the thumbnail.
+  // Tap the document icon, the same activation target a user sees.
+  file.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.2)).tap()
   let local=app.staticTexts["本地影片：LOCAL-PICKER-TEST.MP4"]
   XCTAssertTrue(local.waitForExistence(timeout:12),app.debugDescription)
   XCTAssertFalse(app.otherElements["local-movie-document-picker"].exists)
