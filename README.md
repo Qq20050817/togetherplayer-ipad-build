@@ -6,4 +6,8 @@
 
 在 Actions → Build iPad unsigned IPA 查看测试和安装包。公开仓库的标准 GitHub 托管 runner 通常免费；账户级账单限制仍可能阻止运行，以实际结果为准。
 
-源码基线：TogetherPlayer 0.4.5 / build45，原始应用源码提交 f691fd4205e527c38415ab35272fe5cf3cf355e6。
+当前版本：TogetherPlayer 0.4.6 / build46。基于已交付 0.4.5 的源码提交 8384fbdcb4638a6a1114adb7b26da207086c1aad，保留弹幕键盘适配、剩余时间和不同画质匹配。
+
+0.4.6 构建源码提交 5c37ad27005a8d278d2211db8d2bcb77120c4d1f；47 项原生单元测试、11 项界面测试全部通过。包含外挂字幕文件选择修复、原资源内置文字字幕读取和切换、MKV 音轨信息。
+
+验证和下载：https://github.com/Qq20050817/togetherplayer-ipad-build/actions/runs/37640748833

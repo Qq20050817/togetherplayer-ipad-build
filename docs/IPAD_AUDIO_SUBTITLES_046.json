@@ -1,0 +1,25 @@
+{
+  "version": "0.4.6",
+  "build": 46,
+  "bundle_id": "dev.together.poc",
+  "ipa_bytes": 13116273,
+  "ipa_sha256": "6e8c4bdaf6c6d9ca193769bba9ae1237a520f5d130817b3527763037ac99d2c6",
+  "source_files_verified": 42,
+  "artifact_zip_sha256": "c84ae9aeaffe32567376363aaa07f23adc6cbb32f17995c88a149b9ccc78fa46",
+  "source_commit": "5c37ad27005a8d278d2211db8d2bcb77120c4d1f",
+  "baseline_commit": "8384fbdcb4638a6a1114adb7b26da207086c1aad",
+  "run_id": 37640748833,
+  "job_id": 112858737295,
+  "artifact_id": 11491869562,
+  "native_tests": 47,
+  "ui_tests": 11,
+  "failures": 0,
+  "validation": "passed",
+  "scope": [
+    "external subtitle picker",
+    "embedded original subtitle content and selection",
+    "audio metadata",
+    "server_restart pause notice"
+  ],
+  "server_restart_backend": "previously deployed and validated; frontend reason display included"
+}
