@@ -156,12 +156,12 @@ class WatchInterfaceTest {
     val dialog=fullscreen(activity);val tool=describedShown(dialog.window!!.decorView,"弹幕速度")!!
     val point=IntArray(2);tool.getLocationInWindow(point);touchX=point[0]+tool.width/2f;touchY=point[1]+tool.height/2f;downTime=SystemClock.uptimeMillis()
     val event=android.view.MotionEvent.obtain(downTime,downTime,android.view.MotionEvent.ACTION_DOWN,touchX,touchY,0)
-    dialog.dispatchTouchEvent(event);event.recycle()
+    dialog.window!!.callback.dispatchTouchEvent(event);event.recycle()
    }
    SystemClock.sleep(11000)
    scenario.onActivity {activity->
     val dialog=fullscreen(activity);assertTrue("Holding a control must block hiding",describedShown(dialog.window!!.decorView,"退出全屏")!=null)
-    val event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),android.view.MotionEvent.ACTION_CANCEL,touchX,touchY,0);dialog.dispatchTouchEvent(event);event.recycle()
+    val event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),android.view.MotionEvent.ACTION_CANCEL,touchX,touchY,0);dialog.window!!.callback.dispatchTouchEvent(event);event.recycle()
    }
    capture("06-fullscreen-speed-controls")
   }
