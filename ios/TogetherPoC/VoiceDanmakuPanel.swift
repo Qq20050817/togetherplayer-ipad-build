@@ -5,6 +5,7 @@ import SwiftUI
  let connected:Bool
  var busyChanged:(Bool)->Void = {_ in}
  @State private var held=false
+ @State private var gestureActive=false
  @State private var cancelling=false
  @State private var settings=false
  var body:some View {
@@ -20,10 +21,14 @@ import SwiftUI
       .accessibilityAction(named:Text("结束录音并预览")) {voice.release()}
       .accessibilityAction(named:Text("取消录音")) {voice.cancel()}.accessibilityIdentifier("hold-voice-danmaku")
       .gesture(DragGesture(minimumDistance:0).onChanged {value in
-       guard connected,voice.state == .ready || voice.state == .recording else {return}
-       if !held {held=true;voice.begin()}
        cancelling=value.translation.height < -60
-      }.onEnded {_ in voice.release(cancelled:cancelling);held=false;cancelling=false})
+       // One capture per finger-down. A recognition error or timeout may make
+       // the controller ready again; finger movement must never restart it.
+       guard !gestureActive else {return}
+       gestureActive=true
+       guard connected,voice.state == .ready else {return}
+       held=true;voice.begin()
+      }.onEnded {_ in voice.release(cancelled:cancelling);gestureActive=false;held=false;cancelling=false})
      Button("关闭语音") {voice.disable();held=false}.accessibilityIdentifier("disable-voice-danmaku")
      Button("语音设置") {settings=true}.disabled(voice.state != .ready)
     }
@@ -40,7 +45,7 @@ import SwiftUI
    .onChange(of:connected) {if !$0 {voice.cancel(message:"连接中断，当前录音已取消；重连后可再次按住")};held=false}
    .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};updateBusy()}
    .onChange(of:settings) {_ in updateBusy()}
-   .onDisappear {if held {voice.cancel()};held=false;busyChanged(false)}
+   .onDisappear {if held {voice.cancel()};gestureActive=false;held=false;busyChanged(false)}
    .sheet(isPresented:$settings) {
     NavigationStack {
      Form {
