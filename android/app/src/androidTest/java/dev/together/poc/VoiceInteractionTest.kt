@@ -16,20 +16,22 @@ class VoiceInteractionTest {
   val context=instrumentation.targetContext
   context.getSharedPreferences("MainActivity",0).edit().clear().commit()
   instrumentation.uiAutomation.grantRuntimePermission(context.packageName,Manifest.permission.RECORD_AUDIO)
+  val movie=java.io.File(context.cacheDir,"voice-playback-test.mp4")
+  instrumentation.context.assets.open("voice-playback-test.mp4").use {source->movie.outputStream().use {source.copyTo(it)}}
   ActivityScenario.launch(MainActivity::class.java).use {scenario->
    lateinit var voice:VoiceDanmakuController;lateinit var player:ExoPlayer
    var sent=0
    scenario.onActivity {activity->
     player=activity.javaClass.getDeclaredField("player").apply {isAccessible=true}.get(activity) as ExoPlayer
-    player.volume=0.8f;player.playWhenReady=true
+    player.volume=0.8f;player.repeatMode=androidx.media3.common.Player.REPEAT_MODE_ONE;player.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(movie)));player.prepare();player.play()
     voice=VoiceDanmakuController(activity,player,{"test-room"},{sent++;true},{})
     voice.enable()
    }
    val until=SystemClock.elapsedRealtime()+60000
    while(SystemClock.elapsedRealtime()<until){var ready=false;scenario.onActivity {ready=voice.state==VoiceDanmakuController.State.READY};if(ready)break;SystemClock.sleep(200)}
-   scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.READY,voice.state);voice.begin()}
+   scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.READY,voice.state);player.seekTo(1000);voice.begin()}
    SystemClock.sleep(1000)
-   scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.RECORDING,voice.state);assertTrue(player.playWhenReady);assertTrue(player.volume<0.8f);assertEquals(0,sent);voice.release()}
+   scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.RECORDING,voice.state);assertTrue(player.playWhenReady);assertTrue(player.isPlaying);assertTrue(player.currentPosition>1200);assertTrue(player.volume<0.8f);assertEquals(0,sent);voice.release()}
    SystemClock.sleep(1000)
    scenario.onActivity {assertTrue(player.playWhenReady);assertEquals(0.8f,player.volume,0.01f);assertEquals(0,sent);assertNotEquals(VoiceDanmakuController.State.RECORDING,voice.state);voice.disable();assertEquals(VoiceDanmakuController.State.DISABLED,voice.state);voice.close()}
   }

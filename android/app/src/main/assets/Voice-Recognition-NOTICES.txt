@@ -1,0 +1,14 @@
+Vosk API / Vosk Android
+Copyright Alpha Cephei Inc. and contributors
+https://github.com/alphacep/vosk-api
+Apache License, Version 2.0 (see Vosk-Apache-2.0.txt).
+
+Chinese model vosk-model-small-cn-0.22
+Downloaded only when the user enables voice danmaku.
+Publisher: Alpha Cephei, https://alphacephei.com/vosk/models
+License: Apache 2.0 (as listed by the publisher).
+SHA-256: 3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba
+No microphone samples are saved or uploaded.
+
+JNA 5.13.0: https://github.com/java-native-access/jna
+Dual licensed LGPL 2.1 or Apache License 2.0; this distribution uses Apache 2.0.

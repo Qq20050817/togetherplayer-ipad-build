@@ -105,6 +105,7 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  fun cancel(message:String="已取消，未发送") {epoch++;recording=false;runCatching {input?.stop()};gate.cancel();duck(false);level=0.0;preview="";state=if(model==null)State.DISABLED else State.READY;status=message;changed()}
  fun disable(){cancel("语音弹幕已关闭，麦克风已释放");state=State.DISABLED;changed()}
  fun close(){disable();ramp?.cancel();disposed=true;worker.execute {model?.close();model=null};worker.shutdown()}
+ fun setUserVolume(value:Float){val volume=value.coerceIn(0f,1f);if(originalVolume!=null){originalVolume=volume;duck(true)}else{ramp?.cancel();player.volume=volume}}
  private fun duck(lower:Boolean){
   ramp?.cancel()
   val target=if(lower){if(originalVolume==null)originalVolume=player.volume;originalVolume!!*0.22f}else{val value=originalVolume ?: return;originalVolume=null;value}
