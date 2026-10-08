@@ -2,6 +2,11 @@ import XCTest
 @testable import TogetherPoC
 
 final class VoiceSessionRecoveryTests:XCTestCase {
+ @MainActor func testPlaybackActionFeedbackPublishesImmediately() {
+  let feedback=ClientFeedback();feedback.showPlaybackAction("正在同步暂停…")
+  XCTAssertEqual(feedback.playbackAction,"正在同步暂停…")
+  feedback.showPlaybackAction("正在同步跳转…");XCTAssertEqual(feedback.playbackAction,"正在同步跳转…")
+ }
  @MainActor func testSharedPlaybackSessionDriftIsRepairedOnNextHold() {
   var current=false;var activations=0;var restores=0
   let session=VoiceRecordingSession(isCurrent:{current},activate:{activations+=1;current=true},release:{restores+=1;current=false})

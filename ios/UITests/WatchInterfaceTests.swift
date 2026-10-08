@@ -18,6 +18,9 @@ final class WatchInterfaceTests: XCTestCase {
   bar.buttons["cancel-voice-danmaku"].tap()
   let tools=[bar.buttons["音轨"].firstMatch,bar.buttons["字幕"].firstMatch,bar.buttons["fullscreen-import-subtitle"],bar.buttons["fullscreen-subtitle-adjustments"],bar.buttons["弹幕字号"],bar.buttons["弹幕速度"]]
   for tool in tools {XCTAssertTrue(tool.isHittable);XCTAssertEqual(tool.frame.width,96,accuracy:1);XCTAssertEqual(tool.frame.height,36,accuracy:1)}
+  bar.buttons["后退10秒"].tap()
+  let action=bar.staticTexts["playback-action-feedback"].firstMatch
+  XCTAssertTrue(action.waitForExistence(timeout:2));XCTAssertFalse(action.label.isEmpty)
   bar.buttons["弹幕速度"].tap()
   let speed=app.sliders["弹幕速度"];XCTAssertTrue(speed.waitForExistence(timeout:5));speed.adjust(toNormalizedSliderPosition:0.2)
   // Open options remain usable past the ten-second idle deadline.

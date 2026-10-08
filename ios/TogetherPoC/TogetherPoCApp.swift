@@ -203,6 +203,7 @@ struct SubtitleHeightKey:PreferenceKey {
     VStack {transport;volumeControl.frame(maxWidth:180)}
    }
    }
+   PlaybackActionFeedback(feedback:model.feedback)
    if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(.bordered)}
   }.onAppear {volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume) {modalChanged($0)}
  }
@@ -221,7 +222,7 @@ struct SubtitleHeightKey:PreferenceKey {
    Button {model.control(model.requestedPlaying ? "PAUSE" : "PLAY")} label:{Image(systemName:model.requestedPlaying ? "pause.fill" : "play.fill").foregroundColor(.black).frame(width:compact ? 42 : 56,height:compact ? 42 : 56).background(Color.white).clipShape(Circle())}.accessibilityLabel(model.requestedPlaying ? "暂停" : "播放")
    Button {model.control("SEEK",position:model.adapter.position-model.engine.timelineOffset+10000)} label:{Image(systemName:"goforward.10")}.accessibilityLabel("前进10秒")
    Button {model.neighboringMedia(1)} label:{Image(systemName:"forward.end.fill")}.disabled(!model.canMoveMedia(1)).accessibilityLabel("下一部影片")
-  }.font(.title2).foregroundColor(.white)
+  }.font(.title2).foregroundColor(.white).buttonStyle(PlaybackTransportStyle())
  }
  private var volumeControl: some View {
   HStack {Button {volume=volume>0 ? 0 : 1;model.setPlaybackVolume(Float(volume))} label:{Image(systemName:volume>0 ? "speaker.wave.2.fill" : "speaker.slash.fill")}.accessibilityLabel("切换静音");Slider(value:Binding(get:{volume},set:{volume=$0;model.setPlaybackVolume(Float($0))}),in:0...1).accessibilityLabel("播放音量")}
@@ -281,6 +282,15 @@ struct SubtitleHeightKey:PreferenceKey {
  }
  private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-adjustments" : "subtitle-adjustments")}
  private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier(compact ? "fullscreen-import-subtitle" : "import-subtitle")}
+}
+struct PlaybackTransportStyle:ButtonStyle {
+ func makeBody(configuration:Configuration)->some View {
+  configuration.label.scaleEffect(configuration.isPressed ? 0.92 : 1).opacity(configuration.isPressed ? 0.55 : 1)
+ }
+}
+@MainActor struct PlaybackActionFeedback:View {
+ @ObservedObject var feedback:ClientFeedback
+ var body:some View {Text(feedback.playbackAction).font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(height:14).accessibilityIdentifier("playback-action-feedback")}
 }
 struct FullscreenToolStyle:ButtonStyle {
  @Environment(\.isEnabled) private var enabled
@@ -345,7 +355,7 @@ struct FullscreenToolStyle:ButtonStyle {
      // AnyLayout preserves the voice view identity when width changes. Recording
      // must not be cancelled because a fitting-layout candidate disappeared.
      let layout=geometry.size.width>=1100 ? AnyLayout(HStackLayout(spacing:8)) : AnyLayout(VStackLayout(alignment:.leading,spacing:4))
-     layout {tools;voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
+     layout {tools.frame(width:min(708,geometry.size.width-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
    }

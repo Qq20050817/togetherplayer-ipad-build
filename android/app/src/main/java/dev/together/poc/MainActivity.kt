@@ -49,7 +49,7 @@ class MainActivity: Activity() {
  private lateinit var watchBody: LinearLayout;private lateinit var videoColumn: LinearLayout;private lateinit var chatColumn: LinearLayout;private lateinit var progress: SeekBar;private lateinit var timeLabel: TextView;private lateinit var pauseButton: ImageButton
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private var memberSummary="";private var onlineMembers=0
  private lateinit var captions: TextView;private var external: ExternalSubtitle?=null;private var subtitleName="";private var subtitleDelay=0L;private var subtitleEnabled=false;private var subtitleGeneration=0
- private var fullscreenDialog: android.app.Dialog?=null;private var fullscreenControls: LinearLayout?=null;private var fullscreenTime: TextView?=null;private var draggingProgress=false;private var screenRoot: LinearLayout?=null
+ private var fullscreenDialog: android.app.Dialog?=null;private var fullscreenControls: LinearLayout?=null;private var fullscreenTime: TextView?=null;private var fullscreenAction:TextView?=null;private var actionFeedbackGeneration=0;private var draggingProgress=false;private var screenRoot: LinearLayout?=null
  private val danmakuPending=ArrayDeque<Triple<String,Double,Long>>();private val danmakuLanes=BooleanArray(3);private var danmakuSize=24f;private var danmakuSpeed=1f
  private var fullscreenTouching=false;private var fullscreenFocused=true
  private lateinit var voice:VoiceDanmakuController
@@ -301,6 +301,7 @@ class MainActivity: Activity() {
   val dialog=android.app.Dialog(this,android.R.style.Theme_Black_NoTitleBar_Fullscreen);fullscreenDialog=dialog
   val overlay=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(6),dp(12),dp(8));setBackgroundColor(0xbb101216.toInt())};fullscreenControls=overlay
   val transport=row(overlay).apply {gravity=android.view.Gravity.CENTER_VERTICAL};fullscreenTime=label(transport).apply {textSize=11f;layoutParams=LinearLayout.LayoutParams(0,-2,1f)};button(transport,"↩10") {control("SEEK",player.currentPosition-engine.timelineOffset-10000);revealControls()};button(transport,"播放 / 暂停") {togglePlayback();revealControls()};button(transport,"10↪") {control("SEEK",player.currentPosition-engine.timelineOffset+10000);revealControls()}
+  fullscreenAction=label(overlay).apply {textSize=10f;contentDescription="播放操作反馈";layoutParams=LinearLayout.LayoutParams(-1,dp(14))}
   val tracks=GridLayout(this).apply {columnCount=((resources.configuration.screenWidthDp-24)/76).coerceIn(2,8);overlay.addView(this,LinearLayout.LayoutParams(-1,-2))}
   fun tool(text:String,action:()->Unit){tracks.addView(Button(this).apply {this.text=text;contentDescription=text;textSize=11f;isAllCaps=false;minWidth=0;minimumWidth=0;minHeight=0;minimumHeight=0;setPadding(2,0,2,0);background=android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x553c9bff),rounded(0xff14283a.toInt(),8),null);setTextColor(0xff58adff.toInt());setOnClickListener {action()}},GridLayout.LayoutParams().apply {width=dp(72);height=dp(36);setMargins(dp(2),dp(2),dp(2),dp(2))})}
   tool("音轨"){selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
@@ -309,7 +310,7 @@ class MainActivity: Activity() {
   tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
   val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2));val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
   content.addView(overlay,LinearLayout.LayoutParams(-1,-2));videoBox.setOnClickListener {if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()}
-  dialog.setContentView(content);dialog.setOnDismissListener {if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
+  dialog.setContentView(content);dialog.setOnDismissListener {if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
    val original=window.callback
    window.callback=object:android.view.Window.Callback by original {
     override fun dispatchTouchEvent(event:android.view.MotionEvent):Boolean {
@@ -453,7 +454,12 @@ class MainActivity: Activity() {
  private fun setRoomMedia(){if(!isHost || !connected){requestStatus.text="请先作为房主连接";return};val source=media.text.toString();if(!MediaSources.canShare(source)){requestStatus.text="公用片源不能含账户凭据";return};enqueue(JSONObject().put("type","ROOM_MEDIA").put("data",JSONObject().put("mediaUrl",MediaSources.resolve(source)).put("title",titleField.text.toString())))}
  private fun enqueue(obj: JSONObject){if(queued.size>=8){requestStatus.text="请等待操作完成";return};queued.addLast(obj);flush()}
  private fun flush(){if(!isHost || !connected || !clock.ready || inFlight!=null || queued.isEmpty())return;val op=queued.removeFirst();inFlight=op;flightSequence=++sequence;send(JSONObject(op.toString()).put("sequence",sequence).put("baseVersion",engine.version))}
- private fun control(type: String,position: Double=0.0){if(!connected || !clock.ready){requestStatus.text="正在连接或校准";return};if(!position.isFinite())return;val op=JSONObject().put("type",type).put("position",position.coerceAtLeast(0.0));if(isHost)enqueue(op)else {send(JSONObject().put("type","CONTROL_REQUEST").put("sequence",++sequence).put("data",op));requestStatus.text="已请求房主批准"}}
+ private fun playbackAction(text:String){
+  fullscreenAction?.text=text;requestStatus.text=text
+  val generation=++actionFeedbackGeneration
+  main.postDelayed({if(generation==actionFeedbackGeneration){fullscreenAction?.text="";if(requestStatus.text.toString()==text)requestStatus.text=""}},5000)
+ }
+ private fun control(type: String,position: Double=0.0){val action=when(type){"PLAY"->"播放";"PAUSE"->"暂停";"SEEK"->"跳转";else->"操作"};playbackAction(if(isHost)"正在同步${action}…"else "正在请求房主${action}…");if(!connected || !clock.ready){playbackAction("正在连接或校准");return};if(!position.isFinite())return;val op=JSONObject().put("type",type).put("position",position.coerceAtLeast(0.0));if(isHost)enqueue(op)else {send(JSONObject().put("type","CONTROL_REQUEST").put("sequence",++sequence).put("data",op));requestStatus.text="已请求房主批准"}}
  private fun saveProfile(){val n=offset.text.toString().toDoubleOrNull();if(n==null || !n.isFinite() || abs(n)>600 || nickname.text.toString().codePointCount(0,nickname.text.length)>32){requestStatus.text="昵称最多32字，偏移正负600秒";return};getPreferences(0).edit().putString("nickname",nickname.text.toString()).putString("offset",offset.text.toString()).apply();sendProfile()}
  private fun sendProfile(){val n=offset.text.toString().toDoubleOrNull()?.takeIf {it.isFinite() && abs(it)<=600} ?: 0.0;send(JSONObject().put("type","PROFILE_UPDATE").put("data",JSONObject().put("name",nickname.text.toString()).put("timelineOffset",n*1000)))}
  private fun addVoicePanel(parent:LinearLayout):VoiceDanmakuView {val view=VoiceDanmakuView(this,voice,{connected});voiceViews.add(view);parent.addView(view);return view}

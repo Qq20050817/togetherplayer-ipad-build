@@ -510,12 +510,14 @@ import CoreMedia
   status="本机视频验证：可测试 PLAY / PAUSE / SEEK；尚未加入同步房间"
  }
  func control(_ type: String,position: Double=0) {
+  let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
+  feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
   if localVideoTest {
    switch type {case "PLAY":adapter.play();case "PAUSE":adapter.pause();case "SEEK":adapter.seekTo(position);default:break};return
   }
-  guard connected && clock.ready else {requestStatus="尚未连接或正在校准时钟";return}
+  guard connected && clock.ready else {requestStatus="尚未连接或正在校准时钟";feedback.showPlaybackAction(requestStatus);return}
   var operation: [String:Any]=["type":type,"position":max(0,position)]
-  if isHost {guard queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";return};queuedOperations.append(operation);flushOperations()}
+  if isHost {guard queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";feedback.showPlaybackAction(requestStatus);return};queuedOperations.append(operation);flushOperations()}
   else {sequence += 1;operation["sequence"]=sequence;send(["type":"CONTROL_REQUEST","sequence":sequence,"data":operation]);requestStatus="已向房主发送请求"}
 
  }
