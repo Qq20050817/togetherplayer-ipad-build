@@ -794,6 +794,8 @@ extension TestClient {
   guard !text.isEmpty,text.unicodeScalars.count<=1000,text.utf8.count<=6000,outbox.count<20 else {requestStatus="消息为空或超过1000字";return}
   let id=UUID().uuidString;let message: [String:Any]=["type":"CHAT_MESSAGE","data":["text":text,"clientMessageId":id]];outbox[id]=message;send(message);chatDraft.text=""
  }
+ var playbackVolume:Float {voiceDucker?.userVolume ?? adapter.player.volume}
+ func setPlaybackVolume(_ value:Float) {voiceDucker?.setUserVolume(value)}
  func sendVoiceDanmaku(_ text:String)->Bool {
   guard connected,!text.isEmpty,text.unicodeScalars.count<=500,outbox.count<20 else {return false}
   let id="voice:"+UUID().uuidString

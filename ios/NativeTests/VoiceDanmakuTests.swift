@@ -83,4 +83,14 @@ final class VoiceDanmakuTests:XCTestCase {
   chat.tick(5001);XCTAssertTrue(chat.danmaku.isEmpty)
  }
 
+ @MainActor func testUserVolumeChangeDuringRecordingRestoresNewValue() async throws {
+  let player=AVPlayer();player.volume=0.8
+  let ducker=VoiceVolumeDucker(player:player);ducker.begin()
+  try await Task.sleep(nanoseconds:350_000_000)
+  ducker.setUserVolume(0.4);try await Task.sleep(nanoseconds:350_000_000)
+  XCTAssertEqual(player.volume,0.088,accuracy:0.001)
+  ducker.end();try await Task.sleep(nanoseconds:350_000_000)
+  XCTAssertEqual(player.volume,0.4,accuracy:0.001);XCTAssertEqual(player.rate,0)
+ }
+
 }

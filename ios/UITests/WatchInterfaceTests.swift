@@ -1,6 +1,15 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testVoiceEntryDoesNotActivateMicrophoneOutsideRoom() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let enable=app.buttons["enable-voice-danmaku"].firstMatch
+  XCTAssertTrue(enable.waitForExistence(timeout:15));XCTAssertFalse(enable.isEnabled)
+  XCTAssertTrue(app.staticTexts["语音弹幕未开启"].exists)
+  XCTAssertFalse(app.textFields["voice-result"].exists)
+ }
+
  func testSubtitleAdjustmentPanelChangesValuesAndResets() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft

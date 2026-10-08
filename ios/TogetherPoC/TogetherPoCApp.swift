@@ -197,7 +197,7 @@ struct SubtitleHeightKey:PreferenceKey {
     VStack {transport;volumeControl.frame(maxWidth:180)}
    }
    if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(.bordered)}
-  }.onAppear {volume=Double(model.adapter.player.volume)}
+  }.onAppear {volume=Double(model.playbackVolume)}
  }
  private var transport: some View {
   HStack(spacing:22) {
@@ -209,7 +209,7 @@ struct SubtitleHeightKey:PreferenceKey {
   }.font(.title2).foregroundColor(.white)
  }
  private var volumeControl: some View {
-  HStack {Button {volume=volume>0 ? 0 : 1;model.adapter.player.volume=Float(volume)} label:{Image(systemName:volume>0 ? "speaker.wave.2.fill" : "speaker.slash.fill")}.accessibilityLabel("切换静音");Slider(value:$volume,in:0...1).onChange(of:volume) {model.adapter.player.volume=Float($0)}.accessibilityLabel("播放音量")}
+  HStack {Button {volume=volume>0 ? 0 : 1;model.setPlaybackVolume(Float(volume))} label:{Image(systemName:volume>0 ? "speaker.wave.2.fill" : "speaker.slash.fill")}.accessibilityLabel("切换静音");Slider(value:Binding(get:{volume},set:{volume=$0;model.setPlaybackVolume(Float($0))}),in:0...1).accessibilityLabel("播放音量")}
  }
 }
 
@@ -289,7 +289,7 @@ struct SubtitleHeightKey:PreferenceKey {
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
-     guard !composing else {return}
+     guard !composing && !selectingFile else {return}
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     }
