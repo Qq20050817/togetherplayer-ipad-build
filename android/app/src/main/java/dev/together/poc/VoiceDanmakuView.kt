@@ -30,7 +30,7 @@ class VoiceDanmakuView(context:Context,private val voice:VoiceDanmakuController,
   render()
  }
  fun render(){
-  val s=voice.state;status.text=voice.status
+  val s=voice.state;status.text=voice.status + if(s==VoiceDanmakuController.State.RECORDING){if(voice.audible)" · 已收到声音"else" · 声音较弱，请靠近设备麦克风"}else""
   start.visibility=if(s==VoiceDanmakuController.State.DISABLED || s==VoiceDanmakuController.State.PREPARING)VISIBLE else GONE
   start.isEnabled=connected() && s==VoiceDanmakuController.State.DISABLED
   val enabled=s!=VoiceDanmakuController.State.DISABLED && s!=VoiceDanmakuController.State.PREPARING

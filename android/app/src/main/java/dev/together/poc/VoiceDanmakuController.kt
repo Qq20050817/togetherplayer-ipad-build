@@ -26,6 +26,7 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  var preview=""
  var threshold=0.003;var maxSeconds=60;var maxCharacters=300
  var level=0.0;private set
+ var audible=false;private set
  val busy get()=state in listOf(State.PREPARING,State.RECORDING,State.FINISHING,State.REVIEW)
  private val main=Handler(Looper.getMainLooper())
  private val worker=Executors.newSingleThreadExecutor()
@@ -96,10 +97,10 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
      val n=audio.read(samples,0,samples.size);check(n>=0);if(n==0)continue
      val now=SystemClock.elapsedRealtime();var energy=0.0;for(i in 0 until n){val v=samples[i]/32768.0;energy+=v*v};val rms=kotlin.math.sqrt(energy/n)
      // Measure quiet input without destroying consonants before offline recognition.
-     filter.accepts(rms,now)
+     val audibleInput=filter.accepts(rms,now)
      if(recognizer.acceptWaveForm(samples,n)){val text=JSONObject(recognizer.result).optString("text");if(text.isNotBlank())parts.add(text)}
      val partial=JSONObject(recognizer.partialResult).optString("partial");val current=(parts+partial).joinToString(" ").trim();if(current.isNotBlank())bestText=current
-     if(now-lastUI>=250){lastUI=now;val text=bestText;main.post {if(token==epoch && state==State.RECORDING){preview=text;level=(rms*10).coerceIn(0.0,1.0);changed()}}}
+     if(now-lastUI>=250){lastUI=now;val text=bestText;main.post {if(token==epoch && state==State.RECORDING){preview=text;level=(rms*10).coerceIn(0.0,1.0);audible=audibleInput;changed()}}}
      if(now-start>=seconds*1000L){recording=false;main.post {if(token==epoch){state=State.FINISHING;gate.finish();status="已到录音上限，正在完成识别；不会自动发送";duck(false);changed()}}}
     }
     val final=JSONObject(recognizer.finalResult).optString("text");val text=if(final.isBlank())bestText else (parts+final).joinToString(" ").trim()
@@ -110,7 +111,7 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  }
  fun release(cancelled:Boolean=false){if(state!=State.RECORDING)return;if(cancelled){cancel();return};recording=false;state=State.FINISHING;gate.finish();duck(false);status="完成本地识别中…";changed()}
  fun confirm(){if(state!=State.REVIEW)return;gate.text=preview;gate.limit=maxCharacters;if(gate.confirm(room(),send)){preview="";state=State.READY;status="已提交发送，按住可继续说话"}else status="未发送：请检查连接、文字和字数上限";changed()}
- fun cancel(message:String="已取消，未发送") {epoch++;recording=false;runCatching {input?.stop()};gate.cancel();duck(false);level=0.0;preview="";state=if(model==null)State.DISABLED else State.READY;status=message;changed()}
+ fun cancel(message:String="已取消，未发送") {epoch++;recording=false;runCatching {input?.stop()};gate.cancel();duck(false);level=0.0;audible=false;preview="";state=if(model==null)State.DISABLED else State.READY;status=message;changed()}
  fun disable(){cancel("语音弹幕已关闭，麦克风已释放");state=State.DISABLED;changed()}
  fun close(){disable();ramp?.cancel();disposed=true;worker.execute {model?.close();model=null};worker.shutdown()}
  fun setUserVolume(value:Float){val volume=value.coerceIn(0f,1f);userVolume=volume;if(originalVolume!=null){originalVolume=volume;duck(true)}else{ramp?.cancel();player.volume=volume}}

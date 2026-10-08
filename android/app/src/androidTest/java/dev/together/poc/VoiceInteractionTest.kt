@@ -27,6 +27,9 @@ class VoiceInteractionTest {
     player=activity.javaClass.getDeclaredField("player").apply {isAccessible=true}.get(activity) as ExoPlayer
     player.volume=0.8f;player.repeatMode=androidx.media3.common.Player.REPEAT_MODE_ONE;player.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(movie)));player.prepare();player.play()
     voice=VoiceDanmakuController(activity,player,{"test-room"},{sent++;true},{})
+    voice.enable();voice.disable()
+    assertEquals(VoiceDanmakuController.State.DISABLED,voice.state)
+    assertEquals(0,sent)
     voice.enable()
    }
    val until=SystemClock.elapsedRealtime()+60000
