@@ -64,11 +64,13 @@ final class WatchInterfaceTests: XCTestCase {
  // SwiftUI reports partially clipped segments as hittable even underneath
  // the sheet navigation bar. Require the entire tap target in the content viewport.
  private func revealFormControl(_ target:XCUIElement,app:XCUIApplication) {
-  let form=app.collectionViews.element(boundBy:app.collectionViews.count-1)
+  let form=app.collectionViews.containing(.segmentedControl,identifier:"subtitle-font-family").firstMatch
+  XCTAssertTrue(form.exists)
   for _ in 0..<8 {
    let viewport=form.frame;let bounds=target.frame
-   if bounds.minY < viewport.minY+80 {form.swipeDown()}
-   else if bounds.maxY > viewport.maxY-24 {form.swipeUp()}
+   let edge=form.coordinate(withNormalizedOffset:CGVector(dx:0.97,dy:0.45))
+   if bounds.minY < viewport.minY+80 {edge.press(forDuration:0.1,thenDragTo:edge.withOffset(CGVector(dx:0,dy:180)),withVelocity:.slow,thenHoldForDuration:0.3)}
+   else if bounds.maxY > viewport.maxY-24 {edge.press(forDuration:0.1,thenDragTo:edge.withOffset(CGVector(dx:0,dy:-180)),withVelocity:.slow,thenHoldForDuration:0.3)}
    else {XCTAssertTrue(target.isHittable);return}
   }
   XCTAssertGreaterThanOrEqual(target.frame.minY,form.frame.minY+80)
