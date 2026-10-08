@@ -54,4 +54,33 @@ final class VoiceDanmakuTests:XCTestCase {
   ducker.end();try await Task.sleep(nanoseconds:400_000_000)
   XCTAssertEqual(player.volume,0.8,accuracy:0.001);XCTAssertEqual(player.rate,0)
  }
+ @MainActor func testVoiceMarkersUseExistingAuthenticatedTextTransportAndFourSecondRenderer() throws {
+  let credentials:[String:Any]=["roomId":"voice-test","userId":"host","token":String(repeating:"a",count:64)]
+  UserDefaults.standard.set(try JSONSerialization.data(withJSONObject:credentials),forKey:"credentials")
+  defer {UserDefaults.standard.removeObject(forKey:"credentials")}
+  var sent:[[String:Any]]=[]
+  let client=TestClient(automaticallyConnect:false,messageSender:{sent.append($0)})
+  let timeline:[String:Any]=["state":"paused","position":0,"updatedAt":0,"playbackRate":1]
+  let room:[String:Any]=["roomId":"voice-test","hostId":"host","mediaUrl":"https://example.org/test.mp4","version":1,"executeAt":0,"state":"paused","position":0,"updatedAt":0,"playbackRate":1,"before":timeline]
+  XCTAssertFalse(client.sendVoiceDanmaku("未连接"))
+  client.receive(["type":"WELCOME","room":room,"lastSequence":0],t4:0)
+  for n in 0..<20 {XCTAssertTrue(client.sendVoiceDanmaku("语音 \(n)"))}
+  let commands=sent.filter {$0["type"] as? String == "CHAT_MESSAGE"}
+  XCTAssertEqual(commands.count,20)
+  var ids=Set<String>()
+  for value in commands {
+   let data=try XCTUnwrap(value["data"] as? [String:Any])
+   XCTAssertEqual(data["source"] as? String,"voice")
+   let id=try XCTUnwrap(data["clientMessageId"] as? String)
+   XCTAssertTrue(id.hasPrefix("voice:"));ids.insert(id)
+   XCTAssertEqual(Set(data.keys),Set(["source","text","clientMessageId"]))
+  }
+  XCTAssertEqual(ids.count,20)
+  let chat=ChatEngine();chat.reset("voice-test")
+  let message=ChatMessage(id:1,userId:"guest",name:"好友",text:"语音",clientMessageId:"voice:unique",timestamp:0)
+  chat.accept(message,mine:false,live:true,now:1000);chat.accept(message,mine:false,live:true,now:1100)
+  XCTAssertEqual(chat.danmaku.count,1);XCTAssertEqual(chat.danmaku.first?.expiresAt,5000)
+  chat.tick(5001);XCTAssertTrue(chat.danmaku.isEmpty)
+ }
+
 }

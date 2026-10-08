@@ -804,7 +804,7 @@ extension TestClient {
   let now=clock.localNow();guard connected,now-lastTyping>1000 else {return};lastTyping=now;send(["type":"CHAT_TYPING"])
  }
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
- func leaveRoom() {guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
+ func leaveRoom() {voice.disable();guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
   voice.disable()
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""

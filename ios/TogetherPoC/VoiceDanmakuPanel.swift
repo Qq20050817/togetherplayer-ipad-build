@@ -15,7 +15,10 @@ import SwiftUI
     } else {
      Text(held ? (cancelling ? "松开取消" : "正在录音 · 松开预览") : "按住说话")
       .padding(.horizontal,16).padding(.vertical,10).background(held ? Color.red : Color.blue).clipShape(Capsule())
-      .accessibilityLabel("按住说话，松开预览，上滑取消").accessibilityIdentifier("hold-voice-danmaku")
+      .accessibilityLabel("按住说话，松开预览，上滑取消")
+      .accessibilityAction(named:Text("开始录音")) {if connected {voice.begin()}}
+      .accessibilityAction(named:Text("结束录音并预览")) {voice.release()}
+      .accessibilityAction(named:Text("取消录音")) {voice.cancel()}.accessibilityIdentifier("hold-voice-danmaku")
       .gesture(DragGesture(minimumDistance:0).onChanged {value in
        guard connected,voice.state == .ready || voice.state == .recording else {return}
        if !held {held=true;voice.begin()}
@@ -34,7 +37,7 @@ import SwiftUI
    } else if !voice.preview.isEmpty {Text(voice.preview).font(.caption).lineLimit(2)}
    if voice.state == .recording {VoiceInputLevel(capture:voice.capture)}
   }.onChange(of:connected) {if !$0 {voice.cancel(message:"连接中断，当前录音已取消；重连后可再次按住")};held=false}
-   .onChange(of:voice.state) {if voice.state != .recording {held=false;cancelling=false};updateBusy()}
+   .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};updateBusy()}
    .onChange(of:settings) {_ in updateBusy()}
    .onDisappear {if held {voice.cancel()};held=false;busyChanged(false)}
    .sheet(isPresented:$settings) {
