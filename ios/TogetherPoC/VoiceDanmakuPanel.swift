@@ -43,7 +43,7 @@ import SwiftUI
    if voice.state == .recording {VoiceInputLevel(capture:voice.capture)}
   }.onAppear {updateBusy()}
    .onChange(of:connected) {if !$0 {voice.cancel(message:"连接中断，当前录音已取消；重连后可再次按住")};held=false}
-   .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};updateBusy()}
+   .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};if voice.state == .disabled {gestureActive=false};updateBusy()}
    .onChange(of:settings) {_ in updateBusy()}
    .onDisappear {if held {voice.cancel()};gestureActive=false;held=false;busyChanged(false)}
    .sheet(isPresented:$settings) {
