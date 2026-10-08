@@ -232,6 +232,7 @@ struct SubtitleHeightKey:PreferenceKey {
  @ObservedObject var subtitles: ExternalSubtitles
  @State private var importing=false
  @State private var adjustingSubtitles=false
+ @State private var showingSubtitleTools=false
  @State private var voiceBusy=false
  var showsVoice=true
  var compact=false
@@ -239,7 +240,7 @@ struct SubtitleHeightKey:PreferenceKey {
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
    if compact {
-    HStack {audioMenu;subtitleMenu;Menu {Button("导入字幕") {subtitles.beginSelection();importing=true}.accessibilityIdentifier("import-subtitle");Button("字幕调整") {adjustingSubtitles=true}.accessibilityIdentifier("subtitle-adjustments")} label:{Image(systemName:"ellipsis")}.accessibilityLabel("字幕工具")}
+    HStack {audioMenu;subtitleMenu;Button {showingSubtitleTools=true} label:{Image(systemName:"ellipsis")}.accessibilityLabel("字幕工具").popover(isPresented:$showingSubtitleTools) {VStack(alignment:.leading,spacing:12) {Button("导入字幕") {showingSubtitleTools=false;subtitles.beginSelection();importing=true}.accessibilityIdentifier("import-subtitle");Button("字幕调整") {showingSubtitleTools=false;adjustingSubtitles=true}.accessibilityIdentifier("subtitle-adjustments")}.padding(20)}}
    } else {ViewThatFits(in:.horizontal) {
     HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
     VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}
@@ -251,7 +252,7 @@ struct SubtitleHeightKey:PreferenceKey {
    }
    if !subtitles.status.isEmpty && !compact {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
-   .onChange(of:importing || adjustingSubtitles || voiceBusy) {modalChanged($0)}
+   .onChange(of:importing || adjustingSubtitles || showingSubtitleTools || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
