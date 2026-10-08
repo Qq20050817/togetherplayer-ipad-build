@@ -137,8 +137,10 @@ class WatchInterfaceTest {
    scenario.onActivity {it.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE};SystemClock.sleep(1000)
    scenario.onActivity {activity->
     described(activity.window.decorView,"全屏")!!.performClick()
+   };SystemClock.sleep(400)
+   scenario.onActivity {activity->
     val decor=fullscreen(activity).window!!.decorView
-    for(label in listOf("音轨","字幕","导入字幕","字幕调整","弹幕字号","弹幕速度"))assertTrue(described(decor,label)!!.isShown)
+    for(label in listOf("音轨","字幕","导入字幕","字幕调整","弹幕字号","弹幕速度"))assertTrue("Fullscreen tool must be shown: $label",described(decor,label)!!.isShown)
     described(decor,"弹幕速度")!!.performClick()
    }
    SystemClock.sleep(11000)
