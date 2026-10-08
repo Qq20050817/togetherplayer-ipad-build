@@ -59,6 +59,7 @@ class WatchInterfaceTest {
     assertTrue(videoPosition[1]+box.height<=barPosition[1]+1)
     val mic=described(fullscreen(activity).window!!.decorView,"启用语音弹幕")!!;val micPosition=IntArray(2);mic.getLocationOnScreen(micPosition)
     assertTrue(micPosition[0]+mic.width/2>fullscreen(activity).window!!.decorView.width*0.7)
+    for(control in listOf(mic,textView(fullscreen(activity).window!!.decorView,"10↪")!!,described(fullscreen(activity).window!!.decorView,"退出全屏")!!)){val where=IntArray(2);control.getLocationOnScreen(where);assertTrue(where[0]>=videoPosition[0]);assertTrue(where[0]+control.width<=videoPosition[0]+box.width)}
    };capture("04-fullscreen-controls")
    SystemClock.sleep(13000)
    scenario.onActivity {activity->
