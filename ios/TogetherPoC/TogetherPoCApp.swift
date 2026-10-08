@@ -348,7 +348,6 @@ struct FullscreenToolStyle:ButtonStyle {
      layout {tools;voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
-     .simultaneousGesture(DragGesture(minimumDistance:0).onChanged {_ in controls.beginInteraction()}.onEnded {_ in controls.endInteraction()})
    }
    if composing {
     // Keep the movie in its own region above the composer and keyboard.
@@ -360,6 +359,7 @@ struct FullscreenToolStyle:ButtonStyle {
     }.padding(12).background(Color(white:0.08))
    }
   }.background(Color.black).preferredColorScheme(.dark)
+   .simultaneousGesture(DragGesture(minimumDistance:0).onChanged {_ in controls.beginInteraction()}.onEnded {_ in controls.endInteraction()})
    .onAppear {scheduleHide()}.onDisappear {controls.cancel()}
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
