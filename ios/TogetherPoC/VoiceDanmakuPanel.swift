@@ -45,7 +45,7 @@ import SwiftUI
       Text("收音阈值 \(voice.threshold, specifier:"%.3f")")
       Slider(value:$voice.threshold,in:0.001...0.1).accessibilityLabel("收音阈值")
       Text("阈值越大，越容易过滤小声，也可能漏掉你轻声说的话。外放对白突然变响仍可能混入，请核对文字再确认。推荐使用耳机。")
-     }.navigationTitle("语音弹幕设置").toolbar {Button("完成") {settings=false}}
+     }.navigationTitle("语音弹幕设置").toolbar {ToolbarItem(placement:.confirmationAction) {Button("完成") {settings=false}}}
     }.preferredColorScheme(.dark)
    }
  }

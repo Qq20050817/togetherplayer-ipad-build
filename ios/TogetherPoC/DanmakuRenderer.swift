@@ -56,7 +56,7 @@ import CoreText
    let text=CATextLayer();text.string=item.text;text.font=CTFontCreateWithName(font.fontName as CFString,font.pointSize,nil);text.fontSize=font.pointSize;text.foregroundColor=UIColor.white.cgColor;text.contentsScale=max(1,traitCollection.displayScale);text.alignmentMode = .left
    text.frame=CGRect(x:12,y:4,width:textWidth-24,height:height-8);text.shadowColor=UIColor.black.cgColor;text.shadowOpacity=1;text.shadowRadius=3;text.shadowOffset=CGSize(width:0,height:1);bubble.addSublayer(text)
    if bubbles[item.id]==nil {layer.addSublayer(bubble);bubbles[item.id]=bubble}
-   let motion=DanmakuMotion(width:Double(bounds.width),textWidth:Double(textWidth),expiresAt:item.expiresAt,now:time)
+   let motion=DanmakuMotion(width:Double(bounds.width),textWidth:Double(textWidth),expiresAt:item.expiresAt,now:time,durationSeconds:item.durationMs/1000)
    bubble.position=CGPoint(x:CGFloat(motion.toX),y:CGFloat(item.lane)*(CGFloat(fontSize)+14))
    let animation=CABasicAnimation(keyPath:"position.x");animation.fromValue=motion.fromX;animation.toValue=motion.toX;animation.duration=motion.remaining;animation.beginTime=CACurrentMediaTime();animation.timingFunction=CAMediaTimingFunction(name:.linear);bubble.add(animation,forKey:"travel")
   }
