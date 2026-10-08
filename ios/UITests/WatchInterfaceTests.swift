@@ -23,10 +23,13 @@ final class WatchInterfaceTests: XCTestCase {
   app.sliders["字幕文字大小"].adjust(toNormalizedSliderPosition:0.7)
   let family=app.segmentedControls["subtitle-font-family"]
   for _ in 0..<5 {if family.buttons["圆体"].isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
-  XCTAssertTrue(family.buttons["圆体"].waitForExistence(timeout:5),app.debugDescription);family.buttons["圆体"].tap()
+  XCTAssertTrue(family.buttons["圆体"].waitForExistence(timeout:5),app.debugDescription)
+  revealFormControl(family.buttons["圆体"],app:app)
+  family.buttons["圆体"].tap()
   XCTAssertTrue(XCTWaiter.wait(for:[XCTNSPredicateExpectation(predicate:NSPredicate(format:"isSelected == true"),object:family.buttons["圆体"])],timeout:3) == .completed)
   let weight=app.segmentedControls["subtitle-font-weight"]
   for _ in 0..<5 {if weight.buttons["细体"].isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
+  revealFormControl(weight.buttons["细体"],app:app)
   weight.buttons["细体"].tap();XCTAssertTrue(XCTWaiter.wait(for:[XCTNSPredicateExpectation(predicate:NSPredicate(format:"isSelected == true"),object:weight.buttons["细体"])],timeout:3) == .completed)
   let line=app.sliders["字幕行间距"]
   for _ in 0..<5 {if line.isHittable {break};app.collectionViews.element(boundBy:app.collectionViews.count-1).swipeUp()}
@@ -57,6 +60,19 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.sliders["字幕文字大小"].waitForExistence(timeout:5))
   app.buttons["close-subtitle-adjustments"].tap()
   XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
+ }
+ // SwiftUI reports partially clipped segments as hittable even underneath
+ // the sheet navigation bar. Require the entire tap target in the content viewport.
+ private func revealFormControl(_ target:XCUIElement,app:XCUIApplication) {
+  let form=app.collectionViews.element(boundBy:app.collectionViews.count-1)
+  for _ in 0..<8 {
+   let viewport=form.frame;let bounds=target.frame
+   if bounds.minY < viewport.minY+80 {form.swipeDown()}
+   else if bounds.maxY > viewport.maxY-24 {form.swipeUp()}
+   else {XCTAssertTrue(target.isHittable);return}
+  }
+  XCTAssertGreaterThanOrEqual(target.frame.minY,form.frame.minY+80)
+  XCTAssertLessThanOrEqual(target.frame.maxY,form.frame.maxY-24)
  }
  func testSubtitleImportReturnsFromFiles() {importSubtitle(fullscreen:false)}
  func testFullscreenSubtitleImportReturnsAndKeepsControlsVisible() {importSubtitle(fullscreen:true)}
