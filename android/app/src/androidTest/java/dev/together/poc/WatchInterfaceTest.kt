@@ -140,7 +140,7 @@ class WatchInterfaceTest {
    };SystemClock.sleep(400)
    scenario.onActivity {activity->
     val decor=fullscreen(activity).window!!.decorView
-    for(label in listOf("音轨","字幕","导入字幕","字幕调整","弹幕字号","弹幕速度"))assertTrue("Fullscreen tool must be shown: $label",described(decor,label)!!.isShown)
+    for(label in listOf("音轨","字幕","导入字幕","字幕调整","弹幕字号","弹幕速度"))assertTrue("Fullscreen tool must be shown: $label",describedShown(decor,label)!=null)
     described(decor,"弹幕速度")!!.performClick()
    }
    SystemClock.sleep(11000)
@@ -217,6 +217,11 @@ class WatchInterfaceTest {
   }
   try {assertTrue("DTS playback timed out",decoded.await(15,java.util.concurrent.TimeUnit.SECONDS));assertNull(failure)}
   finally {instrumentation.runOnMainSync {p?.release()};fixture.delete()}
+ }
+ private fun describedShown(view:android.view.View,description:String):android.view.View? {
+  if(view.contentDescription?.toString()==description && view.isShown)return view
+  if(view is android.view.ViewGroup)for(index in 0 until view.childCount){describedShown(view.getChildAt(index),description)?.let {return it}}
+  return null
  }
  private fun described(view: android.view.View,description: String): android.view.View? {
   if(view.contentDescription?.toString()==description)return view

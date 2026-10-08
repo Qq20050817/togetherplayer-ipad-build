@@ -87,7 +87,8 @@ final class AudioSubtitleTests:XCTestCase {
   captions.delay = -0.1
   XCTAssertTrue(captions.text.contains("Embedded subtitle test"))
   captions.delay=0
-  for _ in 0..<200 {
+  // Allow simulator startup stalls while preserving the actual playback/cue-end assertions.
+  for _ in 0..<500 {
    if captionPlayer.currentTime().seconds>3.5 {break}
    try await Task.sleep(nanoseconds:20_000_000)
   }

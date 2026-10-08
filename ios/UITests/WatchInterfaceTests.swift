@@ -9,13 +9,13 @@ final class WatchInterfaceTests: XCTestCase {
   let hold=bar.descendants(matching:.any)["hold-voice-danmaku"].firstMatch
   XCTAssertTrue(hold.waitForExistence(timeout:5));XCTAssertTrue(hold.isHittable)
   hold.press(forDuration:1.5)
-  let result=app.textFields["voice-result"]
+  let result=bar.textFields["voice-result"].firstMatch
   XCTAssertTrue(result.waitForExistence(timeout:5),app.debugDescription)
   XCTAssertEqual(result.value as? String,"语音手势测试结果")
-  XCTAssertTrue(app.buttons["confirm-voice-danmaku"].exists)
+  XCTAssertTrue(bar.buttons["confirm-voice-danmaku"].exists)
   XCTAssertGreaterThan(hold.frame.midX,app.frame.width*0.7)
   capture("16-voice-hold-preview",app)
-  app.buttons["cancel-voice-danmaku"].tap()
+  bar.buttons["cancel-voice-danmaku"].tap()
   let tools=[bar.buttons["音轨"].firstMatch,bar.buttons["字幕"].firstMatch,bar.buttons["fullscreen-import-subtitle"],bar.buttons["fullscreen-subtitle-adjustments"],bar.buttons["弹幕字号"],bar.buttons["弹幕速度"]]
   for tool in tools {XCTAssertTrue(tool.isHittable);XCTAssertEqual(tool.frame.width,96,accuracy:1);XCTAssertEqual(tool.frame.height,36,accuracy:1)}
   bar.buttons["弹幕速度"].tap()
