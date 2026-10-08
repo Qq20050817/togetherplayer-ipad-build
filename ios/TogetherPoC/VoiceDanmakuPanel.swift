@@ -27,7 +27,7 @@ import SwiftUI
        guard !gestureActive else {return}
        gestureActive=true
        guard connected,voice.state == .ready else {return}
-       held=true;voice.begin()
+       voice.begin();held=voice.state == .recording
       }.onEnded {_ in voice.release(cancelled:cancelling);gestureActive=false;held=false;cancelling=false})
      Button("关闭语音") {voice.disable();held=false}.accessibilityIdentifier("disable-voice-danmaku")
      Button("语音设置") {settings=true}.disabled(voice.state != .ready)
