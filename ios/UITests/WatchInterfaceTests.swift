@@ -86,7 +86,8 @@ final class WatchInterfaceTests: XCTestCase {
   // The underlying room title also contains the stem. Exclude its MKV name
   // and target the actual MP4 document in the system picker.
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@ AND NOT label CONTAINS %@","LOCAL-PICKER-TEST",".mkv")).firstMatch
-  XCTAssertTrue(file.waitForExistence(timeout:30),app.debugDescription);file.tap()
+  // The first simulator DocumentsUI provider can start slowly; select the real file cell.
+  XCTAssertTrue(file.waitForExistence(timeout:90),app.debugDescription);file.tap()
   let confirm=app.buttons["确认相同剪辑，使用此画质"]
   XCTAssertTrue(confirm.waitForExistence(timeout:10));capture("13-local-quality-confirmation",app);confirm.tap()
   XCTAssertFalse(confirm.exists)
@@ -161,8 +162,9 @@ final class WatchInterfaceTests: XCTestCase {
   let choose=app.buttons[copy ? "import-local-movie-copy" : "choose-local-movie"]
   for _ in 0..<6 {if choose.isHittable {break};app.swipeUp()}
   XCTAssertTrue(choose.isHittable);choose.tap()
-  let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@", "LOCAL-PICKER-TEST")).firstMatch
-  XCTAssertTrue(file.waitForExistence(timeout:30),app.debugDescription)
+  let file=app.cells.matching(NSPredicate(format:"label CONTAINS %@", "LOCAL-PICKER-TEST")).firstMatch
+  // The first simulator DocumentsUI provider can start slowly; select the real file cell.
+  XCTAssertTrue(file.waitForExistence(timeout:90),app.debugDescription)
   file.tap()
   let local=app.staticTexts["本地影片：LOCAL-PICKER-TEST.MP4"]
   XCTAssertTrue(local.waitForExistence(timeout:12),app.debugDescription)
