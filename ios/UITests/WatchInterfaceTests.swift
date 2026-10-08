@@ -56,8 +56,13 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()
   app.buttons["字幕工具"].tap()
-  let fullscreenAdjust=app.buttons.matching(identifier:"subtitle-adjustments").allElementsBoundByIndex.first(where:{$0.isHittable}) ?? app.buttons["subtitle-adjustments"].firstMatch
-  XCTAssertTrue(fullscreenAdjust.waitForExistence(timeout:5));fullscreenAdjust.tap()
+  let adjustments=app.buttons.matching(identifier:"subtitle-adjustments")
+  // Wait for the menu to appear before locating its action. The obscured
+  // watch-card action can briefly remain hittable during menu animation.
+  let menuReady=XCTNSPredicateExpectation(predicate:NSPredicate(block:{_,_ in adjustments.count > 1}),object:nil)
+  XCTAssertEqual(XCTWaiter.wait(for:[menuReady],timeout:5),.completed,app.debugDescription)
+  let fullscreenAdjust=adjustments.element(boundBy:adjustments.count-1)
+  XCTAssertTrue(fullscreenAdjust.isHittable,app.debugDescription);fullscreenAdjust.tap()
   XCTAssertTrue(app.sliders["字幕文字大小"].waitForExistence(timeout:5))
   app.buttons["close-subtitle-adjustments"].tap()
   XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
