@@ -46,9 +46,9 @@ import SwiftUI
      Form {
       Picker("录音上限",selection:$voice.maxSeconds) {ForEach([30.0,60.0,120.0],id:\.self) {Text("\(Int($0)) 秒").tag($0)}}
       Picker("文字上限",selection:$voice.maxCharacters) {ForEach([120,300,500],id:\.self) {Text("\($0) 字").tag($0)}}
-      Text("收音阈值 \(voice.threshold, specifier:"%.3f")")
-      Slider(value:$voice.threshold,in:0.001...0.1).accessibilityLabel("收音阈值")
-      Text("阈值越大，越容易过滤小声，也可能漏掉你轻声说的话。外放对白突然变响仍可能混入，请核对文字再确认。推荐使用耳机。")
+      Text("收音提示阈值 \(voice.threshold, specifier:"%.3f")")
+      Slider(value:$voice.threshold,in:0.001...0.1).accessibilityLabel("收音提示阈值")
+      Text("阈值仅用于电平提示，不再切除小声讲话。外放时使用的是 iPad 内置麦克风，请靠近设备说话；电影对白仍可能混入，请检查文字后确认。耳机更可靠。")
       Button("完成") {settings=false}
      }.navigationTitle("语音弹幕设置")
     }.preferredColorScheme(.dark)
@@ -59,5 +59,10 @@ import SwiftUI
 
 @MainActor private struct VoiceInputLevel:View {
  @ObservedObject var capture:VoiceCapture
- var body:some View {ProgressView(value:capture.level).accessibilityLabel("麦克风输入电平")}
+ var body:some View {
+  VStack(alignment:.leading) {
+   ProgressView(value:capture.level).accessibilityLabel("麦克风输入电平")
+   Text(capture.audible ? "已收到声音；电影对白也可能被收录" : "声音较弱，请靠近 iPad 麦克风说话").font(.caption2).foregroundColor(capture.audible ? .secondary : .orange)
+  }
+ }
 }

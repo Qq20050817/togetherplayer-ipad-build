@@ -1,12 +1,13 @@
 import AVFoundation
 import Combine
 
-/// Microphone samples are gated in memory and handed only to local recognition.
+/// Microphone samples are measured in memory and handed only to local recognition.
 /// No recording is written to disk or sent through the room socket.
 @MainActor final class VoiceCapture: ObservableObject {
  @Published private(set) var active=false
  @Published private(set) var requesting=false
  @Published private(set) var level:Double=0
+ @Published private(set) var audible=false
  @Published private(set) var status="麦克风未开启"
  private let engine=AVAudioEngine()
  private var generation=0
@@ -15,7 +16,7 @@ import Combine
  private var observers:[NSObjectProtocol]=[]
  var onBuffer:((AVAudioPCMBuffer)->Void)?
  var onFailure:((String)->Void)?
- var threshold=0.012
+ var threshold=0.003
  private struct SessionSnapshot {
   let category:AVAudioSession.Category
   let mode:AVAudioSession.Mode
@@ -58,8 +59,9 @@ import Combine
   @unknown default:status="当前系统无法确认麦克风权限"
   }
  }
- private func start() {
+ func prepareSession()->Bool {
   let session=AVAudioSession.sharedInstance()
+  if snapshot != nil {return session.category == .playAndRecord}
   let old=SessionSnapshot(category:session.category,mode:session.mode,options:session.categoryOptions,input:session.preferredInput,outputIDs:Set(session.currentRoute.outputs.map(\.uid)),multichannel:session.supportsMultichannelContent)
   snapshot=old
   do {
@@ -71,6 +73,16 @@ import Combine
    try session.setActive(true)
    guard Set(session.currentRoute.outputs.map(\.uid))==old.outputIDs,
     !session.currentRoute.outputs.contains(where:{$0.portType == .bluetoothHFP || $0.portType == .builtInReceiver}) else {throw CaptureError.routeChanged}
+   let format=engine.inputNode.outputFormat(forBus:0)
+   guard format.sampleRate>0 && format.channelCount>0 else {throw CaptureError.invalidFormat}
+   engine.prepare()
+   status="音频会话已准备；按住时才启用麦克风"
+   return true
+  } catch {stop(message:error.localizedDescription);return false}
+ }
+ private func start() {
+  guard prepareSession() else {onFailure?(status);return}
+  do {
    let input=engine.inputNode;let format=input.outputFormat(forBus:0)
    guard format.sampleRate>0 && format.channelCount>0 else {throw CaptureError.invalidFormat}
    let current=generation
@@ -85,12 +97,12 @@ import Combine
     var sum:Double=0
     for i in 0..<Int(buffer.frameLength) {sum += Double(values[i]*values[i])}
     let rms=sqrt(sum/Double(buffer.frameLength))
-    if !noiseGate.accepts(rms:rms,now:now) {
-     for channel in 0..<Int(buffer.format.channelCount) {channels[channel].initialize(repeating:0,count:Int(buffer.frameLength))}
-    }
+    // An amplitude threshold cannot separate movie dialogue from the user.
+    // Never erase quiet consonants or short words before recognition.
+    let audible=noiseGate.accepts(rms:rms,now:now)
     bufferHandler?(buffer)
     guard now-lastUpdate>=0.25 else {return};lastUpdate=now
-    Task { @MainActor in guard let self=self,self.generation==current,self.active else {return};self.level=min(1,rms*10) }
+    Task { @MainActor in guard let self=self,self.generation==current,self.active else {return};self.level=min(1,rms*10);self.audible=audible }
    }
    tapped=true;engine.prepare();try engine.start();active=true
    status="麦克风使用中 · 内置麦克风；请核对电影声音、字幕和同步"
@@ -107,10 +119,10 @@ import Combine
    onFailure?(status)
   }
  }
- func stop(message:String="麦克风已关闭") {
-  generation += 1;requesting=false;active=false;level=0
+ func stop(message:String="麦克风已关闭",restoreSession:Bool=true) {
+  generation += 1;requesting=false;active=false;level=0;audible=false
   engine.stop();if tapped {engine.inputNode.removeTap(onBus:0);tapped=false}
-  if let previous=snapshot {
+  if restoreSession,let previous=snapshot {
    snapshot=nil
    do {
     let session=AVAudioSession.sharedInstance()

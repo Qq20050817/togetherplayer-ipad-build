@@ -5,15 +5,17 @@ import AVFoundation
  private var original:Float?
  private(set) var userVolume:Float
  private var ramp:Task<Void,Never>?
+ private var recordingGain:Float=0.22
  init(player:AVPlayer) {self.player=player;userVolume=player.volume}
  func begin() {
   guard let player=player else {return}
   if original==nil {original=player.volume;userVolume=player.volume}
-  transition(to:(original ?? 0)*0.22)
+  recordingGain=AVAudioSession.sharedInstance().currentRoute.outputs.contains {$0.portType == .builtInSpeaker} ? 0.08 : 0.22
+  transition(to:(original ?? 0)*recordingGain)
  }
  func setUserVolume(_ value:Float) {
   let volume=max(0,min(1,value));userVolume=volume
-  if original != nil {original=volume;transition(to:volume*0.22)} else {ramp?.cancel();player?.volume=volume}
+  if original != nil {original=volume;transition(to:volume*recordingGain)} else {ramp?.cancel();player?.volume=volume}
  }
  func end() {guard let original=original else {return};self.original=nil;transition(to:original)}
  private func transition(to target:Float) {

@@ -16,9 +16,10 @@ private final class VoiceAudioSink {
  @Published var preview=""
  @Published var maxSeconds=60.0
  @Published var maxCharacters=300
- @Published var threshold=0.012
+ @Published var threshold=0.003
  private var gate=VoiceSendGate()
- private var segments:[String]=[]
+ private var draft=VoiceRecognitionDraft()
+ private var lastPreviewUpdate=0.0
  var roomKey:(()->String)?
  var duck:((Bool)->Void)?
  let capture=VoiceCapture()
@@ -48,6 +49,7 @@ private final class VoiceAudioSink {
      Task { @MainActor in
       guard let self=self,self.generation==current else {return}
       guard granted else {self.state = .disabled;self.status="未获麦克风权限，请在系统设置中允许";return}
+      guard self.capture.prepareSession() else {self.state = .disabled;self.status=self.capture.status;return}
       self.recognizer=recognizer;self.state = .ready;self.status="按住说话，松开预览；上滑取消，默认最长 60 秒，需确认后发送"
      }
     }
@@ -57,7 +59,7 @@ private final class VoiceAudioSink {
  func begin() {
   guard state == .ready,let recognizer=recognizer else {return}
   guard recognizer.isAvailable && recognizer.supportsOnDeviceRecognition else {status="本地中文识别暂不可用；电影继续播放";return}
-  generation += 1;let current=generation;preview="";finalText=nil;segments=[];gate.begin(room:roomKey?() ?? "");gate.limit=maxCharacters
+  generation += 1;let current=generation;preview="";finalText=nil;draft=VoiceRecognitionDraft();lastPreviewUpdate=0;gate.begin(room:roomKey?() ?? "");gate.limit=maxCharacters
   state = .recording;status="录音中 · 松开后预览，确认才发送"
   startRecognition(current)
   capture.threshold=threshold;duck?(true)
@@ -74,13 +76,16 @@ private final class VoiceAudioSink {
   guard state == .recording else {return}
   if cancelled {cancel(message:"已取消，未发送");return}
   deadline?.cancel();deadline=nil;state = .finishing;gate.finish();status="正在完成本地识别…"
-  sink.set(nil);capture.stop();duck?(false);request?.endAudio()
+  sink.set(nil);capture.stop(restoreSession:false);duck?(false);request?.endAudio()
   let current=generation
-  if finalText != nil {complete(current);return}
+  // A short finalization window keeps the last spoken syllables and corrections.
+  // Preserve partials rather than waiting three seconds when text is already present.
+  preview=draft.text
+  let wait:UInt64=draft.text.isEmpty ? 3_000_000_000 : 700_000_000
   finalDeadline=Task { [weak self] in
-   try? await Task.sleep(nanoseconds:3_000_000_000)
+   try? await Task.sleep(nanoseconds:wait)
    guard !Task.isCancelled,let self=self,self.generation==current else {return}
-   if self.preview.isEmpty {self.cancel(message:"识别超时，未发送")} else {self.finalText=self.preview;self.complete(current);self.status="识别未完整结束，请检查或修改文字后确认；尚未发送"}
+   if self.draft.text.isEmpty {self.cancel(message:"未收到识别文字；请靠近 iPad 麦克风，确认收音电平后重试")} else {self.finalText=self.draft.text;self.complete(current);self.status="识别未完整结束，请检查或修改文字后确认；尚未发送"}
   }
  }
  private func startRecognition(_ current:Int) {
@@ -94,14 +99,19 @@ private final class VoiceAudioSink {
     guard let self=self,self.generation==current,self.recognitionGeneration==segment else {return}
     if let result=result {
      let value=result.bestTranscription.formattedString
-     self.preview=(self.segments+[value]).joined(separator:" ")
+     self.draft.accept(value,final:result.isFinal)
+     let now=ProcessInfo.processInfo.systemUptime
+     if result.isFinal || self.state == .finishing || now-self.lastPreviewUpdate>=0.2 {self.preview=self.draft.text;self.lastPreviewUpdate=now}
      if result.isFinal {
-      if self.state == .finishing {self.finalText=self.preview;self.complete(current)}
-      else if self.state == .recording {self.segments.append(value);self.startRecognition(current)}
+      if self.state == .finishing {self.finalText=self.draft.text;self.complete(current)}
+      else if self.state == .recording {self.startRecognition(current)}
      }
-    } else if error != nil {
-     if self.state == .finishing && !self.preview.isEmpty {self.finalText=self.preview;self.complete(current);self.status="请检查识别文字后确认；尚未发送"}
-     else {self.cancel(message:"本地识别失败，未发送；请检查中文识别支持")}
+    } else if let error=error {
+     if !self.draft.text.isEmpty {
+      if self.state == .recording {self.release();self.finalText=self.draft.text;self.complete(current)}
+      else if self.state == .finishing {self.finalText=self.draft.text;self.complete(current)}
+      self.status="识别已中断，已有文字已保留；请修改后确认，尚未发送"
+     } else {let detail=error as NSError;self.cancel(message:"本地识别未返回文字（\(detail.domain):\(detail.code)），可重试；电影继续播放")}
     }
    }
   }
@@ -124,8 +134,8 @@ private final class VoiceAudioSink {
  }
  func cancel(message:String="已取消，未发送") {
   generation += 1;deadline?.cancel();deadline=nil;finalDeadline?.cancel();finalDeadline=nil
-  sink.set(nil);capture.stop();duck?(false);request?.endAudio();task?.cancel();task=nil;request=nil;finalText=nil;gate.cancel();preview="";segments=[]
+  sink.set(nil);capture.stop(restoreSession:false);duck?(false);request?.endAudio();task?.cancel();task=nil;request=nil;finalText=nil;gate.cancel();preview="";draft=VoiceRecognitionDraft()
   if state != .disabled {state = recognizer == nil ? .disabled : .ready};status=message
  }
- func disable() {cancel(message:"语音弹幕已关闭，麦克风已释放");state = .disabled;recognizer=nil;preview=""}
+ func disable() {cancel(message:"语音弹幕已关闭，麦克风已释放");capture.stop();state = .disabled;recognizer=nil;preview=""}
 }

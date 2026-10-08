@@ -45,6 +45,27 @@ final class VoiceDanmakuTests:XCTestCase {
   XCTAssertFalse(gate.accepts(rms:0.001,now:2.21))
   XCTAssertFalse(gate.accepts(rms:.nan,now:3))
  }
+ func testBlankFinalPreservesQuietSpeechHypothesis() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("他在说谎",final:false)
+  draft.accept("",final:true)
+  XCTAssertEqual(draft.text,"他在说谎")
+ }
+ func testLongSpeechSegmentsAndRevisedHypothesesDoNotDuplicate() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("我觉",final:false);draft.accept("我觉得",final:false)
+  draft.accept("我觉得这个人",final:true)
+  draft.accept("不对",final:false);draft.accept("不太对",final:false)
+  XCTAssertEqual(draft.text,"我觉得这个人 不太对")
+  draft.accept("",final:true)
+  XCTAssertEqual(draft.text,"我觉得这个人 不太对")
+ }
+ func testBlankPartialDoesNotErasePreviouslyRecognizedWords() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("这是刚才那个人",final:false)
+  draft.accept("   ",final:false)
+  XCTAssertEqual(draft.text,"这是刚才那个人")
+ }
  @MainActor func testSmoothVolumeRestoreDoesNotStartOrSeekPlayer() async throws {
   let player=AVPlayer();player.volume=0.8
   let ducker=VoiceVolumeDucker(player:player);ducker.begin()
@@ -88,7 +109,8 @@ final class VoiceDanmakuTests:XCTestCase {
   let ducker=VoiceVolumeDucker(player:player);ducker.begin()
   try await Task.sleep(nanoseconds:350_000_000)
   ducker.setUserVolume(0.4);try await Task.sleep(nanoseconds:350_000_000)
-  XCTAssertEqual(player.volume,0.088,accuracy:0.001)
+  let gain:Float=AVAudioSession.sharedInstance().currentRoute.outputs.contains {$0.portType == .builtInSpeaker} ? 0.08 : 0.22
+  XCTAssertEqual(player.volume,0.4*gain,accuracy:0.001)
   ducker.end();try await Task.sleep(nanoseconds:350_000_000)
   XCTAssertEqual(player.volume,0.4,accuracy:0.001);XCTAssertEqual(player.rate,0)
  }
