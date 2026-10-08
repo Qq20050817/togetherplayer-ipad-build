@@ -38,6 +38,7 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  @Volatile private var input:AudioRecord?=null
  private val gate=VoiceSendGate()
  private var originalVolume:Float?=null
+ var userVolume=player.volume;private set
  private var ramp:android.animation.ValueAnimator?=null
  fun enable(){
   if(disposed || state!=State.DISABLED)return
@@ -105,10 +106,10 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  fun cancel(message:String="已取消，未发送") {epoch++;recording=false;runCatching {input?.stop()};gate.cancel();duck(false);level=0.0;preview="";state=if(model==null)State.DISABLED else State.READY;status=message;changed()}
  fun disable(){cancel("语音弹幕已关闭，麦克风已释放");state=State.DISABLED;changed()}
  fun close(){disable();ramp?.cancel();disposed=true;worker.execute {model?.close();model=null};worker.shutdown()}
- fun setUserVolume(value:Float){val volume=value.coerceIn(0f,1f);if(originalVolume!=null){originalVolume=volume;duck(true)}else{ramp?.cancel();player.volume=volume}}
+ fun setUserVolume(value:Float){val volume=value.coerceIn(0f,1f);userVolume=volume;if(originalVolume!=null){originalVolume=volume;duck(true)}else{ramp?.cancel();player.volume=volume}}
  private fun duck(lower:Boolean){
   ramp?.cancel()
-  val target=if(lower){if(originalVolume==null)originalVolume=player.volume;originalVolume!!*0.22f}else{val value=originalVolume ?: return;originalVolume=null;value}
+  val target=if(lower){if(originalVolume==null){originalVolume=player.volume;userVolume=player.volume};originalVolume!!*0.22f}else{val value=originalVolume ?: return;originalVolume=null;value}
   ramp=android.animation.ValueAnimator.ofFloat(player.volume,target).apply {duration=300;interpolator=android.view.animation.AccelerateDecelerateInterpolator();addUpdateListener {player.volume=it.animatedValue as Float};start()}
  }
  companion object {const val VOICE_PERMISSION=702;const val MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip";const val MODEL_SHA="3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"}
