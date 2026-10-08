@@ -1,0 +1,4 @@
+Material Design Icons by Google, Apache License 2.0.
+Source: https://github.com/google/material-design-icons
+License: https://www.apache.org/licenses/LICENSE-2.0
+Original SVG paths preserved in Android VectorDrawable resources.
