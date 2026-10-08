@@ -240,7 +240,7 @@ struct SubtitleHeightKey:PreferenceKey {
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
    if compact {
-    HStack {audioMenu;subtitleMenu;Button {showingSubtitleTools=true} label:{Image(systemName:"ellipsis")}.accessibilityLabel("字幕工具").popover(isPresented:$showingSubtitleTools) {VStack(alignment:.leading,spacing:12) {Button("导入字幕") {showingSubtitleTools=false;subtitles.beginSelection();importing=true}.accessibilityIdentifier("import-subtitle");Button("字幕调整") {showingSubtitleTools=false;adjustingSubtitles=true}.accessibilityIdentifier("subtitle-adjustments")}.padding(20)}}
+    HStack {audioMenu;subtitleMenu;Button {showingSubtitleTools=true} label:{Image(systemName:"ellipsis")}.accessibilityLabel("字幕工具").popover(isPresented:$showingSubtitleTools) {VStack(alignment:.leading,spacing:12) {Button("导入字幕") {showingSubtitleTools=false;subtitles.beginSelection();importing=true}.accessibilityIdentifier("fullscreen-import-subtitle");Button("字幕调整") {showingSubtitleTools=false;adjustingSubtitles=true}.accessibilityIdentifier("fullscreen-subtitle-adjustments")}.padding(20)}}
    } else {ViewThatFits(in:.horizontal) {
     HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
     VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}

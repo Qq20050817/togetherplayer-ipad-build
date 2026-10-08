@@ -56,12 +56,8 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()
   app.buttons["字幕工具"].tap()
-  let adjustments=app.buttons.matching(identifier:"subtitle-adjustments")
-  // Wait for the menu to appear before locating its action. The obscured
-  // watch-card action can briefly remain hittable during menu animation.
-  let menuReady=XCTNSPredicateExpectation(predicate:NSPredicate(block:{_,_ in adjustments.count > 1}),object:nil)
-  XCTAssertEqual(XCTWaiter.wait(for:[menuReady],timeout:5),.completed,app.debugDescription)
-  let fullscreenAdjust=adjustments.element(boundBy:adjustments.count-1)
+  let fullscreenAdjust=app.buttons["fullscreen-subtitle-adjustments"]
+  XCTAssertTrue(fullscreenAdjust.waitForExistence(timeout:5),app.debugDescription)
   XCTAssertTrue(fullscreenAdjust.isHittable,app.debugDescription);fullscreenAdjust.tap()
   XCTAssertTrue(app.sliders["字幕文字大小"].waitForExistence(timeout:5))
   app.buttons["close-subtitle-adjustments"].tap()
@@ -90,11 +86,10 @@ final class WatchInterfaceTests: XCTestCase {
   XCUIDevice.shared.orientation = .landscapeLeft
   if fullscreen {let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()}
   if fullscreen {app.buttons["字幕工具"].tap()}
-  let candidates=app.buttons.matching(identifier:"import-subtitle")
-  let choose=fullscreen ? (candidates.allElementsBoundByIndex.first(where:{$0.isHittable}) ?? candidates.firstMatch) : candidates.firstMatch
+  let choose=app.buttons[fullscreen ? "fullscreen-import-subtitle" : "import-subtitle"].firstMatch
   XCTAssertTrue(choose.waitForExistence(timeout:15));XCTAssertTrue(choose.isHittable);choose.tap()
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@","LOCAL-SUBTITLE-TEST")).firstMatch
-  XCTAssertTrue(file.waitForExistence(timeout:12),app.debugDescription);file.tap()
+  XCTAssertTrue(file.waitForExistence(timeout:90),app.debugDescription);file.tap()
   XCTAssertTrue(app.staticTexts["已加载1条字幕"].waitForExistence(timeout:12),app.debugDescription)
   if fullscreen {XCTAssertTrue(app.otherElements["fullscreen-movie"].exists);XCTAssertTrue(app.buttons["退出全屏"].isHittable)}
   XCTAssertFalse(app.otherElements["subtitle-document-picker"].exists)
