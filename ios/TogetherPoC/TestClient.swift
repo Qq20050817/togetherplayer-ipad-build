@@ -124,6 +124,8 @@ import CoreMedia
  private var socket: URLSessionWebSocketTask?
  private var connectionStartedAt=0.0
  private var lastMessageAt=0.0
+ let voice=VoiceDanmakuController()
+ private var voiceDucker:VoiceVolumeDucker?
  private var disconnectCount=0
  private var lastDisconnectReason=""
  private var ignoredFrames=0
@@ -139,6 +141,10 @@ import CoreMedia
  init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil) {
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
+  voiceDucker=VoiceVolumeDucker(player:adapter.player)
+  voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
+  voice.roomKey={ [weak self] in self?.engine.room?.roomId ?? "" }
+  voice.duck={ [weak self] lowered in if lowered {self?.voiceDucker?.begin()} else {self?.voiceDucker?.end()} }
   do {try AVAudioSession.sharedInstance().setCategory(.playback,mode:.moviePlayback);try AVAudioSession.sharedInstance().setSupportsMultichannelContent(true);try AVAudioSession.sharedInstance().setActive(true)} catch {requestStatus="音频会话设置失败"}
   for name in [Notification.Name.AVPlayerItemPlaybackStalled,Notification.Name.AVPlayerItemNewAccessLogEntry,Notification.Name.AVPlayerItemNewErrorLogEntry] {
    observers.append(NotificationCenter.default.addObserver(forName:name,object:nil,queue:.main) { [weak self] note in
@@ -160,7 +166,7 @@ import CoreMedia
  }
  deinit {for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func diagnostic(_ event: String) {
-  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.4.8","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.5.0","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
@@ -417,6 +423,7 @@ import CoreMedia
  }
  private func reconnect(_ g: Int,reason: String="receive") {
   guard g==generation,foreground,credentials != nil else {return}
+  voice.cancel(message:"连接中断，当前录音已取消，未发送")
   // Invalidate both send and receive callbacks before scheduling one retry.
   generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil
   connected=false;engine.resetSession();attempt += 1
@@ -558,7 +565,7 @@ import CoreMedia
    let target=engine.target();let position=adapter.position
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
-   let telemetry: [String:Any]=["clientVersion":"0.4.8","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+   let telemetry: [String:Any]=["clientVersion":"0.5.0","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
    var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
    send(["type":"TELEMETRY","data":connectionTelemetry])
    status="0.4.8 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
@@ -787,12 +794,19 @@ extension TestClient {
   guard !text.isEmpty,text.unicodeScalars.count<=1000,text.utf8.count<=6000,outbox.count<20 else {requestStatus="消息为空或超过1000字";return}
   let id=UUID().uuidString;let message: [String:Any]=["type":"CHAT_MESSAGE","data":["text":text,"clientMessageId":id]];outbox[id]=message;send(message);chatDraft.text=""
  }
+ func sendVoiceDanmaku(_ text:String)->Bool {
+  guard connected,!text.isEmpty,text.unicodeScalars.count<=500,outbox.count<20 else {return false}
+  let id="voice:"+UUID().uuidString
+  let message:[String:Any]=["type":"CHAT_MESSAGE","data":["text":text,"clientMessageId":id,"source":"voice"]]
+  outbox[id]=message;send(message);return true
+ }
  func sendTyping() {
   let now=clock.localNow();guard connected,now-lastTyping>1000 else {return};lastTyping=now;send(["type":"CHAT_TYPING"])
  }
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
  func leaveRoom() {guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
+  voice.disable()
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
   if pendingRoomMedia != nil {finishRoomMedia("已离开房间，换片请求已取消。")}
   localSelectionGeneration += 1;pendingLocalFile=nil;localSelectionRoom="";localSelectionMedia=""
@@ -801,7 +815,7 @@ extension TestClient {
   mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
- func handleBackground() {mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}

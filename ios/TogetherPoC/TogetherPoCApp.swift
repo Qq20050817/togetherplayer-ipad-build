@@ -218,6 +218,7 @@ struct SubtitleHeightKey:PreferenceKey {
  @ObservedObject var subtitles: ExternalSubtitles
  @State private var importing=false
  @State private var adjustingSubtitles=false
+ @State private var voiceBusy=false
  var modalChanged: (Bool) -> Void = {_ in}
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
@@ -225,13 +226,14 @@ struct SubtitleHeightKey:PreferenceKey {
     HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
     VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}
    }
+   VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,busyChanged:{voiceBusy=$0})
    if subtitles.available {
     Text(subtitles.name).font(.caption).lineLimit(1).foregroundStyle(.secondary)
     Button("移除外挂字幕",role:.destructive) {subtitles.clear();model.chooseSubtitle(-1)}
    }
    if !subtitles.status.isEmpty {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
-   .onChange(of:importing || adjustingSubtitles) {modalChanged($0)}
+   .onChange(of:importing || adjustingSubtitles || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
@@ -427,7 +429,7 @@ struct SubtitleHeightKey:PreferenceKey {
  @State private var picker: Picker?
  var body: some View {
   Form {
-   Section("TogetherPlayer 0.4.8") {
+   Section("TogetherPlayer 0.5.0") {
     TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
     TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled()
     HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(.borderless)

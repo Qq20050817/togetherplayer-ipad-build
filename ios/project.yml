@@ -6,8 +6,8 @@ options:
 settings:
  base:
   SWIFT_VERSION: "5.0"
-  MARKETING_VERSION: "0.4.8"
-  CURRENT_PROJECT_VERSION: "48"
+  MARKETING_VERSION: "0.5.0"
+  CURRENT_PROJECT_VERSION: "50"
   TARGETED_DEVICE_FAMILY: "1,2"
 packages:
  PrismCore:
@@ -45,6 +45,8 @@ targets:
      - UIInterfaceOrientationPortraitUpsideDown
      - UIInterfaceOrientationLandscapeLeft
      - UIInterfaceOrientationLandscapeRight
+    NSSpeechRecognitionUsageDescription: 按住语音弹幕时在设备上识别中文，仅向房间发送文字。
+    NSMicrophoneUsageDescription: 按住语音弹幕时使用麦克风；声音不保存、不上传。
     NSLocalNetworkUsageDescription: Connect to your Together PoC test server.
     NSAppTransportSecurity:
      NSAllowsArbitraryLoads: true
