@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
   TabView {
    WatchScreen(model:model,chat:chat).tabItem {Label("观影",systemImage:"play.rectangle")}.badge(chat.unread)
    RoomScreen(model:model).tabItem {Label("房间与片源",systemImage:"person.2")}
-  }.preferredColorScheme(.dark).tint(.blue).onAppear {
+  }.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
@@ -90,7 +90,7 @@ import UniformTypeIdentifiers
    VStack(alignment:.leading,spacing:12) {
     PlaybackControls(model:model)
     HStack {TrackControls(model:model,subtitles:model.externalSubtitles);Spacer();Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
-    if !model.sourceNotice.isEmpty {HStack(alignment:.top) {Text(model.sourceNotice).font(.caption).foregroundColor(.orange);Spacer();Button(model.sourceResetLabel) {model.restoreRoomSource()}.font(.caption).buttonStyle(.bordered)}}
+    if !model.sourceNotice.isEmpty {HStack(alignment:.top) {Text(model.sourceNotice).font(.caption).foregroundColor(.orange);Spacer();Button(model.sourceResetLabel) {model.restoreRoomSource()}.font(.caption).buttonStyle(AnimatedAppButtonStyle(.bordered))}}
     if !model.roomNotice.isEmpty {Text(model.roomNotice).font(.caption).foregroundColor(.orange)}
     if !model.durationWarning.isEmpty {Text(model.durationWarning).font(.caption).foregroundColor(.orange)}
     RequestFeedback(feedback:model.feedback)
@@ -112,7 +112,7 @@ import UniformTypeIdentifiers
    Text("一起做什么").font(.headline)
    HStack {Button {sidebar=0} label:{Label("聊天交流",systemImage:"text.bubble.fill")};Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("发表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
    HStack {ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Label("分享房间",systemImage:"link")}.disabled(!model.isConnected);Button {settings=true} label:{Label("房间设置",systemImage:"gearshape")}}
-  }.font(.caption).buttonStyle(.bordered).padding(14).frame(maxWidth:.infinity,alignment:.leading).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20))
+  }.font(.caption).buttonStyle(AnimatedAppButtonStyle(.bordered)).padding(14).frame(maxWidth:.infinity,alignment:.leading).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20))
  }
 }
 @MainActor struct ConnectionPill: View {
@@ -204,7 +204,7 @@ struct SubtitleHeightKey:PreferenceKey {
    }
    }
    PlaybackActionFeedback(feedback:model.feedback)
-   if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(.bordered)}
+   if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(AnimatedAppButtonStyle(.bordered))}
   }.onAppear {volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume) {modalChanged($0)}
  }
  private var volumeButton:some View {Button {adjustingVolume=true} label:{Image(systemName:volume>0 ? "speaker.wave.2" : "speaker.slash")}.accessibilityLabel("播放音量").popover(isPresented:$adjustingVolume) {volumeControl.frame(width:220).padding(20)}}
@@ -253,7 +253,7 @@ struct SubtitleHeightKey:PreferenceKey {
     Button("移除外挂字幕",role:.destructive) {subtitles.clear();model.chooseSubtitle(-1)}
    }
    if !subtitles.status.isEmpty && !compact {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
-  }.buttonStyle(.bordered)
+  }.buttonStyle(AnimatedAppButtonStyle(.bordered))
    .onChange(of:importing || adjustingSubtitles || showingAudio || showingSubtitles || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
@@ -286,11 +286,26 @@ struct SubtitleHeightKey:PreferenceKey {
 struct PlaybackTransportStyle:ButtonStyle {
  func makeBody(configuration:Configuration)->some View {
   configuration.label.scaleEffect(configuration.isPressed ? 0.92 : 1).opacity(configuration.isPressed ? 0.55 : 1)
+   .animation(.easeOut(duration:configuration.isPressed ? 0.08 : 0.14),value:configuration.isPressed)
  }
 }
 @MainActor struct PlaybackActionFeedback:View {
  @ObservedObject var feedback:ClientFeedback
  var body:some View {Text(feedback.playbackAction).font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(height:14).accessibilityIdentifier("playback-action-feedback")}
+}
+struct AnimatedAppButtonStyle:ButtonStyle {
+ @Environment(\.isEnabled) private var enabled
+ enum Kind {case bordered,borderless,prominent}
+ let kind:Kind
+ init(_ kind:Kind){self.kind=kind}
+ func makeBody(configuration:Configuration)->some View {
+  configuration.label.padding(.horizontal,kind == .borderless ? 0 : 10).padding(.vertical,kind == .borderless ? 0 : 6)
+   .foregroundColor(kind == .prominent ? .white : nil)
+   .background(kind == .borderless ? Color.clear : Color.blue.opacity(kind == .prominent ? 1 : 0.14))
+   .clipShape(RoundedRectangle(cornerRadius:8)).contentShape(Rectangle())
+   .scaleEffect(configuration.isPressed ? 0.96 : 1).opacity(enabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
+   .animation(.easeOut(duration:configuration.isPressed ? 0.08 : 0.14),value:configuration.isPressed)
+ }
 }
 struct FullscreenToolStyle:ButtonStyle {
  @Environment(\.isEnabled) private var enabled
@@ -298,6 +313,7 @@ struct FullscreenToolStyle:ButtonStyle {
   configuration.label.font(.caption.weight(.medium)).frame(width:96,height:36)
    .foregroundColor(.blue).background(Color.blue.opacity(configuration.isPressed ? 0.35 : 0.16))
    .clipShape(RoundedRectangle(cornerRadius:8)).opacity(enabled ? 1 : 0.4)
+   .scaleEffect(configuration.isPressed ? 0.96 : 1).animation(.easeOut(duration:configuration.isPressed ? 0.08 : 0.14),value:configuration.isPressed)
  }
 }
 @MainActor final class FullscreenControlState: ObservableObject {
@@ -473,7 +489,7 @@ struct FullscreenToolStyle:ButtonStyle {
  var body: some View {
   HStack {
    TextField(placeholder,text:$draft.text).textFieldStyle(.roundedBorder).focused($focused).submitLabel(.send).accessibilityIdentifier(placeholder == "输入消息" ? "chat-input" : "danmaku-input").onSubmit {send()}.onChange(of:draft.text) {_ in model.sendTyping()}
-   Button("发送") {send()}.buttonStyle(.borderedProminent).disabled(!model.isConnected || draft.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
+   Button("发送") {send()}.buttonStyle(AnimatedAppButtonStyle(.prominent)).disabled(!model.isConnected || draft.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
   }.onAppear {if placeholder != "输入消息" {focused=true}}
  }
  private func send() {model.sendChat();if draft.text.isEmpty {onSent()}}
@@ -500,7 +516,7 @@ struct FullscreenToolStyle:ButtonStyle {
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
    Button(model.isSettingRoomMedia ? "正在设置房间影片…" : "设置房间影片") {model.setRoomMedia()}
-    .buttonStyle(.borderless).disabled(!model.isRoomHost || model.isSettingRoomMedia).accessibilityIdentifier("set-room-media")
+    .buttonStyle(AnimatedAppButtonStyle(.borderless)).disabled(!model.isRoomHost || model.isSettingRoomMedia).accessibilityIdentifier("set-room-media")
    if !feedback.requestStatus.isEmpty {Text(feedback.requestStatus).font(.caption).foregroundColor(.orange).accessibilityIdentifier("room-media-feedback")}
   }.frame(maxWidth:.infinity,alignment:.leading)
  }
@@ -515,7 +531,7 @@ struct FullscreenToolStyle:ButtonStyle {
    Section("TogetherPlayer 0.5.0") {
     TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
     TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled()
-    HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(.borderless)
+    HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(AnimatedAppButtonStyle(.borderless))
     RequestFeedback(feedback:model.feedback)
     ConnectionFeedback(model:model,feedback:model.feedback)
     Toggle("等待对方缓冲或重连",isOn:Binding(get:{model.waitForPeer},set:{model.waitForPeer=$0;model.setWaiting($0)})).disabled(!model.isRoomHost)
@@ -525,7 +541,7 @@ struct FullscreenToolStyle:ButtonStyle {
     TextField("影片名称",text:$model.movieTitle)
     TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
     RoomMediaAction(model:model,feedback:model.mediaFeedback)
-    Button("苹果 HDR / Atmos 测试片") {model.useHighQualityTestSource();model.movieTitle="苹果 HDR / Atmos 测试片";if model.isRoomHost {model.setRoomMedia()}}.buttonStyle(.borderless).disabled(model.isSettingRoomMedia)
+    Button("苹果 HDR / Atmos 测试片") {model.useHighQualityTestSource();model.movieTitle="苹果 HDR / Atmos 测试片";if model.isRoomHost {model.setRoomMedia()}}.buttonStyle(AnimatedAppButtonStyle(.borderless)).disabled(model.isSettingRoomMedia)
     Text("视频由设备直接读取。更换房间影片会暂停并让双方重新加载。").font(.caption)
    }
    Section("百度网盘 · 个人体验") {
@@ -577,7 +593,7 @@ struct FullscreenToolStyle:ButtonStyle {
     Button("模拟断线3秒") {model.disconnectForTest()}
     Text("当前为前台观影；切后台会暂停本机，返回后恢复房间状态。").font(.caption)
    }
-  }.buttonStyle(.borderless).sheet(item:$picker) {selection in
+  }.buttonStyle(AnimatedAppButtonStyle(.borderless)).sheet(item:$picker) {selection in
     switch selection {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}

@@ -61,11 +61,15 @@ class WatchInterfaceTest {
     assertTrue(micPosition[0]+mic.width/2>fullscreen(activity).window!!.decorView.width*0.7)
     for(control in listOf(mic,textView(fullscreen(activity).window!!.decorView,"10↪")!!,described(fullscreen(activity).window!!.decorView,"退出全屏")!!)){val where=IntArray(2);control.getLocationOnScreen(where);assertTrue(where[0]>=videoPosition[0]);assertTrue(where[0]+control.width<=videoPosition[0]+box.width)}
    };capture("04-fullscreen-controls")
-   SystemClock.sleep(13000)
-   scenario.onActivity {activity->
-    val decor=fullscreen(activity).window!!.decorView
-    assertFalse(described(decor,"退出全屏")!!.isShown)
-   };capture("05-fullscreen-hidden")
+   // Wait for the idle deadline after any platform focus transition; dialog
+   // focus changes pause the timer, so a fixed 13-second sleep is flaky.
+   var hidden=false
+   for(attempt in 0 until 200){
+    scenario.onActivity {activity->hidden=!described(fullscreen(activity).window!!.decorView,"退出全屏")!!.isShown}
+    if(hidden)break
+    SystemClock.sleep(100)
+   }
+   assertTrue("Idle controls must eventually hide without interaction",hidden);capture("05-fullscreen-hidden")
    scenario.onActivity {activity->
     val box=activity.javaClass.getDeclaredField("videoBox").apply {isAccessible=true}.get(activity) as android.view.View
     assertTrue(box.performClick())
@@ -147,6 +151,18 @@ class WatchInterfaceTest {
    scenario.onActivity {activity->assertTrue("Settings must block auto-hide",described(fullscreen(activity).window!!.decorView,"退出全屏")!!.isShown)}
    onView(withText("完成")).inRoot(isDialog()).check(matches(isDisplayed())).perform(click())
    scenario.onActivity {activity->assertTrue(described(fullscreen(activity).window!!.decorView,"退出全屏")!!.isShown)}
+   var downTime=0L;var touchX=0f;var touchY=0f
+   scenario.onActivity {activity->
+    val dialog=fullscreen(activity);val tool=describedShown(dialog.window!!.decorView,"弹幕速度")!!
+    val point=IntArray(2);tool.getLocationInWindow(point);touchX=point[0]+tool.width/2f;touchY=point[1]+tool.height/2f;downTime=SystemClock.uptimeMillis()
+    val event=android.view.MotionEvent.obtain(downTime,downTime,android.view.MotionEvent.ACTION_DOWN,touchX,touchY,0)
+    dialog.dispatchTouchEvent(event);event.recycle()
+   }
+   SystemClock.sleep(11000)
+   scenario.onActivity {activity->
+    val dialog=fullscreen(activity);assertTrue("Holding a control must block hiding",describedShown(dialog.window!!.decorView,"退出全屏")!=null)
+    val event=android.view.MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),android.view.MotionEvent.ACTION_CANCEL,touchX,touchY,0);dialog.dispatchTouchEvent(event);event.recycle()
+   }
    capture("06-fullscreen-speed-controls")
   }
  }

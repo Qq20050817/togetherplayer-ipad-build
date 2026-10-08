@@ -36,6 +36,7 @@ import SwiftUI
      if fullscreen {options}
      Text(held ? (cancelling ? "松开取消" : (fullscreen ? "松开预览" : "正在录音 · 松开预览")) : "按住说话")
       .frame(width:fullscreen ? 96 : 160,height:36).background(held ? Color.red : Color.blue).clipShape(RoundedRectangle(cornerRadius:8))
+      .scaleEffect(held ? 0.96 : 1).animation(.easeOut(duration:0.12),value:held)
       .accessibilityLabel("按住说话，松开预览，上滑取消")
       .accessibilityAction(named:Text("开始录音")) {if connected {voice.begin()}}
       .accessibilityAction(named:Text("结束录音并预览")) {voice.release()}
