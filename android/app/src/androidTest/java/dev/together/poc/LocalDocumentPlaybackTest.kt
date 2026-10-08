@@ -10,6 +10,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.json.JSONObject
@@ -46,12 +48,12 @@ class LocalDocumentPlaybackTest {
     device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),5000)
     var item=device.wait(Until.findObject(By.text(name)),5000)
     if(item==null){
-     device.findObject(By.desc("Show roots"))?.click()
-     device.wait(Until.findObject(By.text("Downloads")),3000)?.click()
+     clickStable(device,By.desc("Show roots"),3000)
+     clickStable(device,By.text("Downloads"),3000)
      item=device.wait(Until.findObject(By.text(name)),5000)
     }
     assertNotNull("System Files did not show the downloaded fixture: "+device.currentPackageName,item)
-    item!!.click()
+    assertTrue("Current Files item must remain selectable",clickStable(device,By.text(name),5000))
     assertTrue("Picker must return to app",device.wait(Until.hasObject(By.pkg("dev.together.poc")),5000))
     scenario.onActivity{welcome(it)}
     var selected=""
@@ -69,6 +71,16 @@ class LocalDocumentPlaybackTest {
     scenario.onActivity{activity->assertTrue(player(activity).duration>0);assertEquals(160,player(activity).videoFormat!!.width);player(activity).stop()}
    }
   } finally {resolver.delete(fixture,null,null)}
+ }
+ // DocumentsUI replaces nodes while thumbnails/metadata arrive. Re-query only
+ // stale accessibility nodes; still require the actual content URI, decoded frame and seek.
+ private fun clickStable(device:UiDevice,selector:BySelector,timeout:Long):Boolean {
+  val deadline=SystemClock.elapsedRealtime()+timeout
+  while(SystemClock.elapsedRealtime()<deadline) {
+   try {val current=device.wait(Until.findObject(selector),500);if(current!=null){current.click();return true}}
+   catch(_:StaleObjectException) {SystemClock.sleep(80)}
+  }
+  return false
  }
  @Test fun missingLocalFileReportsIOFileNotFoundNotDecoderFailure() {
   val failed=CountDownLatch(1);var code=0;var p:ExoPlayer?=null

@@ -57,3 +57,14 @@ jobs:
             android/app/build/reports/
             android/app/build/outputs/androidTest-results/
           retention-days: 7
+
+      - name: Preserve native test reports separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-native-validation
+          path: |
+            android-delivery/screenshots/
+            android/app/build/reports/
+            android/app/build/outputs/androidTest-results/
+          retention-days: 7
