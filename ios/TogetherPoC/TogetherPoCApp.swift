@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
   }.preferredColorScheme(.dark).tint(.blue).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
+   if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {try? LocalPickerUITestFixture.installRoomMediaValidation(into:model)}
@@ -232,16 +233,16 @@ struct SubtitleHeightKey:PreferenceKey {
  @ObservedObject var subtitles: ExternalSubtitles
  @State private var importing=false
  @State private var adjustingSubtitles=false
- @State private var showingSubtitleTools=false
+ @State private var showingAudio=false
+ @State private var showingSubtitles=false
  @State private var voiceBusy=false
  var showsVoice=true
  var compact=false
  var modalChanged: (Bool) -> Void = {_ in}
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
-   if compact {
-    HStack {audioMenu;subtitleMenu;Button {showingSubtitleTools=true} label:{Image(systemName:"ellipsis")}.accessibilityLabel("字幕工具").popover(isPresented:$showingSubtitleTools) {VStack(alignment:.leading,spacing:12) {Button("导入字幕") {showingSubtitleTools=false;subtitles.beginSelection();importing=true}.accessibilityIdentifier("fullscreen-import-subtitle");Button("字幕调整") {showingSubtitleTools=false;adjustingSubtitles=true}.accessibilityIdentifier("fullscreen-subtitle-adjustments")}.padding(20)}}
-   } else {ViewThatFits(in:.horizontal) {
+   if compact {HStack(spacing:6) {audioMenu;subtitleMenu;importButton;adjustButton}.buttonStyle(FullscreenToolStyle())}
+   else {ViewThatFits(in:.horizontal) {
     HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
     VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}
    }}
@@ -252,44 +253,63 @@ struct SubtitleHeightKey:PreferenceKey {
    }
    if !subtitles.status.isEmpty && !compact {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
-   .onChange(of:importing || adjustingSubtitles || showingSubtitleTools || voiceBusy) {modalChanged($0)}
+   .onChange(of:importing || adjustingSubtitles || showingAudio || showingSubtitles || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
    .sheet(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles)}
  }
  private var audioMenu: some View {
-  Menu {
-   Button {model.chooseAudio(-1)} label:{Label("自动选择",systemImage:model.selectedAudioIndex == -1 ? "checkmark" : "waveform")}
-   if model.audioLabels.isEmpty {Text("未读取到可选音轨")}
-   ForEach(model.audioLabels.indices,id:\.self) {index in Button {model.chooseAudio(index)} label:{Label(model.audioLabels[index],systemImage:model.selectedAudioIndex==index ? "checkmark" : "waveform")}}
-  } label:{Label("音轨",systemImage:"waveform")}
+  Button {showingAudio=true} label:{Label("音轨",systemImage:"waveform")}.popover(isPresented:$showingAudio) {
+   VStack(alignment:.leading,spacing:12) {
+    Button {model.chooseAudio(-1);showingAudio=false} label:{Label("自动选择",systemImage:model.selectedAudioIndex == -1 ? "checkmark" : "waveform")}
+    if model.audioLabels.isEmpty {Text("未读取到可选音轨")}
+    ForEach(model.audioLabels.indices,id:\.self) {index in Button {model.chooseAudio(index);showingAudio=false} label:{Label(model.audioLabels[index],systemImage:model.selectedAudioIndex==index ? "checkmark" : "waveform")}}
+   }.padding(20)
+  }
  }
  private var subtitleMenu: some View {
-  Menu {
-   Button {model.chooseSubtitle(-1)} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
-   Button {model.chooseSubtitle(-2)} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
-   if model.subtitleLabels.isEmpty {Text("未读取到可选内置文字字幕；可导入外挂字幕")}
-   ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index)} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
-   if subtitles.available {Button {model.enableExternalSubtitle()} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
-  } label:{Label("字幕",systemImage:"captions.bubble")}
+  Button {showingSubtitles=true} label:{Label("字幕",systemImage:"captions.bubble")}.popover(isPresented:$showingSubtitles) {
+   VStack(alignment:.leading,spacing:12) {
+    Button {model.chooseSubtitle(-1);showingSubtitles=false} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
+    Button {model.chooseSubtitle(-2);showingSubtitles=false} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
+    if model.subtitleLabels.isEmpty {Text("未读取到可选内置文字字幕；可导入外挂字幕")}
+    ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index);showingSubtitles=false} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
+    if subtitles.available {Button {model.enableExternalSubtitle();showingSubtitles=false} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
+   }.padding(20)
+  }
  }
- private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier("subtitle-adjustments")}
- private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier("import-subtitle")}
+ private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-adjustments" : "subtitle-adjustments")}
+ private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier(compact ? "fullscreen-import-subtitle" : "import-subtitle")}
+}
+struct FullscreenToolStyle:ButtonStyle {
+ @Environment(\.isEnabled) private var enabled
+ func makeBody(configuration:Configuration)->some View {
+  configuration.label.font(.caption.weight(.medium)).frame(width:96,height:36)
+   .foregroundColor(.blue).background(Color.blue.opacity(configuration.isPressed ? 0.35 : 0.16))
+   .clipShape(RoundedRectangle(cornerRadius:8)).opacity(enabled ? 1 : 0.4)
+ }
 }
 @MainActor final class FullscreenControlState: ObservableObject {
  @Published var visible=true
  private var timer: Timer?
+ private var blockers=Set<String>()
+ private var touching=false
+ private let delay:TimeInterval
+ var busy:Bool {!blockers.isEmpty || touching}
+ init(delay:TimeInterval=10) {self.delay=delay}
  deinit {timer?.invalidate()}
  func cancel() {timer?.invalidate();timer=nil}
- func hide() {cancel();visible=false}
- func schedule(allowed: Bool) {
-  cancel();guard allowed else {return}
-  var timeout=3.0
-  #if DEBUG
-  if ProcessInfo.processInfo.environment["TOGETHER_UI_TEST"]=="1" {timeout=12}
-  #endif
-  let next=Timer(timeInterval:timeout,repeats:false) {[weak self] _ in Task {@MainActor in self?.visible=false}}
+ func hide() {guard !busy else {return};cancel();visible=false}
+ func setBusy(_ source:String,_ active:Bool) {
+  if active {blockers.insert(source);visible=true;cancel()}
+  else {blockers.remove(source);schedule()}
+ }
+ func beginInteraction() {touching=true;cancel()}
+ func endInteraction() {touching=false;schedule()}
+ func schedule() {
+  cancel();guard !busy && visible else {return}
+  let next=Timer(timeInterval:delay,repeats:false) {[weak self] _ in Task {@MainActor in self?.hide()}}
   timer=next;RunLoop.main.add(next,forMode:.common)
  }
 }
@@ -298,17 +318,18 @@ struct SubtitleHeightKey:PreferenceKey {
  @ObservedObject var chat: ChatEngine
  @Environment(\.dismiss) private var dismiss
  @StateObject private var controls=FullscreenControlState()
- @State private var selectingFile=false
  @State private var composing=false
  @State private var adjustingDanmaku=false
+ @State private var adjustingSpeed=false
  var body: some View {
+  GeometryReader {geometry in
   VStack(spacing:0) {
    ZStack {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
-     guard !composing && !selectingFile else {return}
+     guard !composing && !controls.busy else {return}
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     }
@@ -320,14 +341,14 @@ struct SubtitleHeightKey:PreferenceKey {
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
    if controls.visible && !composing {
     VStack(spacing:4) {
-     PlaybackControls(model:model,compact:true,modalChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}})
-     ViewThatFits(in:.horizontal) {
-      HStack(spacing:8) {tools;Spacer(minLength:0);voiceDock}
-      VStack(spacing:4) {tools;HStack {Spacer(minLength:0);voiceDock}}
-     }
+     PlaybackControls(model:model,compact:true,modalChanged:{controls.setBusy("volume",$0)})
+     // AnyLayout preserves the voice view identity when width changes. Recording
+     // must not be cancelled because a fitting-layout candidate disappeared.
+     let layout=geometry.size.width>=1100 ? AnyLayout(HStackLayout(spacing:8)) : AnyLayout(VStackLayout(alignment:.leading,spacing:4))
+     layout {tools;voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
-     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
+     .simultaneousGesture(DragGesture(minimumDistance:0).onChanged {_ in controls.beginInteraction()}.onEnded {_ in controls.endInteraction()})
    }
    if composing {
     // Keep the movie in its own region above the composer and keyboard.
@@ -340,20 +361,23 @@ struct SubtitleHeightKey:PreferenceKey {
    }
   }.background(Color.black).preferredColorScheme(.dark)
    .onAppear {scheduleHide()}.onDisappear {controls.cancel()}
-   .onChange(of:composing) {if $0 {controls.cancel()} else {scheduleHide()}}
-   .onChange(of:adjustingDanmaku) {if $0 {controls.cancel()} else {scheduleHide()}}
+   .onChange(of:composing) {controls.setBusy("composer",$0)}
+   .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
+   .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
+  }
  }
  private var tools:some View {
-  HStack(spacing:6) {
-   TrackControls(model:model,subtitles:model.externalSubtitles,showsVoice:false,compact:true,modalChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}})
-   Button {composing=true} label:{Image(systemName:"text.bubble.fill")}.accessibilityLabel("发弹幕").disabled(!model.isConnected)
-   Button {adjustingDanmaku=true} label:{Image(systemName:"textformat.size")}.accessibilityLabel("弹幕字号").popover(isPresented:$adjustingDanmaku) {DanmakuSettings().frame(width:280).padding(20)}
-  }.font(.caption).buttonStyle(.bordered)
+  ScrollView(.horizontal,showsIndicators:false) {HStack(spacing:6) {
+   TrackControls(model:model,subtitles:model.externalSubtitles,showsVoice:false,compact:true,modalChanged:{controls.setBusy("tracks",$0)})
+   Button {composing=true} label:{Label("发弹幕",systemImage:"text.bubble.fill")}.accessibilityLabel("发弹幕").disabled(!model.isConnected)
+   Button {adjustingDanmaku=true} label:{Label("弹幕字号",systemImage:"textformat.size")}.accessibilityLabel("弹幕字号").popover(isPresented:$adjustingDanmaku) {DanmakuSettings(showsSpeed:false).frame(width:280).padding(20)}
+   Button {adjustingSpeed=true} label:{Label("弹幕速度",systemImage:"speedometer")}.accessibilityLabel("弹幕速度").popover(isPresented:$adjustingSpeed) {DanmakuSettings(showsFont:false).frame(width:280).padding(20)}
+  }.font(.caption).buttonStyle(FullscreenToolStyle())}.frame(maxWidth:708).frame(height:36)
  }
  private var voiceDock:some View {
-  VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,fullscreen:true,busyChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}}).frame(maxWidth:340).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-voice-dock")
+  VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,fullscreen:true,busyChanged:{controls.setBusy("voice",$0)}).frame(maxWidth:340).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-voice-dock")
  }
- private func scheduleHide() {controls.schedule(allowed:!selectingFile && !composing && !adjustingDanmaku)}
+ private func scheduleHide() {controls.schedule()}
 }
 
 @MainActor struct DanmakuOverlay: View {
@@ -369,12 +393,22 @@ struct SubtitleHeightKey:PreferenceKey {
 }
 @MainActor struct DanmakuSettings: View {
  @AppStorage("danmakuFontSize") private var fontSize=24.0
+ @AppStorage("danmakuSpeed") private var speed=1.0
+ var showsFont=true
+ var showsSpeed=true
  var body: some View {
   VStack(alignment:.leading,spacing:16) {
+   if showsFont {
    Text("弹幕字号：\(Int(fontSize))").font(.headline)
    Slider(value:$fontSize,in:14...44,step:1).accessibilityLabel("弹幕文字大小")
    Text("一起看电影 👀").font(.system(size:fontSize,weight:.semibold))
-   Button("恢复默认") {fontSize=24}
+   }
+   if showsSpeed {
+   Text("弹幕速度：\(speed,specifier:"%.1f") 倍")
+   Slider(value:$speed,in:0.5...2,step:0.1).accessibilityLabel("弹幕速度")
+   Text("0.5 倍更慢，2 倍更快；对新弹幕生效").font(.caption)
+   }
+   Button("恢复默认") {if showsFont {fontSize=24};if showsSpeed {speed=1}}
   }
  }
 }

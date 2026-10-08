@@ -11,8 +11,8 @@ struct DanmakuQueue {
  private(set) var active: [DanmakuItem]=[]
  private var pending: [(Int64,String,Double,Double)]=[]
  mutating func reset() {active=[];pending=[]}
- mutating func enqueue(id: Int64,text: String,now: Double,durationMs: Double=10000) {
-  pending.append((id,String(text.prefix(durationMs<=5000 ? 500 : 120)),now+30000,durationMs))
+ mutating func enqueue(id: Int64,text: String,now: Double,durationMs: Double=10000,characterLimit:Int?=nil) {
+  pending.append((id,String(text.prefix(characterLimit ?? (durationMs<=5000 ? 500 : 120))),now+30000,durationMs))
   if pending.count>20 {pending.removeFirst(pending.count-20)}
   advance(now)
  }
@@ -24,5 +24,12 @@ struct DanmakuQueue {
    let next=pending.removeFirst()
    active.append(DanmakuItem(id:next.0,text:next.1,lane:lane,expiresAt:now+next.3,durationMs:next.3))
   }
+ }
+}
+
+struct DanmakuSpeed {
+ static func duration(_ base:Double,speed:Double)->Double {
+  let value=speed.isFinite && speed>0 ? min(2,max(0.5,speed)) : 1
+  return base/value
  }
 }

@@ -50,11 +50,12 @@ class MainActivity: Activity() {
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private var memberSummary="";private var onlineMembers=0
  private lateinit var captions: TextView;private var external: ExternalSubtitle?=null;private var subtitleName="";private var subtitleDelay=0L;private var subtitleEnabled=false;private var subtitleGeneration=0
  private var fullscreenDialog: android.app.Dialog?=null;private var fullscreenControls: LinearLayout?=null;private var fullscreenTime: TextView?=null;private var draggingProgress=false;private var screenRoot: LinearLayout?=null
- private val danmakuPending=ArrayDeque<Triple<String,Double,Long>>();private val danmakuLanes=BooleanArray(3);private var danmakuSize=24f
+ private val danmakuPending=ArrayDeque<Triple<String,Double,Long>>();private val danmakuLanes=BooleanArray(3);private var danmakuSize=24f;private var danmakuSpeed=1f
+ private var fullscreenTouching=false;private var fullscreenFocused=true
  private lateinit var voice:VoiceDanmakuController
  private val voiceViews=mutableListOf<VoiceDanmakuView>()
  private var voiceConnected=false
- private val hideControls=Runnable {if(!voice.busy)fullscreenControls?.visibility=View.GONE}
+ private val hideControls=Runnable {if(!voice.busy && !fullscreenTouching && fullscreenFocused && !draggingProgress)fullscreenControls?.visibility=View.GONE}
  private fun dp(n: Int)=(n*resources.displayMetrics.density).toInt()
  private fun field(parent: LinearLayout,hintText: String,default: String="")=EditText(this).apply {hint=hintText;setText(default);maxLines=3;parent.addView(this)}
  private fun button(parent: LinearLayout,label: String,action:()->Unit)=Button(this).apply {text=label;isAllCaps=false;minWidth=0;minimumWidth=0;textSize=13f;setTextColor(-1);setPadding(dp(12),dp(6),dp(12),dp(6));background=android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x40ffffff),rounded(0xff202a33.toInt(),12),null);setOnClickListener {action()};parent.addView(this,LinearLayout.LayoutParams(-2,dp(44)).apply {setMargins(dp(3),dp(3),dp(3),dp(3))})}
@@ -112,6 +113,7 @@ class MainActivity: Activity() {
  override fun onStop(){voice.disable();foreground=false;generation++;connected=false;ws?.cancel();ws=null;engine.resetSession();player.stop();status.text="后台暂停；返回同步";super.onStop()}
  private fun buildInterface(){
   danmakuSize=getPreferences(0).getFloat("danmakuSize",24f).coerceIn(14f,44f)
+  danmakuSpeed=getPreferences(0).getFloat("danmakuSpeed",1f).coerceIn(0.5f,2f)
   val root=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(8),dp(4),dp(8),dp(6));setBackgroundColor(0xff090e10.toInt())};screenRoot=root
   val watch=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL};val settingsBody=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8))};val settings=ScrollView(this).apply {addView(settingsBody);visibility=View.GONE}
   val openSettings={watch.visibility=View.GONE;settings.visibility=View.VISIBLE;chat.visible=false}
@@ -299,20 +301,48 @@ class MainActivity: Activity() {
   val dialog=android.app.Dialog(this,android.R.style.Theme_Black_NoTitleBar_Fullscreen);fullscreenDialog=dialog
   val overlay=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(6),dp(12),dp(8));setBackgroundColor(0xbb101216.toInt())};fullscreenControls=overlay
   val transport=row(overlay).apply {gravity=android.view.Gravity.CENTER_VERTICAL};fullscreenTime=label(transport).apply {textSize=11f;layoutParams=LinearLayout.LayoutParams(0,-2,1f)};button(transport,"↩10") {control("SEEK",player.currentPosition-engine.timelineOffset-10000);revealControls()};button(transport,"播放 / 暂停") {togglePlayback();revealControls()};button(transport,"10↪") {control("SEEK",player.currentPosition-engine.timelineOffset+10000);revealControls()}
-  val tracks=row(overlay);icon(tracks,R.drawable.ic_logout,"退出全屏",40) {dialog.dismiss()};icon(tracks,R.drawable.ic_chat_bubble_outline,"发弹幕",40) {composeDanmaku()};button(tracks,"字号") {danmakuSettings()};icon(tracks,R.drawable.ic_audiotrack,"音轨",40) {selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)};icon(tracks,R.drawable.ic_subtitles,"字幕",40) {subtitleMenu()}
-  val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};if(resources.configuration.screenWidthDp>=600){tracks.layoutParams=LinearLayout.LayoutParams(-1,-2);tracks.addView(voiceDock,LinearLayout.LayoutParams(0,-2,1f))}else{overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2))};val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
+  val tracks=GridLayout(this).apply {columnCount=((resources.configuration.screenWidthDp-24)/76).coerceIn(2,8);overlay.addView(this,LinearLayout.LayoutParams(-1,-2))}
+  fun tool(text:String,action:()->Unit){tracks.addView(Button(this).apply {this.text=text;contentDescription=text;textSize=11f;isAllCaps=false;minWidth=0;minimumWidth=0;minHeight=0;minimumHeight=0;setPadding(2,0,2,0);background=android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x553c9bff),rounded(0xff14283a.toInt(),8),null);setTextColor(0xff58adff.toInt());setOnClickListener {action()}},GridLayout.LayoutParams().apply {width=dp(72);height=dp(36);setMargins(dp(2),dp(2),dp(2),dp(2))})}
+  tool("音轨"){selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
+  tool("字幕"){subtitleMenu()};tool("导入字幕"){importSubtitle()}
+  tool("字幕调整"){if(external!=null)subtitleTiming()else android.widget.Toast.makeText(this,"请先导入外挂字幕，再调整时间偏移",android.widget.Toast.LENGTH_SHORT).show()}
+  tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
+  val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2));val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
   content.addView(overlay,LinearLayout.LayoutParams(-1,-2));videoBox.setOnClickListener {if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()}
-  dialog.setContentView(content);dialog.setOnDismissListener {if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();content.requestApplyInsets();dialog.window?.setLayout(-1,-1);dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);revealControls()
+  dialog.setContentView(content);dialog.setOnDismissListener {if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
+   val original=window.callback
+   window.callback=object:android.view.Window.Callback by original {
+    override fun dispatchTouchEvent(event:android.view.MotionEvent):Boolean {
+     if(event.actionMasked==android.view.MotionEvent.ACTION_DOWN){fullscreenTouching=true;main.removeCallbacks(hideControls)}
+     val handled=original.dispatchTouchEvent(event)
+     if(event.actionMasked==android.view.MotionEvent.ACTION_UP || event.actionMasked==android.view.MotionEvent.ACTION_CANCEL){fullscreenTouching=false;scheduleControlsHide()}
+     return handled
+    }
+    override fun onWindowFocusChanged(focused:Boolean){original.onWindowFocusChanged(focused);fullscreenFocused=focused;if(focused)scheduleControlsHide()else main.removeCallbacks(hideControls)}
+   }
+  };content.requestApplyInsets();dialog.window?.setLayout(-1,-1);dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);revealControls()
  }
- private fun revealControls(){fullscreenControls?.visibility=View.VISIBLE;main.removeCallbacks(hideControls);main.postDelayed(hideControls,if(applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE!=0 && intent.getBooleanExtra("uiTestSlow",false))12000 else 3000)}
+ private fun scheduleControlsHide(){main.removeCallbacks(hideControls);if(fullscreenControls?.visibility==View.VISIBLE && !fullscreenTouching && fullscreenFocused && !voice.busy && !draggingProgress)main.postDelayed(hideControls,if(applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE!=0 && intent.getBooleanExtra("uiTestSlow",false))12000 else 10000)}
+ private fun revealControls(){fullscreenControls?.visibility=View.VISIBLE;scheduleControlsHide()}
  private fun togglePlayback(){control(if(engine.room?.optString("state")=="playing")"PAUSE" else "PLAY")}
  private fun composeDanmaku(){main.removeCallbacks(hideControls);val input=EditText(this).apply {hint="发弹幕（同时发送到聊天）";maxLines=3}
   val d=android.app.AlertDialog.Builder(this).setTitle("发弹幕").setView(input).setNegativeButton("取消",null).setPositiveButton("发送",null).create()
   d.setOnShowListener {d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {draft.setText(input.text);sendChat();if(draft.text.isEmpty())d.dismiss() else android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_SHORT).show()};input.requestFocus();d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)};d.setOnDismissListener {revealControls()};d.show()
  }
- private fun danmakuSettings(){main.removeCallbacks(hideControls);val body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(10),dp(20),dp(10))};val preview=label(body,"弹幕文字大小：${danmakuSize.toInt()}");val size=SeekBar(this).apply {max=30;progress=danmakuSize.toInt()-14;contentDescription="弹幕文字大小"};body.addView(size);size.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {override fun onProgressChanged(s: SeekBar?,p: Int,user: Boolean){if(user){danmakuSize=(14+p).toFloat();preview.text="弹幕文字大小：${danmakuSize.toInt()}";getPreferences(0).edit().putFloat("danmakuSize",danmakuSize).apply()}};override fun onStartTrackingTouch(s: SeekBar?){};override fun onStopTrackingTouch(s: SeekBar?) {}});android.app.AlertDialog.Builder(this).setTitle("弹幕字号").setView(body).setPositiveButton("完成",null).create().apply {setOnDismissListener {revealControls()};show()}}
+ private fun danmakuSettings(){
+  main.removeCallbacks(hideControls)
+  val body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(10),dp(20),dp(10))}
+  val preview=label(body,"弹幕文字大小：${danmakuSize.toInt()}")
+  val size=SeekBar(this).apply {max=30;progress=danmakuSize.toInt()-14;contentDescription="弹幕文字大小"};body.addView(size)
+  size.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){danmakuSize=(14+p).toFloat();preview.text="弹幕文字大小：${danmakuSize.toInt()}";getPreferences(0).edit().putFloat("danmakuSize",danmakuSize).apply()}};override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?) {}})
+  val speedLabel=label(body,"弹幕速度：%.1f 倍".format(danmakuSpeed))
+  val speed=SeekBar(this).apply {max=15;progress=((danmakuSpeed-0.5f)*10).toInt();contentDescription="弹幕速度"};body.addView(speed)
+  speed.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){danmakuSpeed=0.5f+p/10f;speedLabel.text="弹幕速度：%.1f 倍".format(danmakuSpeed);getPreferences(0).edit().putFloat("danmakuSpeed",danmakuSpeed).apply()}};override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?) {}})
+  label(body,"0.5 倍更慢，2 倍更快；对新弹幕生效")
+  android.app.AlertDialog.Builder(this).setTitle("弹幕设置").setView(body).setPositiveButton("完成",null).create().apply {setOnDismissListener {revealControls()};show()}
+ }
  private fun drainDanmaku(){while(danmakuPending.isNotEmpty() && clock.localNow()-danmakuPending.first().second>30000)danmakuPending.removeFirst();val lane=danmakuLanes.indexOfFirst {!it};if(lane<0 || danmakuPending.isEmpty())return;val entry=danmakuPending.removeFirst();val text=entry.first;danmakuLanes[lane]=true
-  val v=TextView(this).apply {this.text=text;textSize=danmakuSize;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);tag="danmaku";isClickable=false};v.measure(View.MeasureSpec.UNSPECIFIED,View.MeasureSpec.UNSPECIFIED);val h=dp((danmakuSize*1.6).toInt());videoBox.addView(v,FrameLayout.LayoutParams(-2,h).apply {topMargin=dp(if(fullscreenDialog!=null)16 else 72)+lane*h});v.translationX=videoBox.width.toFloat();v.animate().translationX(-v.measuredWidth.toFloat()).setDuration(entry.third).setInterpolator(android.view.animation.LinearInterpolator()).withEndAction {videoBox.removeView(v);danmakuLanes[lane]=false;drainDanmaku()}.start();drainDanmaku()
+  val v=TextView(this).apply {this.text=text;textSize=danmakuSize;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);tag="danmaku";isClickable=false};v.measure(View.MeasureSpec.UNSPECIFIED,View.MeasureSpec.UNSPECIFIED);val h=dp((danmakuSize*1.6).toInt());videoBox.addView(v,FrameLayout.LayoutParams(-2,h).apply {topMargin=dp(if(fullscreenDialog!=null)16 else 72)+lane*h});v.translationX=videoBox.width.toFloat();v.animate().translationX(-v.measuredWidth.toFloat()).setDuration(DanmakuSpeed.duration(entry.third,danmakuSpeed)).setInterpolator(android.view.animation.LinearInterpolator()).withEndAction {videoBox.removeView(v);danmakuLanes[lane]=false;drainDanmaku()}.start();drainDanmaku()
  }
  private fun removeDanmaku(){for(i in videoBox.childCount-1 downTo 0){val v=videoBox.getChildAt(i);if(v.tag=="danmaku"){v.animate().cancel();videoBox.removeView(v)}};danmakuLanes.fill(false)}
  private fun errorText(code: String)=when(code){"STALE_VERSION"->"房间状态变化，请重试";"HOST_REQUIRED"->"只有房主可以操作";"HOST_OFFLINE"->"房主离线";"SEEK_AFTER_END"->"超出影片时长";"SOURCE_NOT_READY"->"等待两端匹配同一百度影片并准备好";"INVALID_SOURCE"->"片源无效或含凭据";"RATE_LIMIT"->"操作过于频繁";else->code}

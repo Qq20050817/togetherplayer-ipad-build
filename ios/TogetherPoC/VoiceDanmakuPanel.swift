@@ -15,7 +15,7 @@ import SwiftUI
    if fullscreen && showsDetails {details}
    toolbar
    if !fullscreen {details}
-  }.font(fullscreen ? .caption : .body).buttonStyle(.bordered).onAppear {updateBusy()}
+  }.font(fullscreen ? .caption : .body).buttonStyle(FullscreenToolStyle()).onAppear {updateBusy()}
    .onChange(of:connected) {if !$0 {voice.cancel(message:"连接中断，当前录音已取消；重连后可再次按住")};held=false}
    .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};if voice.state == .disabled {gestureActive=false};updateBusy()}
    .onChange(of:settings) {_ in updateBusy()}
@@ -35,7 +35,7 @@ import SwiftUI
     } else {
      if fullscreen {options}
      Text(held ? (cancelling ? "松开取消" : (fullscreen ? "松开预览" : "正在录音 · 松开预览")) : "按住说话")
-      .padding(.horizontal,16).padding(.vertical,10).background(held ? Color.red : Color.blue).clipShape(Capsule())
+      .frame(width:fullscreen ? 96 : 160,height:36).background(held ? Color.red : Color.blue).clipShape(RoundedRectangle(cornerRadius:8))
       .accessibilityLabel("按住说话，松开预览，上滑取消")
       .accessibilityAction(named:Text("开始录音")) {if connected {voice.begin()}}
       .accessibilityAction(named:Text("结束录音并预览")) {voice.release()}
@@ -60,8 +60,8 @@ import SwiftUI
  }
  private var options:some View {
   Group {
-   Button {voice.disable();held=false} label:{if fullscreen {Image(systemName:"mic.slash")}else{Text("关闭语音")}}.accessibilityLabel("关闭语音").accessibilityIdentifier("disable-voice-danmaku")
-   Button {settings=true} label:{if fullscreen {Image(systemName:"gearshape")}else{Text("语音设置")}}.accessibilityLabel("语音设置").disabled(voice.state != .ready)
+   Button {voice.disable();held=false} label:{Text("关闭语音")}.accessibilityLabel("关闭语音").accessibilityIdentifier("disable-voice-danmaku")
+   Button {settings=true} label:{Text("语音设置")}.accessibilityLabel("语音设置").disabled(voice.state != .ready)
   }
  }
  private var details:some View {

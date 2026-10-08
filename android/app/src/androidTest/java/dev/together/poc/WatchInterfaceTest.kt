@@ -132,6 +132,22 @@ class WatchInterfaceTest {
    onView(withText("返回")).perform(click());adapter.close()
   }
  }
+ @Test fun testFullscreenSettingsRemainVisiblePastIdleDeadline() {
+  ActivityScenario.launch<MainActivity>(MainActivity::class.java).use {scenario->
+   scenario.onActivity {it.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE};SystemClock.sleep(1000)
+   scenario.onActivity {activity->
+    described(activity.window.decorView,"全屏")!!.performClick()
+    val decor=fullscreen(activity).window!!.decorView
+    for(label in listOf("音轨","字幕","导入字幕","字幕调整","弹幕字号","弹幕速度"))assertTrue(described(decor,label)!!.isShown)
+    described(decor,"弹幕速度")!!.performClick()
+   }
+   SystemClock.sleep(11000)
+   scenario.onActivity {activity->assertTrue("Settings must block auto-hide",described(fullscreen(activity).window!!.decorView,"退出全屏")!!.isShown)}
+   onView(withText("完成")).inRoot(isDialog()).check(matches(isDisplayed())).perform(click())
+   scenario.onActivity {activity->assertTrue(described(fullscreen(activity).window!!.decorView,"退出全屏")!!.isShown)}
+   capture("06-fullscreen-speed-controls")
+  }
+ }
  private fun fullscreen(activity: MainActivity)=activity.javaClass.getDeclaredField("fullscreenDialog").apply {isAccessible=true}.get(activity) as android.app.Dialog
  @Test fun testIdlePlayerIsNotReloadedByPeriodicSnapshotsAndManualRetryWorks() {
   ActivityScenario.launch<MainActivity>(MainActivity::class.java).use {scenario->

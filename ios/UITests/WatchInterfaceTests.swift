@@ -1,6 +1,31 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testFullscreenVoiceHoldKeepsPreviewAndIndependentTools() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_VOICE_GESTURE_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()
+  let bar=app.otherElements["fullscreen-control-bar"].firstMatch
+  let hold=bar.descendants(matching:.any)["hold-voice-danmaku"].firstMatch
+  XCTAssertTrue(hold.waitForExistence(timeout:5));XCTAssertTrue(hold.isHittable)
+  hold.press(forDuration:1.5)
+  let result=app.textFields["voice-result"]
+  XCTAssertTrue(result.waitForExistence(timeout:5),app.debugDescription)
+  XCTAssertEqual(result.value as? String,"语音手势测试结果")
+  XCTAssertTrue(app.buttons["confirm-voice-danmaku"].exists)
+  XCTAssertGreaterThan(hold.frame.midX,app.frame.width*0.7)
+  capture("16-voice-hold-preview",app)
+  app.buttons["cancel-voice-danmaku"].tap()
+  let tools=[bar.buttons["音轨"].firstMatch,bar.buttons["字幕"].firstMatch,bar.buttons["fullscreen-import-subtitle"],bar.buttons["fullscreen-subtitle-adjustments"],bar.buttons["弹幕字号"],bar.buttons["弹幕速度"]]
+  for tool in tools {XCTAssertTrue(tool.isHittable);XCTAssertEqual(tool.frame.width,96,accuracy:1);XCTAssertEqual(tool.frame.height,36,accuracy:1)}
+  bar.buttons["弹幕速度"].tap()
+  let speed=app.sliders["弹幕速度"];XCTAssertTrue(speed.waitForExistence(timeout:5));speed.adjust(toNormalizedSliderPosition:0.2)
+  // Open options remain usable past the ten-second idle deadline.
+  sleep(11)
+  XCTAssertTrue(speed.exists);XCTAssertTrue(speed.isHittable)
+  capture("17-danmaku-speed",app)
+ }
+
  func testVoiceEntryDoesNotActivateMicrophoneOutsideRoom() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
@@ -55,7 +80,6 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(position.exists,app.debugDescription)
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()
-  app.buttons["字幕工具"].tap()
   let fullscreenAdjust=app.buttons["fullscreen-subtitle-adjustments"]
   XCTAssertTrue(fullscreenAdjust.waitForExistence(timeout:5),app.debugDescription)
   XCTAssertTrue(fullscreenAdjust.isHittable,app.debugDescription);fullscreenAdjust.tap()
@@ -85,7 +109,6 @@ final class WatchInterfaceTests: XCTestCase {
   app.launchEnvironment["TOGETHER_SUBTITLE_SELECTION_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   if fullscreen {let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()}
-  if fullscreen {app.buttons["字幕工具"].tap()}
   let choose=app.buttons[fullscreen ? "fullscreen-import-subtitle" : "import-subtitle"].firstMatch
   XCTAssertTrue(choose.waitForExistence(timeout:15));XCTAssertTrue(choose.isHittable);choose.tap()
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@","LOCAL-SUBTITLE-TEST")).firstMatch
@@ -226,7 +249,7 @@ final class WatchInterfaceTests: XCTestCase {
   let mic=bar.buttons["enable-voice-danmaku"].firstMatch;XCTAssertTrue(mic.exists);XCTAssertGreaterThan(mic.frame.midX,app.frame.width*0.7)
   capture("03-fullscreen-controls",app)
   // Inactivity removes hit targets; SwiftUI may retain AX nodes in its cache.
-  // Debug-only deadline12s accommodates cloud XCTest; Release always uses3s.
+  // Hide only after ten seconds with no interaction.
   let hidden=expectation(for:NSPredicate(format:"exists == false"),evaluatedWith:exit)
   wait(for:[hidden],timeout:16)
   capture("03b-fullscreen-hidden",app)

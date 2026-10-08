@@ -166,7 +166,7 @@ import CoreMedia
  }
  deinit {for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func diagnostic(_ event: String) {
-  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.5.2","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.5.3","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
@@ -565,10 +565,10 @@ import CoreMedia
    let target=engine.target();let position=adapter.position
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
-   let telemetry: [String:Any]=["clientVersion":"0.5.2","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+   let telemetry: [String:Any]=["clientVersion":"0.5.3","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
    var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
    send(["type":"TELEMETRY","data":connectionTelemetry])
-   status="0.5.2 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
+   status="0.5.3 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
   }
   if ticks%50 == 0 {inspectFormats();updateMediaInfo()}
   if ticks%150 == 0 {pingBurst()}

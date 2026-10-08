@@ -12,7 +12,11 @@ import Combine
  private let engine=AVAudioEngine()
  private var generation=0
  private var tapped=false
+ private var recordingOutputIDs=Set<String>()
  private var snapshot:SessionSnapshot?
+ private let injectedSession:VoiceRecordingSession?
+ private lazy var liveSession=VoiceRecordingSession(isCurrent:{let s=AVAudioSession.sharedInstance();return s.category == .playAndRecord && s.mode == .default},activate:{[weak self] in try self?.configureSession()},release:{[weak self] in try self?.restoreSession()})
+ private var recordingSession:VoiceRecordingSession {injectedSession ?? liveSession}
  private var observers:[NSObjectProtocol]=[]
  var onBuffer:((AVAudioPCMBuffer)->Void)?
  var onFailure:((String)->Void)?
@@ -25,7 +29,8 @@ import Combine
   let outputIDs:Set<String>
   let multichannel:Bool
  }
- init() {
+ init(session:VoiceRecordingSession?=nil) {
+  injectedSession=session
   let center=NotificationCenter.default
   observers.append(center.addObserver(forName:AVAudioSession.routeChangeNotification,object:nil,queue:.main) { [weak self] _ in
    Task { @MainActor in self?.checkRoute() }
@@ -60,25 +65,30 @@ import Combine
   }
  }
  func prepareSession()->Bool {
+  do {try recordingSession.prepare();recordingOutputIDs=Set(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.uid));status="音频会话已准备；按住时才启用麦克风";return true}
+  catch {stop(message:"麦克风准备失败：\(error.localizedDescription)");return false}
+ }
+ private func configureSession() throws {
   let session=AVAudioSession.sharedInstance()
-  if snapshot != nil {return session.category == .playAndRecord}
   let old=SessionSnapshot(category:session.category,mode:session.mode,options:session.categoryOptions,input:session.preferredInput,outputIDs:Set(session.currentRoute.outputs.map(\.uid)),multichannel:session.supportsMultichannelContent)
-  snapshot=old
-  do {
-   // Do not enable HFP/voiceChat or deactivate the movie's audio session.
-   // Select the device microphone while preserving A2DP/wired output.
-   try session.setCategory(.playAndRecord,mode:.default,options:[.allowBluetoothA2DP,.defaultToSpeaker])
-   guard let builtIn=session.availableInputs?.first(where:{$0.portType == .builtInMic}) else {throw CaptureError.noDeviceMic}
-   try session.setPreferredInput(builtIn)
-   try session.setActive(true)
-   guard Set(session.currentRoute.outputs.map(\.uid))==old.outputIDs,
-    !session.currentRoute.outputs.contains(where:{$0.portType == .bluetoothHFP || $0.portType == .builtInReceiver}) else {throw CaptureError.routeChanged}
-   let format=engine.inputNode.outputFormat(forBus:0)
-   guard format.sampleRate>0 && format.channelCount>0 else {throw CaptureError.invalidFormat}
-   engine.prepare()
-   status="音频会话已准备；按住时才启用麦克风"
-   return true
-  } catch {stop(message:error.localizedDescription);return false}
+  if snapshot == nil {snapshot=old}
+  try session.setCategory(.playAndRecord,mode:.default,options:[.allowBluetoothA2DP,.defaultToSpeaker])
+  guard let builtIn=session.availableInputs?.first(where:{$0.portType == .builtInMic}) else {throw CaptureError.noDeviceMic}
+  try session.setPreferredInput(builtIn)
+  try session.setActive(true)
+  guard Set(session.currentRoute.outputs.map(\.uid))==old.outputIDs,
+   !session.currentRoute.outputs.contains(where:{$0.portType == .bluetoothHFP || $0.portType == .builtInReceiver}) else {throw CaptureError.routeChanged}
+  let format=engine.inputNode.outputFormat(forBus:0)
+  guard format.sampleRate>0 && format.channelCount>0 else {throw CaptureError.invalidFormat}
+  engine.prepare()
+ }
+ private func restoreSession() throws {
+  guard let previous=snapshot else {return};snapshot=nil
+  let session=AVAudioSession.sharedInstance()
+  try session.setCategory(previous.category,mode:previous.mode,options:previous.options)
+  try session.setPreferredInput(previous.input)
+  try session.setSupportsMultichannelContent(previous.multichannel)
+  try session.setActive(true)
  }
  private func start() {
   guard prepareSession() else {onFailure?(status);return}
@@ -112,9 +122,9 @@ import Combine
  }
  private func fail(_ message:String) {guard active || requesting else {return};stop(message:message);onFailure?(message)}
  private func checkRoute() {
-  guard active,let previous=snapshot else {return}
+  guard active else {return}
   let session=AVAudioSession.sharedInstance()
-  if Set(session.currentRoute.outputs.map(\.uid)) != previous.outputIDs || session.category != .playAndRecord || !engine.isRunning {
+  if Set(session.currentRoute.outputs.map(\.uid)) != recordingOutputIDs || session.category != .playAndRecord || !engine.isRunning {
    stop(message:"音频输出发生变化，麦克风已关闭，请重新验证当前设备")
    onFailure?(status)
   }
@@ -122,15 +132,9 @@ import Combine
  func stop(message:String="麦克风已关闭",restoreSession:Bool=true) {
   generation += 1;requesting=false;active=false;level=0;audible=false
   engine.stop();if tapped {engine.inputNode.removeTap(onBus:0);tapped=false}
-  if restoreSession,let previous=snapshot {
-   snapshot=nil
-   do {
-    let session=AVAudioSession.sharedInstance()
-    try session.setCategory(previous.category,mode:previous.mode,options:previous.options)
-    try session.setPreferredInput(previous.input)
-    try session.setSupportsMultichannelContent(previous.multichannel)
-    try session.setActive(true)
-   } catch {status="麦克风已停止；恢复音频会话失败，请关闭并重新打开影片";return}
+  if restoreSession {
+   do {try recordingSession.restore()}
+   catch {status="麦克风已停止；恢复音频会话失败，请关闭并重新打开影片";return}
   }
   status=message
  }

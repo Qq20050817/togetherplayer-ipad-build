@@ -17,6 +17,10 @@ private final class VoiceAudioSink {
  @Published var maxSeconds=60.0
  @Published var maxCharacters=300
  @Published var threshold=0.003
+ #if DEBUG
+ private var gestureFixture=false
+ func installGestureFixture() {gestureFixture=true;state = .ready;status="按住说话，松开预览"}
+ #endif
  private var gate=VoiceSendGate()
  private var draft=VoiceRecognitionDraft()
  private var lastPreviewUpdate=0.0
@@ -59,7 +63,13 @@ private final class VoiceAudioSink {
   }
  }
  func begin() {
-  guard state == .ready,let recognizer=recognizer else {return}
+  guard state == .ready else {return}
+  #if DEBUG
+  if gestureFixture {
+   gate.begin(room:roomKey?() ?? "");state = .recording;status="录音中 · 手势测试替身（不启用麦克风）";duck?(true);return
+  }
+  #endif
+  guard let recognizer=recognizer else {return}
   guard recognizer.isAvailable && recognizer.supportsOnDeviceRecognition else {status="本地中文识别暂不可用；电影继续播放";return}
   generation += 1;let current=generation;preview="";finalText=nil;draft=VoiceRecognitionDraft();lastPreviewUpdate=0;gate.begin(room:roomKey?() ?? "");gate.limit=maxCharacters
   state = .recording;status="录音中 · 松开后预览，确认才发送"
@@ -77,6 +87,9 @@ private final class VoiceAudioSink {
  func release(cancelled:Bool=false) {
   guard state == .recording else {return}
   if cancelled {cancel(message:"已取消，未发送");return}
+  #if DEBUG
+  if gestureFixture {gate.finish();gate.review("语音手势测试结果");preview=gate.text;state = .review;status="请检查或修改文字，点击确认发送才会发给对方";duck?(false);return}
+  #endif
   deadline?.cancel();deadline=nil;state = .finishing;gate.finish();status="正在完成本地识别…"
   sink.set(nil);capture.stop(restoreSession:false);duck?(false);request?.endAudio()
   let current=generation

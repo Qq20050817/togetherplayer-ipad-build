@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       subtitle_controls_only:
-        description: Verify core tests and the four fullscreen/subtitle regressions
+        description: Verify core tests and the five fullscreen/subtitle/voice regressions
         type: boolean
         default: false
   push:
@@ -85,6 +85,7 @@ jobs:
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleImportReturnsFromFiles
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenSubtitleImportReturnsAndKeepsControlsVisible
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
             )
           fi
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC "${TEST_SELECTION[@]}" \
