@@ -22,6 +22,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Bundle verified offline Chinese speech model
+        run: |
+          mkdir -p android/app/src/main/assets
+          curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
       - name: Verify sync and subtitles, build APK
         working-directory: android
         run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
@@ -42,7 +47,7 @@ jobs:
         if: always()
         run: |
           mkdir -p android-delivery/screenshots
-          cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-0.5.0.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-0.5.1.apk
       - uses: actions/upload-artifact@v4
         if: always()
         with:

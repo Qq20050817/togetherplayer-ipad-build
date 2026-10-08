@@ -15,6 +15,8 @@ class VoiceInteractionTest {
   val instrumentation=InstrumentationRegistry.getInstrumentation()
   val context=instrumentation.targetContext
   context.getSharedPreferences("MainActivity",0).edit().clear().commit()
+  java.io.File(context.filesDir,"voice-model-cn").deleteRecursively()
+  assertTrue(context.assets.open("voice-cn-model.zip").use {it.read()!=-1})
   instrumentation.uiAutomation.grantRuntimePermission(context.packageName,Manifest.permission.RECORD_AUDIO)
   val movie=java.io.File(context.cacheDir,"voice-playback-test.mp4")
   instrumentation.context.assets.open("voice-playback-test.mp4").use {source->movie.outputStream().use {source.copyTo(it)}}

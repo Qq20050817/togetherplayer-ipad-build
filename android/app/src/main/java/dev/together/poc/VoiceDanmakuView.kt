@@ -34,7 +34,7 @@ class VoiceDanmakuView(context:Context,private val voice:VoiceDanmakuController,
   start.visibility=if(s==VoiceDanmakuController.State.DISABLED || s==VoiceDanmakuController.State.PREPARING)VISIBLE else GONE
   start.isEnabled=connected() && s==VoiceDanmakuController.State.DISABLED
   val enabled=s!=VoiceDanmakuController.State.DISABLED && s!=VoiceDanmakuController.State.PREPARING
-  hold.visibility=if(enabled)VISIBLE else GONE;close.visibility=hold.visibility;settings.visibility=hold.visibility
+  hold.visibility=if(enabled)VISIBLE else GONE;close.visibility=if(enabled || s==VoiceDanmakuController.State.PREPARING)VISIBLE else GONE;close.text=if(s==VoiceDanmakuController.State.PREPARING)"取消准备"else"关闭语音";settings.visibility=hold.visibility
   hold.isEnabled=s==VoiceDanmakuController.State.RECORDING || (connected() && s==VoiceDanmakuController.State.READY)
   hold.text=if(s==VoiceDanmakuController.State.RECORDING)"松开预览"else"按住说话";settings.isEnabled=s==VoiceDanmakuController.State.READY
   review.visibility=if(s==VoiceDanmakuController.State.REVIEW)VISIBLE else GONE;confirm.isEnabled=connected()
@@ -45,9 +45,9 @@ class VoiceDanmakuView(context:Context,private val voice:VoiceDanmakuController,
   val body=LinearLayout(context).apply {orientation=VERTICAL;setPadding(24,8,24,8)}
   val value=TextView(context);body.addView(value)
   val slider=SeekBar(context).apply {max=99;progress=((voice.threshold-0.001)*1000).toInt().coerceIn(0,99)};body.addView(slider)
-  fun show(){value.text="收音阈值：%.3f".format(voice.threshold)};show()
+  fun show(){value.text="收音提示阈值：%.3f".format(voice.threshold)};show()
   slider.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){voice.threshold=(p+1)/1000.0;show()}};override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?) {}})
-  body.addView(TextView(context).apply {text="阈值过高会漏掉轻声，外放对白突然变响仍可能混入。推荐耳机；请核对后确认发送。"})
+  body.addView(TextView(context).apply {text="保留完整声音，不切除轻声。外放对白仍可能混入，推荐耳机；请核对后确认发送。"})
   val time=Spinner(context).apply {adapter=ArrayAdapter(context,android.R.layout.simple_spinner_dropdown_item,listOf("30 秒","60 秒","120 秒"));setSelection(listOf(30,60,120).indexOf(voice.maxSeconds).coerceAtLeast(0));onItemSelectedListener=object:AdapterView.OnItemSelectedListener{override fun onItemSelected(p:AdapterView<*>?,v:View?,position:Int,id:Long){voice.maxSeconds=listOf(30,60,120)[position]};override fun onNothingSelected(p:AdapterView<*>?) {}}};body.addView(time)
   val length=Spinner(context).apply {adapter=ArrayAdapter(context,android.R.layout.simple_spinner_dropdown_item,listOf("最多 120 字","最多 300 字","最多 500 字"));setSelection(listOf(120,300,500).indexOf(voice.maxCharacters).coerceAtLeast(0));onItemSelectedListener=object:AdapterView.OnItemSelectedListener{override fun onItemSelected(p:AdapterView<*>?,v:View?,position:Int,id:Long){voice.maxCharacters=listOf(120,300,500)[position]};override fun onNothingSelected(p:AdapterView<*>?) {}}};body.addView(length)
   android.app.AlertDialog.Builder(context).setTitle("语音弹幕设置").setView(body).setPositiveButton("完成",null).show()

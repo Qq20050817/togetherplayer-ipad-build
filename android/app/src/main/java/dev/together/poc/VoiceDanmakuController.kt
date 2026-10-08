@@ -13,19 +13,18 @@ import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
 import java.io.File
-import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 import java.util.concurrent.Executors
 
-/** Offline Chinese recognizer. Only the downloaded model is stored; mic PCM remains in RAM. */
+/** Offline Chinese recognizer. Only the bundled model is stored; mic PCM remains in RAM. */
 class VoiceDanmakuController(private val activity:Activity,private val player:ExoPlayer,
  private val room:()->String,private val send:(String)->Boolean,private val changed:()->Unit) {
  enum class State {DISABLED,PREPARING,READY,RECORDING,FINISHING,REVIEW}
  var state=State.DISABLED;private set
  var status="语音弹幕未开启";private set
  var preview=""
- var threshold=0.012;var maxSeconds=60;var maxCharacters=300
+ var threshold=0.003;var maxSeconds=60;var maxCharacters=300
  var level=0.0;private set
  val busy get()=state in listOf(State.PREPARING,State.RECORDING,State.FINISHING,State.REVIEW)
  private val main=Handler(Looper.getMainLooper())
@@ -48,26 +47,31 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  }
  fun permissionResult(granted:Boolean){if(state!=State.PREPARING || permissionEpoch!=epoch)return;if(granted)prepareModel(epoch)else{state=State.DISABLED;status="麦克风权限被拒绝，电影继续播放";changed()}}
  private fun prepareModel(token:Int){
-  state=State.PREPARING;status="准备免费离线中文模型（首次下载约 42MB）…";changed()
+  state=State.PREPARING;status="正在检查内置中文模型，可点击取消准备…";changed()
   worker.execute {
    try {
-    if(model==null){val dir=File(activity.filesDir,"voice-model-cn");if(!File(dir,".verified").exists())downloadModel(dir,token);if(token!=epoch || disposed)return@execute;model=Model(File(dir,"vosk-model-small-cn-0.22").absolutePath)}
+    if(model==null){val dir=File(activity.filesDir,"voice-model-cn");if(!File(dir,".verified").exists() || File(dir,".verified").readText()!=MODEL_SHA || !File(dir,"vosk-model-small-cn-0.22/am/final.mdl").isFile)installBundledModel(dir,token);if(token!=epoch || disposed)return@execute;model=Model(File(dir,"vosk-model-small-cn-0.22").absolutePath)}
     main.post {if(token==epoch && !disposed){state=State.READY;status="离线识别已就绪，按住说话；松开预览，确认才发送";changed()}}
-   }catch(e:Exception){main.post {if(token==epoch && !disposed){state=State.DISABLED;status="本地模型准备失败，请检查网络后重新启用";changed()}}}
+   }catch(e:Exception){main.post {if(token==epoch && !disposed){state=State.DISABLED;status="内置模型准备失败：${e.localizedMessage ?: "未知错误"}；可重新启用，无需下载";changed()}}}
   }
  }
- private fun downloadModel(dir:File,token:Int){
+ private fun installBundledModel(dir:File,token:Int){
   dir.deleteRecursively();dir.mkdirs()
   val archive=File(activity.cacheDir,"voice-cn-model.zip")
   try {
    val digest=MessageDigest.getInstance("SHA-256")
-   val connection=URL(MODEL_URL).openConnection().apply {connectTimeout=15000;readTimeout=30000}
-   connection.getInputStream().use {source->archive.outputStream().use {out->val block=ByteArray(65536);var total=0L;while(true){if(token!=epoch || disposed)throw java.io.InterruptedIOException();val n=source.read(block);if(n<0)break;total+=n;check(total<60_000_000);digest.update(block,0,n);out.write(block,0,n)}}}
+   progress(token,"校验内置中文模型…")
+   activity.assets.open("voice-cn-model.zip").use {source->archive.outputStream().use {out->val block=ByteArray(65536);var total=0L;while(true){if(token!=epoch || disposed)throw java.io.InterruptedIOException();val n=source.read(block);if(n<0)break;total+=n;check(total<60_000_000);digest.update(block,0,n);out.write(block,0,n)}}}
    check(digest.digest().joinToString(""){"%02x".format(it)}==MODEL_SHA)
-   ZipInputStream(archive.inputStream()).use {zip->var expanded=0L;var count=0;while(true){if(token!=epoch || disposed)throw java.io.InterruptedIOException();val entry=zip.nextEntry ?: break;check(++count<1000);val file=File(dir,entry.name);check(file.canonicalPath.startsWith(dir.canonicalPath+File.separator));if(entry.isDirectory)file.mkdirs()else{file.parentFile?.mkdirs();file.outputStream().use {out->val block=ByteArray(65536);while(true){val n=zip.read(block);if(n<0)break;expanded+=n;check(expanded<160_000_000);out.write(block,0,n)}}}}}
+   progress(token,"正在解压内置中文模型…")
+   var lastProgress=0L
+   ZipInputStream(archive.inputStream()).use {zip->var expanded=0L;var count=0;while(true){if(token!=epoch || disposed)throw java.io.InterruptedIOException();val entry=zip.nextEntry ?: break;check(++count<1000);val file=File(dir,entry.name);check(file.canonicalPath.startsWith(dir.canonicalPath+File.separator));if(entry.isDirectory)file.mkdirs()else{file.parentFile?.mkdirs();file.outputStream().use {out->val block=ByteArray(65536);while(true){if(token!=epoch || disposed)throw java.io.InterruptedIOException();val now=SystemClock.elapsedRealtime();if(now-lastProgress>=250){lastProgress=now;progress(token,"正在准备离线模型：已解压 ${expanded/1_000_000} MB")};val n=zip.read(block);if(n<0)break;expanded+=n;check(expanded<160_000_000);out.write(block,0,n)}}}}}
+   check(File(dir,"vosk-model-small-cn-0.22/am/final.mdl").isFile)
+   progress(token,"模型已解压，正在载入识别器…")
    File(dir,".verified").writeText(MODEL_SHA)
   }finally{archive.delete()}
  }
+ private fun progress(token:Int,text:String){main.post {if(token==epoch && !disposed && state==State.PREPARING){status=text;changed()}}}
  fun begin(){
   if(state!=State.READY || model==null || room().isBlank())return
   epoch++;val token=epoch
@@ -75,6 +79,7 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
   duck(true);changed()
   val seconds=maxSeconds.coerceIn(30,120);val thresholdValue=threshold.coerceIn(0.001,0.1)
   worker.execute {
+   var bestText=""
    var audio:AudioRecord?=null;var echo:AcousticEchoCanceler?=null;var recognizer:Recognizer?=null
    try {
     val size=AudioRecord.getMinBufferSize(16000,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(6400)
@@ -90,14 +95,16 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
     while(recording && token==epoch && !disposed){
      val n=audio.read(samples,0,samples.size);check(n>=0);if(n==0)continue
      val now=SystemClock.elapsedRealtime();var energy=0.0;for(i in 0 until n){val v=samples[i]/32768.0;energy+=v*v};val rms=kotlin.math.sqrt(energy/n)
-     if(!filter.accepts(rms,now))java.util.Arrays.fill(samples,0,n,0.toShort())
+     // Measure quiet input without destroying consonants before offline recognition.
+     filter.accepts(rms,now)
      if(recognizer.acceptWaveForm(samples,n)){val text=JSONObject(recognizer.result).optString("text");if(text.isNotBlank())parts.add(text)}
-     if(now-lastUI>=250){lastUI=now;val partial=JSONObject(recognizer.partialResult).optString("partial");val text=(parts+partial).joinToString(" ");main.post {if(token==epoch && state==State.RECORDING){preview=text;level=(rms*10).coerceIn(0.0,1.0);changed()}}}
+     val partial=JSONObject(recognizer.partialResult).optString("partial");val current=(parts+partial).joinToString(" ").trim();if(current.isNotBlank())bestText=current
+     if(now-lastUI>=250){lastUI=now;val text=bestText;main.post {if(token==epoch && state==State.RECORDING){preview=text;level=(rms*10).coerceIn(0.0,1.0);changed()}}}
      if(now-start>=seconds*1000L){recording=false;main.post {if(token==epoch){state=State.FINISHING;gate.finish();status="已到录音上限，正在完成识别；不会自动发送";duck(false);changed()}}}
     }
-    val final=JSONObject(recognizer.finalResult).optString("text");val text=(parts+final).joinToString(" ").trim()
+    val final=JSONObject(recognizer.finalResult).optString("text");val text=if(final.isBlank())bestText else (parts+final).joinToString(" ").trim()
     main.post {if(token==epoch && !disposed){duck(false);gate.finish();if(text.isBlank() || text.replace(" ","").contains("取消弹幕")){cancel("未识别到文字或已取消，未发送")}else{gate.review(text);preview=text;state=State.REVIEW;level=0.0;status="检查或修改文字后确认发送";changed()}}}
-   }catch(e:Exception){main.post {if(token==epoch && !disposed)cancel("麦克风或本地识别失败，未发送；电影继续播放")}}
+   }catch(e:Exception){val saved=bestText;main.post {if(token==epoch && !disposed){if(saved.isBlank())cancel("麦克风或本地识别失败，未发送；电影继续播放")else{recording=false;duck(false);gate.finish();gate.review(saved);preview=saved;state=State.REVIEW;status="识别中断，已有文字已保留，请检查后确认";changed()}}}}
    finally{runCatching {audio?.stop()};audio?.release();echo?.release();recognizer?.close();input=null}
   }
  }
