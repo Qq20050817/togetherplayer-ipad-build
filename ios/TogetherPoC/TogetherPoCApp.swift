@@ -350,7 +350,7 @@ struct SubtitleHeightKey:PreferenceKey {
   }.font(.caption).buttonStyle(.bordered)
  }
  private var voiceDock:some View {
-  VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,fullscreen:true,busyChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}}).frame(maxWidth:340).accessibilityIdentifier("fullscreen-voice-dock")
+  VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,fullscreen:true,busyChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}}).frame(maxWidth:340).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-voice-dock")
  }
  private func scheduleHide() {controls.schedule(allowed:!selectingFile && !composing && !adjustingDanmaku)}
 }
