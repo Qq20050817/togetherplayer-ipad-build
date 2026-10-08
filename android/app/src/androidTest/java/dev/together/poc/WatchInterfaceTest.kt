@@ -48,22 +48,30 @@ class WatchInterfaceTest {
    scenario.onActivity {activity->
     described(activity.window.decorView,"全屏")!!.performClick()
     val decor=fullscreen(activity).window!!.decorView
-    assertTrue(textView(decor,"退出全屏")!!.isShown)
-    assertTrue(textView(decor,"发弹幕")!!.isShown)
+    assertTrue(described(decor,"退出全屏")!!.isShown)
+    assertTrue(described(decor,"发弹幕")!!.isShown)
     assertNull(textView(decor,"房间 / 设置"))
+   };SystemClock.sleep(400)
+   scenario.onActivity {activity->
+    val box=activity.javaClass.getDeclaredField("videoBox").apply {isAccessible=true}.get(activity) as android.view.View
+    val bar=activity.javaClass.getDeclaredField("fullscreenControls").apply {isAccessible=true}.get(activity) as android.view.View
+    val videoPosition=IntArray(2);val barPosition=IntArray(2);box.getLocationOnScreen(videoPosition);bar.getLocationOnScreen(barPosition)
+    assertTrue(videoPosition[1]+box.height<=barPosition[1]+1)
+    val mic=described(fullscreen(activity).window!!.decorView,"启用语音弹幕")!!;val micPosition=IntArray(2);mic.getLocationOnScreen(micPosition)
+    assertTrue(micPosition[0]+mic.width/2>fullscreen(activity).window!!.decorView.width*0.7)
    };capture("04-fullscreen-controls")
    SystemClock.sleep(13000)
    scenario.onActivity {activity->
     val decor=fullscreen(activity).window!!.decorView
-    assertFalse(textView(decor,"退出全屏")!!.isShown)
+    assertFalse(described(decor,"退出全屏")!!.isShown)
    };capture("05-fullscreen-hidden")
    scenario.onActivity {activity->
     val box=activity.javaClass.getDeclaredField("videoBox").apply {isAccessible=true}.get(activity) as android.view.View
     assertTrue(box.performClick())
     val decor=fullscreen(activity).window!!.decorView
-    assertTrue(textView(decor,"退出全屏")!!.isShown)
-    assertTrue(textView(decor,"发弹幕")!!.isShown)
-    textView(decor,"退出全屏")!!.performClick()
+    assertTrue(described(decor,"退出全屏")!!.isShown)
+    assertTrue(described(decor,"发弹幕")!!.isShown)
+    described(decor,"退出全屏")!!.performClick()
    }
    onView(withContentDescription("房间 / 设置")).check(matches(isDisplayed()))
    scenario.onActivity {activity->activity.javaClass.getDeclaredField("credentials").apply {isAccessible=true}.set(activity,null)}

@@ -17,7 +17,7 @@ import Combine
   chat.tick(74000);precondition(chat.reactions.isEmpty && notifications==reactionStart+1)
   chat.tick(75000);precondition(notifications==reactionStart+1)
   chat.accept(ChatMessage(id:1,userId:"peer",name:"好友",text:"测试弹幕",clientMessageId:"fixture",timestamp:80000),mine:false,live:true,now:80000)
-  precondition(chat.danmaku.count==1);chat.tick(88000);precondition(chat.danmaku.isEmpty)
+  precondition(chat.danmaku.count==1);chat.tick(90000);precondition(chat.danmaku.isEmpty)
   withExtendedLifetime(subscription) {}
   print("PASS: 600 idle ticks publish zero UI updates; typing/reaction expiry publishes once; live danmaku expiry preserved")
  }

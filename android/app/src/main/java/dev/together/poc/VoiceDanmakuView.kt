@@ -6,12 +6,12 @@ import android.widget.*
 import android.text.Editable
 import android.text.TextWatcher
 
-class VoiceDanmakuView(context:Context,private val voice:VoiceDanmakuController,private val connected:()->Boolean):LinearLayout(context) {
+class VoiceDanmakuView(context:Context,private val voice:VoiceDanmakuController,private val connected:()->Boolean,private val compact:Boolean=false):LinearLayout(context) {
  private val status=TextView(context)
- private val start=Button(context).apply {text="启用语音弹幕";contentDescription=text;setOnClickListener {if(connected())voice.enable()}}
+ private val start=Button(context).apply {text=if(compact)"语音"else"启用语音弹幕";contentDescription="启用语音弹幕";setOnClickListener {if(connected())voice.enable()}}
  private val hold=Button(context).apply {text="按住说话";contentDescription=text}
  private val close=Button(context).apply {text="关闭语音";setOnClickListener {voice.disable()}}
- private val settings=Button(context).apply {text="语音设置";setOnClickListener {showSettings()}}
+ private val settings=Button(context).apply {text=if(compact)"⚙"else"语音设置";contentDescription="语音设置";setOnClickListener {showSettings()}}
  private val result=EditText(context).apply {hint="识别结果，可修改";contentDescription="语音识别结果";maxLines=4}
  private val review=LinearLayout(context)
  private val level=ProgressBar(context,null,android.R.attr.progressBarStyleHorizontal).apply {max=1000;contentDescription="麦克风输入电平"}
@@ -21,20 +21,27 @@ class VoiceDanmakuView(context:Context,private val voice:VoiceDanmakuController,
  private var updating=false
  init {
   orientation=VERTICAL
-  val row=LinearLayout(context);listOf(start,hold,close,settings).forEach {row.addView(it,LayoutParams(0,LayoutParams.WRAP_CONTENT,1f))};addView(row)
-  status.setTextColor(0xffa2b9c8.toInt());status.textSize=12f;addView(status);addView(level)
+  val row=LinearLayout(context).apply {gravity=android.view.Gravity.END};(if(compact)listOf(start,close,settings,hold)else listOf(start,hold,close,settings)).forEach {row.addView(it,if(compact)LayoutParams(LayoutParams.WRAP_CONTENT,LayoutParams.WRAP_CONTENT)else LayoutParams(0,LayoutParams.WRAP_CONTENT,1f))};if(!compact)addView(row)
+  status.setTextColor(0xffa2b9c8.toInt());status.textSize=12f;status.maxLines=2;addView(status);addView(level)
   review.addView(result,LayoutParams(0,LayoutParams.WRAP_CONTENT,1f));review.addView(confirm);review.addView(Button(context).apply {text="取消";setOnClickListener {voice.cancel()}});addView(review)
   result.addTextChangedListener(object:TextWatcher {override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){if(!updating && voice.state==VoiceDanmakuController.State.REVIEW)voice.preview=s.toString()};override fun afterTextChanged(s:Editable?) {}})
-  hold.setOnTouchListener {_,event->when(event.actionMasked){MotionEvent.ACTION_DOWN->{if(connected() && voice.state==VoiceDanmakuController.State.READY){downY=event.rawY;held=true;voice.begin();parent?.requestDisallowInterceptTouchEvent(true)};true};MotionEvent.ACTION_UP->{if(held){voice.release(event.rawY-downY < -60*resources.displayMetrics.density);held=false;parent?.requestDisallowInterceptTouchEvent(false)};true};MotionEvent.ACTION_CANCEL->{if(held){voice.release(true);held=false};true};else->true}}
+  if(compact)addView(row)
+  hold.setOnTouchListener {_,event->when(event.actionMasked){MotionEvent.ACTION_DOWN->{if(connected() && voice.state==VoiceDanmakuController.State.READY){downY=event.rawY;held=true;hold.isPressed=true;hold.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80).start();voice.begin();parent?.requestDisallowInterceptTouchEvent(true)};true};MotionEvent.ACTION_UP->{hold.isPressed=false;hold.animate().scaleX(1f).scaleY(1f).setDuration(100).start();if(held){voice.release(event.rawY-downY < -60*resources.displayMetrics.density);held=false;parent?.requestDisallowInterceptTouchEvent(false)};true};MotionEvent.ACTION_CANCEL->{hold.isPressed=false;hold.animate().scaleX(1f).scaleY(1f).setDuration(100).start();if(held){voice.release(true);held=false};true};else->true}}
   hold.setOnClickListener {if(voice.state==VoiceDanmakuController.State.RECORDING)voice.release()else if(connected())voice.begin()}
   render()
  }
+ override fun onMeasure(widthMeasureSpec:Int,heightMeasureSpec:Int){
+  val available=View.MeasureSpec.getSize(widthMeasureSpec);val width=if(compact)View.MeasureSpec.makeMeasureSpec(minOf(available,(420*resources.displayMetrics.density).toInt()),View.MeasureSpec.AT_MOST)else widthMeasureSpec
+  super.onMeasure(width,heightMeasureSpec)
+ }
  fun render(){
   val s=voice.state;status.text=voice.status + if(s==VoiceDanmakuController.State.RECORDING){if(voice.audible)" · 已收到声音"else" · 声音较弱，请靠近设备麦克风"}else""
+  val quietStatus=voice.status.startsWith("语音弹幕未开启") || voice.status.startsWith("语音弹幕已关闭") || voice.status.startsWith("已取消") || voice.status.startsWith("已提交发送") || voice.status.startsWith("按住说话")
+  status.visibility=if(compact && quietStatus && (s==VoiceDanmakuController.State.DISABLED || s==VoiceDanmakuController.State.READY))GONE else VISIBLE
   start.visibility=if(s==VoiceDanmakuController.State.DISABLED || s==VoiceDanmakuController.State.PREPARING)VISIBLE else GONE
   start.isEnabled=connected() && s==VoiceDanmakuController.State.DISABLED
   val enabled=s!=VoiceDanmakuController.State.DISABLED && s!=VoiceDanmakuController.State.PREPARING
-  hold.visibility=if(enabled)VISIBLE else GONE;close.visibility=if(enabled || s==VoiceDanmakuController.State.PREPARING)VISIBLE else GONE;close.text=if(s==VoiceDanmakuController.State.PREPARING)"取消准备"else"关闭语音";settings.visibility=hold.visibility
+  hold.visibility=if(enabled)VISIBLE else GONE;close.visibility=if(enabled || s==VoiceDanmakuController.State.PREPARING)VISIBLE else GONE;close.contentDescription=if(s==VoiceDanmakuController.State.PREPARING)"取消准备"else"关闭语音";close.text=if(compact){if(s==VoiceDanmakuController.State.PREPARING)"取消"else"✕"}else if(s==VoiceDanmakuController.State.PREPARING)"取消准备"else"关闭语音";settings.visibility=hold.visibility
   hold.isEnabled=s==VoiceDanmakuController.State.RECORDING || (connected() && s==VoiceDanmakuController.State.READY)
   hold.text=if(s==VoiceDanmakuController.State.RECORDING)"松开预览"else"按住说话";settings.isEnabled=s==VoiceDanmakuController.State.READY
   review.visibility=if(s==VoiceDanmakuController.State.REVIEW)VISIBLE else GONE;confirm.isEnabled=connected()

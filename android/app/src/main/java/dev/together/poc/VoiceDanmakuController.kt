@@ -115,10 +115,16 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
  fun disable(){cancel("语音弹幕已关闭，麦克风已释放");state=State.DISABLED;changed()}
  fun close(){disable();ramp?.cancel();disposed=true;worker.execute {model?.close();model=null};worker.shutdown()}
  fun setUserVolume(value:Float){val volume=value.coerceIn(0f,1f);userVolume=volume;if(originalVolume!=null){originalVolume=volume;duck(true)}else{ramp?.cancel();player.volume=volume}}
+ private fun recordingGain():Float {
+  val manager=activity.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+  val headphoneTypes=setOf(AudioDeviceInfo.TYPE_WIRED_HEADSET,AudioDeviceInfo.TYPE_WIRED_HEADPHONES,AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,AudioDeviceInfo.TYPE_BLUETOOTH_SCO,AudioDeviceInfo.TYPE_USB_HEADSET,AudioDeviceInfo.TYPE_BLE_HEADSET)
+  val headphones=manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {it.type in headphoneTypes}
+  return if(headphones)0.22f else 0f
+ }
  private fun duck(lower:Boolean){
   ramp?.cancel()
-  val target=if(lower){if(originalVolume==null){originalVolume=player.volume;userVolume=player.volume};originalVolume!!*0.22f}else{val value=originalVolume ?: return;originalVolume=null;value}
-  ramp=android.animation.ValueAnimator.ofFloat(player.volume,target).apply {duration=300;interpolator=android.view.animation.AccelerateDecelerateInterpolator();addUpdateListener {player.volume=it.animatedValue as Float};start()}
+  val target=if(lower){if(originalVolume==null){originalVolume=player.volume;userVolume=player.volume};originalVolume!!*recordingGain()}else{val value=originalVolume ?: return;originalVolume=null;value}
+  ramp=android.animation.ValueAnimator.ofFloat(player.volume,target).apply {duration=480;interpolator=android.animation.TimeInterpolator {t->t*t*t*(t*(6*t-15)+10)};addUpdateListener {player.volume=it.animatedValue as Float};start()}
  }
  companion object {const val VOICE_PERMISSION=702;const val MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip";const val MODEL_SHA="3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"}
 }

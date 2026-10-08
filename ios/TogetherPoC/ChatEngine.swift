@@ -44,7 +44,7 @@ struct ReactionBubble: Identifiable {
   messages.append(message);messages.sort {$0.id<$1.id}
   if messages.count>500 {messages.removeFirst(messages.count-500)}
   if !visible && !mine {unread += 1}
-  if live {danmakuQueue.enqueue(id:message.id,text:"\(message.name)：\(message.text)",now:now,durationMs:message.clientMessageId.hasPrefix("voice:") ? 4000 : 8000);danmaku=danmakuQueue.active}
+  if live {danmakuQueue.enqueue(id:message.id,text:"\(message.name)：\(message.text)",now:now,durationMs:message.clientMessageId.hasPrefix("voice:") ? 5000 : 10000);danmaku=danmakuQueue.active}
  }
  func markRead() {if unread != 0 {unread=0}}
  func reaction(_ emoji: String,now: Double) {reactions.append(ReactionBubble(emoji:emoji,expiresAt:now+4000));if reactions.count>12 {reactions.removeFirst(reactions.count-12)}}

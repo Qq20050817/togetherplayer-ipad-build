@@ -55,6 +55,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(position.exists,app.debugDescription)
   app.buttons["close-subtitle-adjustments"].tap()
   app.buttons["全屏观影"].firstMatch.tap()
+  app.buttons["字幕工具"].tap()
   let fullscreenAdjust=app.buttons["subtitle-adjustments"].firstMatch
   XCTAssertTrue(fullscreenAdjust.waitForExistence(timeout:5));fullscreenAdjust.tap()
   XCTAssertTrue(app.sliders["字幕文字大小"].waitForExistence(timeout:5))
@@ -83,11 +84,12 @@ final class WatchInterfaceTests: XCTestCase {
   app.launchEnvironment["TOGETHER_SUBTITLE_SELECTION_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   if fullscreen {let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()}
+  if fullscreen {app.buttons["字幕工具"].tap()}
   let choose=app.buttons["import-subtitle"].firstMatch
   XCTAssertTrue(choose.waitForExistence(timeout:15));choose.tap()
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@","LOCAL-SUBTITLE-TEST")).firstMatch
   XCTAssertTrue(file.waitForExistence(timeout:12),app.debugDescription);file.tap()
-  XCTAssertTrue(app.staticTexts["已加载1条字幕"].waitForExistence(timeout:12),app.debugDescription)
+  if fullscreen {XCTAssertTrue(app.staticTexts["SUBTITLE-IMPORT-OK"].waitForExistence(timeout:12),app.debugDescription)}else{XCTAssertTrue(app.staticTexts["已加载1条字幕"].waitForExistence(timeout:12),app.debugDescription)}
   XCTAssertFalse(app.otherElements["subtitle-document-picker"].exists)
   capture(fullscreen ? "11-fullscreen-subtitle-import" : "10-subtitle-import",app)
  }
@@ -215,7 +217,12 @@ final class WatchInterfaceTests: XCTestCase {
   let done=app.buttons["完成"].firstMatch;XCTAssertTrue(done.exists);done.tap()
   let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:5));full.tap()
   let exit=app.buttons["退出全屏"]
-  XCTAssertTrue(exit.waitForExistence(timeout:5));capture("03-fullscreen-controls",app)
+  XCTAssertTrue(exit.waitForExistence(timeout:5))
+  let movie=app.otherElements["fullscreen-movie"].firstMatch;let bar=app.otherElements["fullscreen-control-bar"].firstMatch
+  XCTAssertTrue(bar.waitForExistence(timeout:5));XCTAssertLessThanOrEqual(movie.frame.maxY,bar.frame.minY+1)
+  XCTAssertLessThan(bar.frame.height,150)
+  let mic=app.buttons["enable-voice-danmaku"].firstMatch;XCTAssertTrue(mic.exists);XCTAssertGreaterThan(mic.frame.midX,app.frame.width*0.7)
+  capture("03-fullscreen-controls",app)
   // Inactivity removes hit targets; SwiftUI may retain AX nodes in its cache.
   // Debug-only deadline12s accommodates cloud XCTest; Release always uses3s.
   let hidden=expectation(for:NSPredicate(format:"exists == false"),evaluatedWith:exit)

@@ -184,26 +184,40 @@ struct SubtitleHeightKey:PreferenceKey {
  @State private var dragging=false
  @State private var target=0.0
  @State private var volume=1.0
- init(model: TestClient) {self.model=model;self.playback=model.playback}
+ @State private var adjustingVolume=false
+ var modalChanged:(Bool)->Void = {_ in}
+ var compact=false
+ init(model: TestClient,compact:Bool=false,modalChanged:@escaping(Bool)->Void={_ in}) {self.model=model;self.playback=model.playback;self.compact=compact;self.modalChanged=modalChanged}
  var body: some View {
-  VStack(spacing:12) {
+  VStack(spacing:compact ? 4 : 12) {
+   if compact {
+    ViewThatFits(in:.horizontal) {
+     HStack(spacing:12) {volumeButton;progressRow;transport}
+     VStack(spacing:4) {progressRow;HStack {volumeButton;transport}}
+    }
+   } else {
+   progressRow
+   ViewThatFits(in:.horizontal) {
+    HStack(spacing:18) {volumeControl.frame(width:140);Spacer();transport;Spacer()}
+    VStack {transport;volumeControl.frame(maxWidth:180)}
+   }
+   }
+   if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(.bordered)}
+  }.onAppear {volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume) {modalChanged($0)}
+ }
+ private var volumeButton:some View {Button {adjustingVolume=true} label:{Image(systemName:volume>0 ? "speaker.wave.2" : "speaker.slash")}.accessibilityLabel("播放音量").popover(isPresented:$adjustingVolume) {volumeControl.frame(width:220).padding(20)}}
+ private var progressRow:some View {
    HStack(spacing:10) {
     Text(PlaybackMonitor.time(dragging ? target : playback.position)).font(.caption.monospacedDigit()).frame(minWidth:45)
     Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0}),in:0...max(1,playback.duration),onEditingChanged:{editing in if editing {target=playback.position};dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度")
     Text(PlaybackTime.remaining(duration:playback.duration,position:dragging ? target : playback.position)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
    }
-   ViewThatFits(in:.horizontal) {
-    HStack(spacing:18) {volumeControl.frame(width:140);Spacer();transport;Spacer()}
-    VStack {transport;volumeControl.frame(maxWidth:180)}
-   }
-   if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(.bordered)}
-  }.onAppear {volume=Double(model.playbackVolume)}
  }
  private var transport: some View {
-  HStack(spacing:22) {
+  HStack(spacing:compact ? 12 : 22) {
    Button {model.neighboringMedia(-1)} label:{Image(systemName:"backward.end.fill")}.disabled(!model.canMoveMedia(-1)).accessibilityLabel("上一部影片")
    Button {model.control("SEEK",position:max(0,model.adapter.position-model.engine.timelineOffset-10000))} label:{Image(systemName:"gobackward.10")}.accessibilityLabel("后退10秒")
-   Button {model.control(model.requestedPlaying ? "PAUSE" : "PLAY")} label:{Image(systemName:model.requestedPlaying ? "pause.fill" : "play.fill").foregroundColor(.black).frame(width:56,height:56).background(Color.white).clipShape(Circle())}.accessibilityLabel(model.requestedPlaying ? "暂停" : "播放")
+   Button {model.control(model.requestedPlaying ? "PAUSE" : "PLAY")} label:{Image(systemName:model.requestedPlaying ? "pause.fill" : "play.fill").foregroundColor(.black).frame(width:compact ? 42 : 56,height:compact ? 42 : 56).background(Color.white).clipShape(Circle())}.accessibilityLabel(model.requestedPlaying ? "暂停" : "播放")
    Button {model.control("SEEK",position:model.adapter.position-model.engine.timelineOffset+10000)} label:{Image(systemName:"goforward.10")}.accessibilityLabel("前进10秒")
    Button {model.neighboringMedia(1)} label:{Image(systemName:"forward.end.fill")}.disabled(!model.canMoveMedia(1)).accessibilityLabel("下一部影片")
   }.font(.title2).foregroundColor(.white)
@@ -219,19 +233,23 @@ struct SubtitleHeightKey:PreferenceKey {
  @State private var importing=false
  @State private var adjustingSubtitles=false
  @State private var voiceBusy=false
+ var showsVoice=true
+ var compact=false
  var modalChanged: (Bool) -> Void = {_ in}
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
-   ViewThatFits(in:.horizontal) {
+   if compact {
+    HStack {audioMenu;subtitleMenu;Menu {Button("导入字幕") {subtitles.beginSelection();importing=true}.accessibilityIdentifier("import-subtitle");Button("字幕调整") {adjustingSubtitles=true}.accessibilityIdentifier("subtitle-adjustments")} label:{Image(systemName:"ellipsis")}.accessibilityLabel("字幕工具")}
+   } else {ViewThatFits(in:.horizontal) {
     HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
     VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}
-   }
-   VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,busyChanged:{voiceBusy=$0})
-   if subtitles.available {
+   }}
+   if showsVoice {VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,busyChanged:{voiceBusy=$0})}
+   if subtitles.available && !compact {
     Text(subtitles.name).font(.caption).lineLimit(1).foregroundStyle(.secondary)
     Button("移除外挂字幕",role:.destructive) {subtitles.clear();model.chooseSubtitle(-1)}
    }
-   if !subtitles.status.isEmpty {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
+   if !subtitles.status.isEmpty && !compact {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
   }.buttonStyle(.bordered)
    .onChange(of:importing || adjustingSubtitles || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
@@ -285,7 +303,7 @@ struct SubtitleHeightKey:PreferenceKey {
  var body: some View {
   VStack(spacing:0) {
    ZStack {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:controls.visible && !composing ? 250 : 0)
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
@@ -297,9 +315,19 @@ struct SubtitleHeightKey:PreferenceKey {
    if controls.visible && !composing {VStack {
     HStack {Text(model.roomTitle).lineLimit(1);Spacer();Button("退出全屏") {dismiss()}}.padding(12).background(Color.black.opacity(0.65))
     Spacer()
-    VStack {PlaybackControls(model:model);HStack {Button {composing=true} label:{Label("发弹幕",systemImage:"text.bubble.fill")}.buttonStyle(.bordered).disabled(!model.isConnected);Button("弹幕字号") {adjustingDanmaku=true}.buttonStyle(.bordered).popover(isPresented:$adjustingDanmaku) {DanmakuSettings().frame(width:280).padding(20)}};TrackControls(model:model,subtitles:model.externalSubtitles,modalChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}})}.padding(12).background(Color.black.opacity(0.8))
    }.simultaneousGesture(TapGesture().onEnded {scheduleHide()})}
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
+   if controls.visible && !composing {
+    VStack(spacing:4) {
+     PlaybackControls(model:model,compact:true,modalChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}})
+     ViewThatFits(in:.horizontal) {
+      HStack(spacing:8) {tools;Spacer(minLength:0);voiceDock}
+      VStack(spacing:4) {tools;HStack {Spacer(minLength:0);voiceDock}}
+     }
+    }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
+     .accessibilityIdentifier("fullscreen-control-bar")
+     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
+   }
    if composing {
     // Keep the movie in its own region above the composer and keyboard.
     // A modal sheet covers/dims the movie and expands while editing on iPad.
@@ -313,6 +341,16 @@ struct SubtitleHeightKey:PreferenceKey {
    .onAppear {scheduleHide()}.onDisappear {controls.cancel()}
    .onChange(of:composing) {if $0 {controls.cancel()} else {scheduleHide()}}
    .onChange(of:adjustingDanmaku) {if $0 {controls.cancel()} else {scheduleHide()}}
+ }
+ private var tools:some View {
+  HStack(spacing:6) {
+   TrackControls(model:model,subtitles:model.externalSubtitles,showsVoice:false,compact:true,modalChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}})
+   Button {composing=true} label:{Image(systemName:"text.bubble.fill")}.accessibilityLabel("发弹幕").disabled(!model.isConnected)
+   Button {adjustingDanmaku=true} label:{Image(systemName:"textformat.size")}.accessibilityLabel("弹幕字号").popover(isPresented:$adjustingDanmaku) {DanmakuSettings().frame(width:280).padding(20)}
+  }.font(.caption).buttonStyle(.bordered)
+ }
+ private var voiceDock:some View {
+  VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,fullscreen:true,busyChanged:{selectingFile=$0;if $0 {controls.cancel()} else {scheduleHide()}}).frame(maxWidth:340).accessibilityIdentifier("fullscreen-voice-dock")
  }
  private func scheduleHide() {controls.schedule(allowed:!selectingFile && !composing && !adjustingDanmaku)}
 }

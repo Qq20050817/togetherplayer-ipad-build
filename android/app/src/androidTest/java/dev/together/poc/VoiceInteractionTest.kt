@@ -36,7 +36,7 @@ class VoiceInteractionTest {
    while(SystemClock.elapsedRealtime()<until){var ready=false;scenario.onActivity {ready=voice.state==VoiceDanmakuController.State.READY};if(ready)break;SystemClock.sleep(200)}
    scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.READY,voice.state);player.seekTo(1000);voice.begin()}
    SystemClock.sleep(1000)
-   scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.RECORDING,voice.state);assertTrue(player.playWhenReady);assertTrue(player.isPlaying);assertTrue(player.currentPosition>1200);assertTrue(player.volume<0.8f);assertEquals(0,sent);voice.setUserVolume(0.4f);voice.release()}
+   scenario.onActivity {assertEquals(voice.status,VoiceDanmakuController.State.RECORDING,voice.state);assertTrue(player.playWhenReady);assertTrue(player.isPlaying);assertTrue(player.currentPosition>1200);assertEquals(0f,player.volume,0.001f);assertEquals(0,sent);voice.setUserVolume(0.4f);voice.release()}
    SystemClock.sleep(1000)
    scenario.onActivity {assertTrue(player.playWhenReady);assertEquals(0.4f,player.volume,0.01f);assertEquals(0,sent);assertNotEquals(VoiceDanmakuController.State.RECORDING,voice.state);voice.disable();assertEquals(VoiceDanmakuController.State.DISABLED,voice.state);voice.close()}
   }

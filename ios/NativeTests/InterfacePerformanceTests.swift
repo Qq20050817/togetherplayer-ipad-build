@@ -24,7 +24,7 @@ final class InterfacePerformanceTests: XCTestCase {
   let view=DanmakuSurface(frame:CGRect(x:0,y:0,width:1024,height:180))
   var time=0.0
   view.now={time}
-  let items=[DanmakuItem(id:1,text:"一起看 👀",lane:0,expiresAt:8000)]
+  let items=[DanmakuItem(id:1,text:"一起看 👀",lane:0,expiresAt:8000,durationMs:8000)]
   view.update(items:items,fontSize:24)
   let bubble=try XCTUnwrap(view.layer.sublayers?.first)
   let initial=try XCTUnwrap(bubble.animation(forKey:"travel") as? CABasicAnimation)

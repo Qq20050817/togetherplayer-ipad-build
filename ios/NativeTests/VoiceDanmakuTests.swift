@@ -72,10 +72,10 @@ final class VoiceDanmakuTests:XCTestCase {
   try await Task.sleep(nanoseconds:120_000_000)
   XCTAssertGreaterThan(player.volume,0.176);XCTAssertLessThan(player.volume,0.8)
   XCTAssertEqual(player.rate,0)
-  ducker.end();try await Task.sleep(nanoseconds:400_000_000)
+  ducker.end();try await Task.sleep(nanoseconds:650_000_000)
   XCTAssertEqual(player.volume,0.8,accuracy:0.001);XCTAssertEqual(player.rate,0)
  }
- @MainActor func testVoiceMarkersUseExistingAuthenticatedTextTransportAndFourSecondRenderer() throws {
+ @MainActor func testVoiceMarkersUseExistingAuthenticatedTextTransportAndFiveSecondRenderer() throws {
   let credentials:[String:Any]=["roomId":"voice-test","userId":"host","token":String(repeating:"a",count:64)]
   UserDefaults.standard.set(try JSONSerialization.data(withJSONObject:credentials),forKey:"credentials")
   defer {UserDefaults.standard.removeObject(forKey:"credentials")}
@@ -100,18 +100,18 @@ final class VoiceDanmakuTests:XCTestCase {
   let chat=ChatEngine();chat.reset("voice-test")
   let message=ChatMessage(id:1,userId:"guest",name:"好友",text:"语音",clientMessageId:"voice:unique",timestamp:0)
   chat.accept(message,mine:false,live:true,now:1000);chat.accept(message,mine:false,live:true,now:1100)
-  XCTAssertEqual(chat.danmaku.count,1);XCTAssertEqual(chat.danmaku.first?.expiresAt,5000)
-  chat.tick(5001);XCTAssertTrue(chat.danmaku.isEmpty)
+  XCTAssertEqual(chat.danmaku.count,1);XCTAssertEqual(chat.danmaku.first?.expiresAt,6000)
+  chat.tick(6001);XCTAssertTrue(chat.danmaku.isEmpty)
  }
 
  @MainActor func testUserVolumeChangeDuringRecordingRestoresNewValue() async throws {
   let player=AVPlayer();player.volume=0.8
   let ducker=VoiceVolumeDucker(player:player);ducker.begin()
-  try await Task.sleep(nanoseconds:350_000_000)
-  ducker.setUserVolume(0.4);try await Task.sleep(nanoseconds:350_000_000)
-  let gain:Float=AVAudioSession.sharedInstance().currentRoute.outputs.contains {$0.portType == .builtInSpeaker} ? 0.08 : 0.22
+  try await Task.sleep(nanoseconds:650_000_000)
+  ducker.setUserVolume(0.4);try await Task.sleep(nanoseconds:650_000_000)
+  let gain:Float=AVAudioSession.sharedInstance().currentRoute.outputs.contains {[AVAudioSession.Port.headphones,.bluetoothA2DP,.bluetoothLE,.bluetoothHFP].contains($0.portType)} ? 0.22 : 0
   XCTAssertEqual(player.volume,0.4*gain,accuracy:0.001)
-  ducker.end();try await Task.sleep(nanoseconds:350_000_000)
+  ducker.end();try await Task.sleep(nanoseconds:650_000_000)
   XCTAssertEqual(player.volume,0.4,accuracy:0.001);XCTAssertEqual(player.rate,0)
  }
 

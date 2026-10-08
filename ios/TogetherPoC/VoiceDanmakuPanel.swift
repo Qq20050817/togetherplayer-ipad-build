@@ -3,18 +3,38 @@ import SwiftUI
 @MainActor struct VoiceDanmakuPanel:View {
  @ObservedObject var voice:VoiceDanmakuController
  let connected:Bool
+ var fullscreen=false
  var busyChanged:(Bool)->Void = {_ in}
  @State private var held=false
  @State private var gestureActive=false
  @State private var cancelling=false
  @State private var settings=false
+ @State private var pendingBegin:Task<Void,Never>?
  var body:some View {
   VStack(alignment:.leading,spacing:6) {
+   if fullscreen && showsDetails {details}
+   toolbar
+   if !fullscreen {details}
+  }.font(fullscreen ? .caption : .body).buttonStyle(.bordered).onAppear {updateBusy()}
+   .onChange(of:connected) {if !$0 {voice.cancel(message:"连接中断，当前录音已取消；重连后可再次按住")};held=false}
+   .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};if voice.state == .disabled {gestureActive=false};updateBusy()}
+   .onChange(of:settings) {_ in updateBusy()}
+   .onDisappear {pendingBegin?.cancel();pendingBegin=nil;if held {voice.cancel()};gestureActive=false;held=false;busyChanged(false)}
+   .sheet(isPresented:$settings) {settingsPanel}
+ }
+ private var showsDetails:Bool {
+  if voice.state == .disabled {return !voice.status.hasPrefix("语音弹幕未开启") && !voice.status.hasPrefix("语音弹幕已关闭")}
+  if voice.state == .ready {return !["按住说话","已确认发送","已取消"].contains(where:{voice.status.hasPrefix($0)})}
+  return true
+ }
+ private var toolbar:some View {
    HStack {
+    if fullscreen {Spacer(minLength:0)}
     if voice.state == .disabled || voice.state == .preparing {
-     Button("启用语音弹幕") {voice.enable()}.disabled(!connected || voice.state == .preparing).accessibilityIdentifier("enable-voice-danmaku")
+     Button {voice.enable()} label:{Label(fullscreen ? "语音" : "启用语音弹幕",systemImage:"mic.fill")}.disabled(!connected || voice.state == .preparing).accessibilityLabel("启用语音弹幕").accessibilityIdentifier("enable-voice-danmaku")
     } else {
-     Text(held ? (cancelling ? "松开取消" : "正在录音 · 松开预览") : "按住说话")
+     if fullscreen {options}
+     Text(held ? (cancelling ? "松开取消" : (fullscreen ? "松开预览" : "正在录音 · 松开预览")) : "按住说话")
       .padding(.horizontal,16).padding(.vertical,10).background(held ? Color.red : Color.blue).clipShape(Capsule())
       .accessibilityLabel("按住说话，松开预览，上滑取消")
       .accessibilityAction(named:Text("开始录音")) {if connected {voice.begin()}}
@@ -27,12 +47,25 @@ import SwiftUI
        guard !gestureActive else {return}
        gestureActive=true
        guard connected,voice.state == .ready else {return}
-       voice.begin();held=voice.state == .recording
-      }.onEnded {_ in voice.release(cancelled:cancelling);gestureActive=false;held=false;cancelling=false})
-     Button("关闭语音") {voice.disable();held=false}.accessibilityIdentifier("disable-voice-danmaku")
-     Button("语音设置") {settings=true}.disabled(voice.state != .ready)
+       held=true
+       pendingBegin=Task { @MainActor in
+        try? await Task.sleep(nanoseconds:16_000_000)
+        guard !Task.isCancelled,gestureActive,held,connected,voice.state == .ready else {return}
+        voice.begin();held=voice.state == .recording
+       }
+      }.onEnded {_ in pendingBegin?.cancel();pendingBegin=nil;voice.release(cancelled:cancelling);gestureActive=false;held=false;cancelling=false})
+     if !fullscreen {options}
     }
    }
+ }
+ private var options:some View {
+  Group {
+   Button {voice.disable();held=false} label:{if fullscreen {Image(systemName:"mic.slash")}else{Text("关闭语音")}}.accessibilityLabel("关闭语音").accessibilityIdentifier("disable-voice-danmaku")
+   Button {settings=true} label:{if fullscreen {Image(systemName:"gearshape")}else{Text("语音设置")}}.accessibilityLabel("语音设置").disabled(voice.state != .ready)
+  }
+ }
+ private var details:some View {
+  VStack(alignment:.leading,spacing:6) {
    Text(voice.status).font(.caption).foregroundColor(voice.state == .recording ? .red : .secondary).accessibilityIdentifier("voice-danmaku-status")
    if voice.state == .review {
     HStack(alignment:.top) {
@@ -41,12 +74,9 @@ import SwiftUI
     }
    } else if !voice.preview.isEmpty {Text(voice.preview).font(.caption).lineLimit(2)}
    if voice.state == .recording {VoiceInputLevel(capture:voice.capture)}
-  }.onAppear {updateBusy()}
-   .onChange(of:connected) {if !$0 {voice.cancel(message:"连接中断，当前录音已取消；重连后可再次按住")};held=false}
-   .onChange(of:voice.state) { _ in if voice.state != .recording {held=false;cancelling=false};if voice.state == .disabled {gestureActive=false};updateBusy()}
-   .onChange(of:settings) {_ in updateBusy()}
-   .onDisappear {if held {voice.cancel()};gestureActive=false;held=false;busyChanged(false)}
-   .sheet(isPresented:$settings) {
+  }
+ }
+ private var settingsPanel:some View {
     NavigationStack {
      Form {
       Picker("录音上限",selection:$voice.maxSeconds) {ForEach([30.0,60.0,120.0],id:\.self) {Text("\(Int($0)) 秒").tag($0)}}
@@ -57,7 +87,6 @@ import SwiftUI
       Button("完成") {settings=false}
      }.navigationTitle("语音弹幕设置")
     }.preferredColorScheme(.dark)
-   }
  }
  private func updateBusy() {busyChanged(settings || voice.state == .preparing || voice.state == .recording || voice.state == .finishing || voice.state == .review)}
 }

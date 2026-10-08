@@ -23,6 +23,7 @@ private final class VoiceAudioSink {
  var roomKey:(()->String)?
  var duck:((Bool)->Void)?
  let capture=VoiceCapture()
+ private let recognitionCallbacks:OperationQueue = {let q=OperationQueue();q.name="TogetherPlayer.LocalSpeechCallbacks";q.qualityOfService = .userInitiated;q.maxConcurrentOperationCount=1;return q}()
  private var recognizer:SFSpeechRecognizer?
  private var request:SFSpeechAudioBufferRecognitionRequest?
  private var task:SFSpeechRecognitionTask?
@@ -50,6 +51,7 @@ private final class VoiceAudioSink {
       guard let self=self,self.generation==current else {return}
       guard granted else {self.state = .disabled;self.status="未获麦克风权限，请在系统设置中允许";return}
       guard self.capture.prepareSession() else {self.state = .disabled;self.status=self.capture.status;return}
+      recognizer.queue=self.recognitionCallbacks
       self.recognizer=recognizer;self.state = .ready;self.status="按住说话，松开预览；上滑取消，默认最长 60 秒，需确认后发送"
      }
     }

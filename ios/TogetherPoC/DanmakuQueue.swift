@@ -5,14 +5,14 @@ struct DanmakuItem: Identifiable, Equatable {
  let text: String
  let lane: Int
  let expiresAt: Double
- var durationMs: Double=8000
+ var durationMs: Double=10000
 }
 struct DanmakuQueue {
  private(set) var active: [DanmakuItem]=[]
  private var pending: [(Int64,String,Double,Double)]=[]
  mutating func reset() {active=[];pending=[]}
- mutating func enqueue(id: Int64,text: String,now: Double,durationMs: Double=8000) {
-  pending.append((id,String(text.prefix(durationMs==4000 ? 500 : 120)),now+30000,durationMs))
+ mutating func enqueue(id: Int64,text: String,now: Double,durationMs: Double=10000) {
+  pending.append((id,String(text.prefix(durationMs<=5000 ? 500 : 120)),now+30000,durationMs))
   if pending.count>20 {pending.removeFirst(pending.count-20)}
   advance(now)
  }
