@@ -63,8 +63,9 @@ private final class VoiceAudioSink {
   capture.threshold=threshold;duck?(true)
   capture.requestStart()
   guard capture.active else {cancel(message:capture.status);return}
+  let seconds=max(15,min(120,maxSeconds))
   deadline=Task { [weak self] in
-   try? await Task.sleep(nanoseconds:UInt64(max(15,min(120,maxSeconds))*1_000_000_000))
+   try? await Task.sleep(nanoseconds:UInt64(seconds*1_000_000_000))
    guard !Task.isCancelled,let self=self,self.generation==current else {return}
    self.release();self.status="已到录音上限，等待本地识别结果；不会自动发送"
   }
