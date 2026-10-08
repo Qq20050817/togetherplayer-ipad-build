@@ -325,7 +325,7 @@ struct SubtitleHeightKey:PreferenceKey {
       VStack(spacing:4) {tools;HStack {Spacer(minLength:0);voiceDock}}
      }
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
-     .accessibilityIdentifier("fullscreen-control-bar")
+     .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
      .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
    }
    if composing {
