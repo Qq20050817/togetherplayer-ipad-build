@@ -266,7 +266,7 @@ struct SubtitleHeightKey:PreferenceKey {
     Button {model.chooseAudio(-1);showingAudio=false} label:{Label("自动选择",systemImage:model.selectedAudioIndex == -1 ? "checkmark" : "waveform")}
     if model.audioLabels.isEmpty {Text("未读取到可选音轨")}
     ForEach(model.audioLabels.indices,id:\.self) {index in Button {model.chooseAudio(index);showingAudio=false} label:{Label(model.audioLabels[index],systemImage:model.selectedAudioIndex==index ? "checkmark" : "waveform")}}
-   }.padding(20)
+   }.buttonStyle(AnimatedAppButtonStyle(.borderless)).padding(20)
   }
  }
  private var subtitleMenu: some View {
@@ -277,7 +277,7 @@ struct SubtitleHeightKey:PreferenceKey {
     if model.subtitleLabels.isEmpty {Text("未读取到可选内置文字字幕；可导入外挂字幕")}
     ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index);showingSubtitles=false} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
     if subtitles.available {Button {model.enableExternalSubtitle();showingSubtitles=false} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
-   }.padding(20)
+   }.buttonStyle(AnimatedAppButtonStyle(.borderless)).padding(20)
   }
  }
  private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-adjustments" : "subtitle-adjustments")}

@@ -117,7 +117,14 @@ final class WatchInterfaceTests: XCTestCase {
   let file=app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@","LOCAL-SUBTITLE-TEST")).firstMatch
   XCTAssertTrue(file.waitForExistence(timeout:90),app.debugDescription);file.tap()
   XCTAssertTrue(app.staticTexts["已加载1条字幕"].waitForExistence(timeout:12),app.debugDescription)
-  if fullscreen {XCTAssertTrue(app.otherElements["fullscreen-movie"].exists);XCTAssertTrue(app.buttons["退出全屏"].isHittable)}
+  if fullscreen {
+   let movie=app.otherElements["fullscreen-movie"].firstMatch;XCTAssertTrue(movie.exists)
+   let exit=app.buttons["退出全屏"].firstMatch
+   // DocumentsUI/AX snapshots can take longer than the idle deadline after
+   // import has finished. Idle hiding is correct; controls must remain reachable.
+   if !exit.isHittable {movie.tap()}
+   XCTAssertTrue(exit.isHittable)
+  }
   XCTAssertFalse(app.otherElements["subtitle-document-picker"].exists)
   capture(fullscreen ? "11-fullscreen-subtitle-import" : "10-subtitle-import",app)
  }
