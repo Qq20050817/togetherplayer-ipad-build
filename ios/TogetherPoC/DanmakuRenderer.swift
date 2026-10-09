@@ -46,20 +46,46 @@ import CoreText
    guard rebuild || previous[item.id] != item || bubbles[item.id]==nil else {continue}
    let motionTime=item.expiresAt-time
    guard motionTime>0 else {bubbles[item.id]?.removeFromSuperlayer();bubbles.removeValue(forKey:item.id);continue}
-   let font=UIFont.systemFont(ofSize:CGFloat(fontSize),weight:.semibold)
-   let textWidth=ceil((item.text as NSString).size(withAttributes:[.font:font]).width)+24
-   let height=ceil(font.lineHeight)+8
+   // Measure and draw the very same Core Text line, including fallback glyphs.
+   // CATextLayer's plain-string font fallback differed from NSString measurement
+   // and clipped the final Chinese glyph inside its own text rectangle.
+   let image=DanmakuTextRaster.image(item.text,fontSize:CGFloat(fontSize),scale:max(1,traitCollection.displayScale))
+   let textWidth=image.size.width+16
+   let height=image.size.height
    let bubble=bubbles[item.id] ?? CALayer();bubble.removeAllAnimations();bubble.sublayers?.forEach {$0.removeFromSuperlayer()}
    bubble.anchorPoint = .zero;bubble.bounds=CGRect(x:0,y:0,width:textWidth,height:height)
    bubble.backgroundColor=UIColor.black.withAlphaComponent(0.25).cgColor;bubble.cornerRadius=height/2
-   bubble.shouldRasterize=true;bubble.rasterizationScale=max(1,traitCollection.displayScale)
-   let text=CATextLayer();text.string=item.text;text.font=CTFontCreateWithName(font.fontName as CFString,font.pointSize,nil);text.fontSize=font.pointSize;text.foregroundColor=UIColor.white.cgColor;text.contentsScale=max(1,traitCollection.displayScale);text.alignmentMode = .left
-   text.frame=CGRect(x:12,y:4,width:textWidth-24,height:height-8);text.shadowColor=UIColor.black.cgColor;text.shadowOpacity=1;text.shadowRadius=3;text.shadowOffset=CGSize(width:0,height:1);bubble.addSublayer(text)
+   let text=CALayer();text.contents=image.cgImage;text.contentsScale=image.scale
+   text.frame=CGRect(x:8,y:0,width:image.size.width,height:height);bubble.addSublayer(text)
    if bubbles[item.id]==nil {layer.addSublayer(bubble);bubbles[item.id]=bubble}
    let motion=DanmakuMotion(width:Double(bounds.width),textWidth:Double(textWidth),expiresAt:item.expiresAt,now:time,durationSeconds:item.durationMs/1000)
    bubble.position=CGPoint(x:CGFloat(motion.toX),y:CGFloat(item.lane)*(CGFloat(fontSize)+14))
    let animation=CABasicAnimation(keyPath:"position.x");animation.fromValue=motion.fromX;animation.toValue=motion.toX;animation.duration=motion.remaining;animation.beginTime=CACurrentMediaTime();animation.timingFunction=CAMediaTimingFunction(name:.linear);bubble.add(animation,forKey:"travel")
   }
   CATransaction.commit()
+ }
+}
+
+// Rasterize once per message/size change; Core Animation still handles travel.
+@MainActor enum DanmakuTextRaster {
+ static func image(_ text:String,fontSize:CGFloat,scale:CGFloat)->UIImage {
+  let font=UIFont.systemFont(ofSize:fontSize,weight:.semibold)
+  let string=NSAttributedString(string:text,attributes:[.font:font,.foregroundColor:UIColor.white])
+  let line=CTLineCreateWithAttributedString(string as CFAttributedString)
+  var ascent:CGFloat=0,descent:CGFloat=0,leading:CGFloat=0
+  let advance=CGFloat(CTLineGetTypographicBounds(line,&ascent,&descent,&leading))
+  let ink=CTLineGetBoundsWithOptions(line,.useGlyphPathBounds)
+  let padding:CGFloat=6
+  let left=min(0,ink.minX),right=max(advance,ink.maxX)
+  let top=max(ascent,ink.maxY),bottom=max(descent,-ink.minY)
+  let size=CGSize(width:max(1,ceil(right-left)+padding*2),height:max(1,ceil(top+bottom)+padding*2))
+  let format=UIGraphicsImageRendererFormat();format.scale=scale;format.opaque=false
+  return UIGraphicsImageRenderer(size:size,format:format).image {renderer in
+   let context=renderer.cgContext
+   context.translateBy(x:0,y:size.height);context.scaleBy(x:1,y:-1)
+   context.textMatrix = .identity;context.textPosition=CGPoint(x:padding-left,y:padding+bottom)
+   context.setShadow(offset:CGSize(width:0,height:-1),blur:2,color:UIColor.black.cgColor)
+   CTLineDraw(line,context)
+  }
  }
 }

@@ -154,22 +154,28 @@ class MainActivity: Activity() {
   draft=field(inputWrap,"发消息…").apply {textSize=14f;maxLines=3;minHeight=dp(48);setTextColor(-1);setHintTextColor(0xff8f99a4.toInt());background=null;setPadding(dp(14),dp(10),0,dp(10));layoutParams=LinearLayout.LayoutParams(0,-2,1f);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEND;setOnEditorActionListener {_,action,_->if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){sendChat();true}else false}}
   icon(inputWrap,R.drawable.ic_sentiment_satisfied_alt,"发送表情") {emojiPicker()};icon(chatRow,R.drawable.ic_send,"发送",48,0xff1688ff.toInt()) {sendChat()};draft.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){if(connected && clock.localNow()-lastTyping>1000){lastTyping=clock.localNow();send(JSONObject().put("type","CHAT_TYPING"))}};override fun afterTextChanged(s: Editable?) {}})
   renderChat()
-  label(settingsBody,"TogetherPlayer $clientVersion · 房间与片源");server=field(settingsBody,"服务端 HTTPS 地址",getPreferences(0).getString("server","https://together.xiaokai123.de5.net")!!);roomInput=field(settingsBody,"房间编号")
-  val rooms=row(settingsBody);button(rooms,"创建") {register(false)};button(rooms,"加入 / 重连") {register(true)};button(rooms,"离开") {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
+  label(settingsBody,"房间与片源").apply {textSize=26f;setTypeface(typeface,android.graphics.Typeface.BOLD)};label(settingsBody,"连接房间，选择影片，就可以开始观影。");val connectionCard=settingsCard(settingsBody,"房间连接");val connectionOptions=settingsFold(connectionCard,"连接设置");server=field(connectionOptions,"服务端 HTTPS 地址",getPreferences(0).getString("server","https://together.xiaokai123.de5.net")!!);roomInput=field(connectionCard,"房间编号")
+  val rooms=row(connectionCard);button(rooms,"创建") {register(false)};button(rooms,"加入 / 重连") {register(true)};button(rooms,"离开") {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
   // Keep REST feedback visible next to the buttons as well as on the watch page.
-  val feedback=label(settingsBody);requestStatus.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){feedback.text=s};override fun afterTextChanged(s: Editable?) {}})
-  waitToggle=Switch(this).apply {text="等待对方缓冲或重连";settingsBody.addView(this);setOnCheckedChangeListener {_,enabled->if(!settingWait && connected && isHost)enqueue(JSONObject().put("type","ROOM_SETTINGS").put("data",JSONObject().put("waitForPeer",enabled)))}}
-  titleField=field(settingsBody,"影片名称","一起看电影");media=field(settingsBody,"HTTP / HLS / WebDAV 文件链接","https://media.w3.org/2010/05/bunny/movie.mp4");button(settingsBody,"设置房间影片") {setRoomMedia()};button(settingsBody,"添加到本机播放列表") {saveLibrary()}
-  button(settingsBody,"苹果 HDR / Atmos 测试片") {media.setText("https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8");titleField.setText("苹果 HDR / Atmos 测试片");if(connected && isHost)setRoomMedia()};label(settingsBody,"视频由设备直接读取。实际 HDR / Atmos 输出取决于设备与片源。")
-  button(settingsBody,"百度网盘 · 授权并选择房间影片") {openBaidu()}
-  button(settingsBody,"重试播放") {retryPlayback()}
-  button(settingsBody,"清除本机百度授权和片源") {baidu.clear();clearBaiduSource()}
-  localFileLabel=label(settingsBody,"未选择本地影片").apply {textSize=12f;setTextColor(0xff95b7d3.toInt())}
-  val localRow=row(settingsBody);button(localRow,"选择本地影片") {importLocalMovie()};button(localRow,"清除本地影片") {clearLocalMovie()}
-  button(settingsBody,"仅替换本机为本地影片（好友继续在线）") {importLocalMovie(false)}
-  localSource=field(settingsBody,"仅本机片源（留空恢复）");button(settingsBody,"应用本机片源") {applyLocalSource()};nickname=field(settingsBody,"昵称",getPreferences(0).getString("nickname","我")!!);offset=field(settingsBody,"时间偏移（秒，可负数）",getPreferences(0).getString("offset","0")!!);label(settingsBody,"本地文件直接从本机读取，不会上传；百度房间会核对同一文件。片头差异可用时间偏移校准，不同剪辑无法靠偏移同步。");button(settingsBody,"保存昵称与校准") {saveProfile()}
-  val seekRow=row(settingsBody);seek=field(seekRow,"跳转秒数","20");seek.layoutParams=LinearLayout.LayoutParams(0,-2,1f);button(seekRow,"跳转") {seek.text.toString().toDoubleOrNull()?.takeIf {it.isFinite()}?.let {control("SEEK",it*1000)}}
-  status=label(settingsBody,"未连接");button(settingsBody,"模拟断线3秒") {disconnectForTest()};label(settingsBody,"前台观影；后台暂停，返回恢复同步。外挂字幕只在本机读取。")
+  val feedback=label(connectionCard);requestStatus.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){feedback.text=s};override fun afterTextChanged(s: Editable?) {}})
+  waitToggle=Switch(this).apply {text="等待对方缓冲或重连";connectionOptions.addView(this);setOnCheckedChangeListener {_,enabled->if(!settingWait && connected && isHost)enqueue(JSONObject().put("type","ROOM_SETTINGS").put("data",JSONObject().put("waitForPeer",enabled)))}}
+  val sourceCard=settingsCard(settingsBody,"选择片源")
+  localFileLabel=label(sourceCard,"未选择本地影片").apply {textSize=12f;setTextColor(0xff95b7d3.toInt())}
+  button(sourceCard,"选择本地影片") {importLocalMovie()}.apply {setTextColor(-1);background=rounded(0xff1688ff.toInt());minHeight=dp(48)}
+  label(sourceCard,"直接读取设备上的视频，不复制、不上传。")
+  button(sourceCard,"百度网盘 · 授权并选择房间影片") {openBaidu()}
+  val sourceOptions=settingsFold(sourceCard,"片源管理")
+  button(sourceOptions,"重试播放") {retryPlayback()}
+  button(sourceOptions,"清除本机百度授权和片源") {baidu.clear();clearBaiduSource()}
+  button(sourceOptions,"清除本地影片") {clearLocalMovie()}
+  val linkCard=settingsCard(settingsBody,"链接播放");val linkOptions=settingsFold(linkCard,"输入房间影片链接")
+  titleField=field(linkOptions,"影片名称","一起看电影");media=field(linkOptions,"HTTP / HLS / WebDAV 文件链接","https://media.w3.org/2010/05/bunny/movie.mp4");button(linkOptions,"设置房间影片") {setRoomMedia()};button(linkOptions,"添加到本机播放列表") {saveLibrary()}
+  val localOptions=settingsFold(linkCard,"仅本机使用另一播放链接")
+  localSource=field(localOptions,"仅本机片源（留空恢复）");button(localOptions,"应用本机片源") {applyLocalSource()};val moreCard=settingsCard(settingsBody,"更多设置");val profileOptions=settingsFold(moreCard,"身份与时间校准");nickname=field(profileOptions,"昵称",getPreferences(0).getString("nickname","我")!!);offset=field(profileOptions,"时间偏移（秒，可负数）",getPreferences(0).getString("offset","0")!!);label(profileOptions,"本地文件直接从本机读取，不会上传；百度房间会核对同一文件。片头差异可用时间偏移校准，不同剪辑无法靠偏移同步。");button(profileOptions,"保存昵称与校准") {saveProfile()}
+  // Retain backing fields used by telemetry without exposing diagnostic actions.
+  val diagnosticStorage=LinearLayout(this);seek=field(diagnosticStorage,"跳转秒数","20");status=TextView(this)
+  label(moreCard,"TogetherPlayer $clientVersion").apply {textSize=12f;setTextColor(0xff8f99a4.toInt())}
+  styleSettingsButtons(settingsBody)
   root.setOnApplyWindowInsetsListener {view,insets->
    val edges=if(android.os.Build.VERSION.SDK_INT>=30){val safe=insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout());intArrayOf(safe.left,safe.top,safe.right,safe.bottom)}else intArrayOf(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom)
    view.setPadding(dp(8)+edges[0],dp(4)+edges[1],dp(8)+edges[2],dp(6)+edges[3])
@@ -342,8 +348,34 @@ class MainActivity: Activity() {
   label(body,"0.5 倍更慢，2 倍更快；对新弹幕生效")
   android.app.AlertDialog.Builder(this).setTitle("弹幕设置").setView(body).setPositiveButton("完成",null).create().apply {setOnDismissListener {revealControls()};show()}
  }
+ private fun settingsCard(parent:LinearLayout,title:String):LinearLayout {
+  val card=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(16));background=rounded(0xff1b2330.toInt(),18)}
+  parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply {setMargins(0,dp(12),0,dp(4))})
+  val heading=row(card).apply {gravity=android.view.Gravity.CENTER_VERTICAL}
+  val icon=android.widget.ImageView(this).apply {setImageResource(when(title){"房间连接"->R.drawable.ic_group;"选择片源"->R.drawable.ic_playlist_play;"链接播放"->R.drawable.ic_link;else->R.drawable.ic_settings});setColorFilter(-1);setPadding(dp(9),dp(9),dp(9),dp(9));background=rounded(0xff267bff.toInt(),10)}
+  heading.addView(icon,LinearLayout.LayoutParams(dp(40),dp(40)).apply {rightMargin=dp(12)})
+  label(heading,title).apply {textSize=20f;setTextColor(-1);setTypeface(typeface,android.graphics.Typeface.BOLD)}
+  return card
+ }
+ private fun styleSettingsButtons(group:android.view.ViewGroup) {
+  for(i in 0 until group.childCount) {
+   val child=group.getChildAt(i)
+   if(child is android.view.ViewGroup)styleSettingsButtons(child)
+   else if(child is Button && group is LinearLayout) {
+    child.layoutParams=LinearLayout.LayoutParams(if(group.orientation==LinearLayout.VERTICAL)-1 else 0,dp(48),if(group.orientation==LinearLayout.VERTICAL)0f else 1f).apply {setMargins(dp(3),dp(4),dp(3),dp(4))}
+    if(child.text.toString()=="创建")child.background=rounded(0xff267bff.toInt(),10)
+   }
+  }
+ }
+ private fun settingsFold(parent:LinearLayout,title:String):LinearLayout {
+  val content=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;visibility=View.GONE;setPadding(0,dp(8),0,dp(8))}
+  val toggle=button(parent,"$title ▾") {content.visibility=if(content.visibility==View.VISIBLE)View.GONE else View.VISIBLE}
+  toggle.contentDescription=title
+  parent.addView(content)
+  return content
+ }
  private fun drainDanmaku(){while(danmakuPending.isNotEmpty() && clock.localNow()-danmakuPending.first().second>30000)danmakuPending.removeFirst();val lane=danmakuLanes.indexOfFirst {!it};if(lane<0 || danmakuPending.isEmpty())return;val entry=danmakuPending.removeFirst();val text=entry.first;danmakuLanes[lane]=true
-  val v=TextView(this).apply {this.text=text;textSize=danmakuSize;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);tag="danmaku";isClickable=false};v.measure(View.MeasureSpec.UNSPECIFIED,View.MeasureSpec.UNSPECIFIED);val h=dp((danmakuSize*1.6).toInt());videoBox.addView(v,FrameLayout.LayoutParams(-2,h).apply {topMargin=dp(if(fullscreenDialog!=null)16 else 72)+lane*h});v.translationX=videoBox.width.toFloat();v.animate().translationX(-v.measuredWidth.toFloat()).setDuration(DanmakuSpeed.duration(entry.third,danmakuSpeed)).setInterpolator(android.view.animation.LinearInterpolator()).withEndAction {videoBox.removeView(v);danmakuLanes[lane]=false;drainDanmaku()}.start();drainDanmaku()
+  val v=TextView(this).apply {this.text=text;textSize=danmakuSize;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);setSingleLine(true);setPadding(dp(6),dp(4),dp(6),dp(4));tag="danmaku";isClickable=false};v.measure(View.MeasureSpec.UNSPECIFIED,View.MeasureSpec.UNSPECIFIED);val h=v.measuredHeight;videoBox.addView(v,FrameLayout.LayoutParams(v.measuredWidth,h).apply {topMargin=dp(if(fullscreenDialog!=null)16 else 72)+lane*h});v.translationX=videoBox.width.toFloat();v.animate().translationX(-v.measuredWidth.toFloat()).setDuration(DanmakuSpeed.duration(entry.third,danmakuSpeed)).setInterpolator(android.view.animation.LinearInterpolator()).withEndAction {videoBox.removeView(v);danmakuLanes[lane]=false;drainDanmaku()}.start();drainDanmaku()
  }
  private fun removeDanmaku(){for(i in videoBox.childCount-1 downTo 0){val v=videoBox.getChildAt(i);if(v.tag=="danmaku"){v.animate().cancel();videoBox.removeView(v)}};danmakuLanes.fill(false)}
  private fun errorText(code: String)=when(code){"STALE_VERSION"->"房间状态变化，请重试";"HOST_REQUIRED"->"只有房主可以操作";"HOST_OFFLINE"->"房主离线";"SEEK_AFTER_END"->"超出影片时长";"SOURCE_NOT_READY"->"等待两端匹配同一百度影片并准备好";"INVALID_SOURCE"->"片源无效或含凭据";"RATE_LIMIT"->"操作过于频繁";else->code}

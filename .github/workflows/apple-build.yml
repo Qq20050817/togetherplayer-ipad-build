@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       subtitle_controls_only:
-        description: Verify core tests and the five fullscreen/subtitle/voice regressions
+        description: Verify core tests and the room, picker, fullscreen/subtitle/voice regressions
         type: boolean
         default: false
   push:
@@ -81,6 +81,8 @@ jobs:
           if [ "$SUBTITLE_CONTROLS_ONLY" = "true" ]; then
             TEST_SELECTION=(
               -only-testing:TogetherPoCCoreTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testTappingUppercaseMP4ReturnsFromFilesAndLoadsLocalSource
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleAdjustmentPanelChangesValuesAndResets
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleImportReturnsFromFiles
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenSubtitleImportReturnsAndKeepsControlsVisible

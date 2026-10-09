@@ -1,6 +1,21 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let settings=app.buttons["打开房间与片源"];XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
+  XCTAssertTrue(app.staticTexts["房间管理"].waitForExistence(timeout:5))
+  for removed in ["苹果 HDR / Atmos 测试片","仅替换本机为本地影片（好友继续在线）","模拟断线3秒","iPad Atmos测试片音轨"] {XCTAssertFalse(app.buttons[removed].exists)}
+  XCTAssertTrue(app.buttons["创建房间"].isHittable);XCTAssertGreaterThanOrEqual(app.buttons["创建房间"].frame.height,44)
+  let copy=app.buttons["复制房间编号"];XCTAssertTrue(copy.isHittable);copy.tap()
+  capture("18-room-cards-landscape",app)
+  let choose=app.buttons["choose-local-movie"]
+  for _ in 0..<6 {if choose.isHittable {break};app.swipeUp()}
+  XCTAssertTrue(choose.isHittable);XCTAssertGreaterThanOrEqual(choose.frame.height,44)
+  XCUIDevice.shared.orientation = .portrait
+  capture("19-room-cards-portrait",app)
+ }
  func testFullscreenVoiceHoldKeepsPreviewAndIndependentTools() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_VOICE_GESTURE_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
@@ -193,6 +208,8 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
   // The media action initially sits at the sheet's lower edge on this iPad.
   // Bring the action and its inline response into the viewport before tapping.
+  let section=app.buttons["设置房间影片"].firstMatch
+  if !app.buttons["set-room-media"].exists {section.tap()}
   let button=app.buttons["set-room-media"]
   XCTAssertTrue(button.waitForExistence(timeout:5))
   let start=button.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))

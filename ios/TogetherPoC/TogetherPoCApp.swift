@@ -516,9 +516,22 @@ struct FullscreenToolStyle:ButtonStyle {
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
    Button(model.isSettingRoomMedia ? "正在设置房间影片…" : "设置房间影片") {model.setRoomMedia()}
-    .buttonStyle(AnimatedAppButtonStyle(.borderless)).disabled(!model.isRoomHost || model.isSettingRoomMedia).accessibilityIdentifier("set-room-media")
+    .buttonStyle(AnimatedAppButtonStyle(.prominent)).disabled(!model.isRoomHost || model.isSettingRoomMedia).accessibilityIdentifier("set-room-media")
    if !feedback.requestStatus.isEmpty {Text(feedback.requestStatus).font(.caption).foregroundColor(.orange).accessibilityIdentifier("room-media-feedback")}
   }.frame(maxWidth:.infinity,alignment:.leading)
+ }
+}
+struct RoomActionStyle:ButtonStyle {
+ var primary=false
+ @Environment(\.isEnabled) private var enabled
+ func makeBody(configuration:Configuration)->some View {
+  configuration.label.font(.subheadline.weight(.semibold)).foregroundStyle(configuration.role == .destructive ? Color.red : Color.white)
+   .padding(.horizontal,14).frame(minHeight:44)
+   .background(primary ? Color.blue : Color.white.opacity(configuration.isPressed ? 0.16 : 0.065))
+   .clipShape(RoundedRectangle(cornerRadius:10))
+   .overlay {RoundedRectangle(cornerRadius:10).stroke(Color.white.opacity(0.1))}
+   .opacity(enabled ? 1 : 0.4).scaleEffect(configuration.isPressed ? 0.98 : 1)
+   .animation(.easeOut(duration:configuration.isPressed ? 0.08 : 0.14),value:configuration.isPressed)
  }
 }
 @MainActor struct RoomScreen: View {
@@ -527,73 +540,76 @@ struct FullscreenToolStyle:ButtonStyle {
  private enum Picker: String, Identifiable {case baidu,local,localCopy;var id:String {rawValue}}
  @State private var picker: Picker?
  var body: some View {
-  Form {
-   Section("TogetherPlayer 0.5.0") {
-    TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-    TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled()
-    HStack {Button("创建房间") {model.register(join:false)};Button("加入 / 重连") {model.register(join:true)}}.buttonStyle(AnimatedAppButtonStyle(.borderless))
-    RequestFeedback(feedback:model.feedback)
-    ConnectionFeedback(model:model,feedback:model.feedback)
-    Toggle("等待对方缓冲或重连",isOn:Binding(get:{model.waitForPeer},set:{model.waitForPeer=$0;model.setWaiting($0)})).disabled(!model.isRoomHost)
-    Button(model.isRoomHost ? "离开并关闭房间" : "离开房间",role:.destructive) {model.leaveRoom()}
-   }
-   Section("房间影片") {
-    TextField("影片名称",text:$model.movieTitle)
-    TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-    RoomMediaAction(model:model,feedback:model.mediaFeedback)
-    Button("苹果 HDR / Atmos 测试片") {model.useHighQualityTestSource();model.movieTitle="苹果 HDR / Atmos 测试片";if model.isRoomHost {model.setRoomMedia()}}.buttonStyle(AnimatedAppButtonStyle(.borderless)).disabled(model.isSettingRoomMedia)
-    Text("视频由设备直接读取。更换房间影片会暂停并让双方重新加载。").font(.caption)
-   }
-   Section("百度网盘 · 个人体验") {
-    Button("授权并选择百度影片") {picker = .baidu}.disabled(!model.isConnected)
-    Button("清除百度授权与本机片源",role:.destructive) {baidu.clear();model.clearBaiduSource()}
-    Text("先加入房间。授权及直链只留在本机内存；好友不会得到你的网盘权限。MP4原生播放；MKV本机封装试用。目标为杜比视界P5和DD+ Atmos，TrueHD Atmos未支持。").font(.caption)
-   }
-   Section("仅本机使用另一版本") {
-    if model.usingLocalFile {
-     Text("本地影片：\(model.localFileName)").font(.caption)
-    } else if model.usingBaiduSource {
-     Text("百度本机片源已选择（授权链接隐藏）").font(.caption)
-    } else {
-     TextField("本机播放链接（可留空）",text:$model.localMediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+  ScrollView {
+   VStack(alignment:.leading,spacing:14) {
+    roomCard("房间管理",icon:"house.fill") {
+     HStack(spacing:12) {
+      Button {model.register(join:false)} label:{Label("创建房间",systemImage:"plus.circle.fill").frame(maxWidth:.infinity)}.buttonStyle(RoomActionStyle(primary:true))
+      Button {model.register(join:true)} label:{Label("加入 / 重连",systemImage:"link").frame(maxWidth:.infinity)}
+     }
+     HStack {Image(systemName:"number.circle").foregroundStyle(.blue);TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled();Button {UIPasteboard.general.string=model.roomID} label:{Image(systemName:"doc.on.doc")}.accessibilityLabel("复制房间编号").disabled(model.roomID.isEmpty)}.padding(12).background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius:10))
+     HStack {ConnectionFeedback(model:model,feedback:model.feedback);Spacer();if model.isConnected {Button(model.isRoomHost ? "离开并关闭房间" : "离开房间",role:.destructive) {model.leaveRoom()}}}
+     RequestFeedback(feedback:model.feedback)
+     DisclosureGroup("连接设置") {
+      VStack(alignment:.leading,spacing:14) {
+       TextField("服务地址",text:$model.server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
+       Toggle("等待对方缓冲或重连",isOn:Binding(get:{model.waitForPeer},set:{model.waitForPeer=$0;model.setWaiting($0)})).disabled(!model.isRoomHost)
+      }.padding(.top,12)
+     }
     }
-    Button("选择本地影片") {model.beginLocalFileSelection();picker = .local}.accessibilityIdentifier("choose-local-movie")
-    Button("兼容导入本地影片（复制一份）") {model.beginLocalFileSelection();picker = .localCopy}.accessibilityIdentifier("import-local-movie-copy")
-    RequestFeedback(feedback:model.feedback)
-    Text("直接选择入口只读取原文件；兼容导入会复制一份。两者都不会上传影片。").font(.caption)
-    Text("若直接点选文件没有返回，可用兼容导入。系统会复制一份到 App 临时目录，需要额外影片大小的空间；复制期间请等待，不要重复点选。不上传影片。").font(.caption)
-    if model.isRoomHost {Button("仅替换本机为本地影片（好友继续在线）") {model.beginLocalFileSelection(publishRoom:false);picker = .local}}
-    if model.usingLocalFile {
-     Button("清除本地影片并恢复房间片源",role:.destructive) {model.clearLocalFileSource()}
-    } else {
-     Button("应用本机片源") {model.applyLocalSource()}
+    roomCard("房间影片",icon:"video.fill") {
+     Label(model.playbackTitle,systemImage:"doc").font(.subheadline).lineLimit(3).textSelection(.enabled)
+     DisclosureGroup("设置房间影片") {
+      VStack(alignment:.leading,spacing:14) {
+       TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder)
+       TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
+       RoomMediaAction(model:model,feedback:model.mediaFeedback)
+      }.padding(.top,12)
+     }
+     Text("房间影片由设备直接读取。更换影片会暂停并让双方重新加载。").font(.caption).foregroundStyle(.secondary)
+     if !model.roomNotice.isEmpty {Text(model.roomNotice).font(.caption).foregroundStyle(.orange)}
     }
-    Text("本地文件直接读取，不额外复制。精确匹配会核对首/中/尾采样；百度下载的另一画质可在选片后确认相同剪辑，时长校验通过后同步。").font(.caption)
-   }
-   Section("身份与时间校准") {
-    TextField("昵称",text:$model.nickname)
-    TextField("本机时间偏移（秒，可负数）",text:$model.offsetSeconds).keyboardType(.numbersAndPunctuation)
-    Text("本机正片比房间晚8秒开始时，填8。").font(.caption)
-    Button("保存昵称与校准") {model.saveProfile()}
-   }
-   Section("画质诊断") {
-    Button(model.atmosReferenceOverride ? "恢复官方自适应音轨" : "iPad Atmos测试片音轨") {model.toggleAtmosReference()}
-    Text("音轨、字幕和外挂字幕导入已移至观影页画面下方。").font(.caption)
-    Text(model.mediaInfo).font(.caption);Text(model.streamInfo).font(.caption)
-   }
-   Section("开源组件") {
-    Text("包含PrismCore（LGPL-2.1+及商店例外）和MPVKit/FFmpeg。MKV在设备本机重新封装，不经过Muse。").font(.caption)
-    Link("PrismCore源码与许可证",destination:URL(string:"https://github.com/Wenzlik/PrismCore")!)
-    Link("MPVKit源码与许可证",destination:URL(string:"https://github.com/mpvkit/MPVKit")!)
-   }
-   Section("连接与测试") {
-    DiagnosticsFeedback(feedback:model.feedback)
-    Button("仅本机播放测试") {model.checkLocalVideo()}
-    Button("本机兼容封装重试") {model.retryCompatibility()}
-    Button("模拟断线3秒") {model.disconnectForTest()}
-    Text("当前为前台观影；切后台会暂停本机，返回后恢复房间状态。").font(.caption)
-   }
-  }.buttonStyle(AnimatedAppButtonStyle(.borderless)).sheet(item:$picker) {selection in
+    roomCard("百度网盘",icon:"cloud") {
+     Button {picker = .baidu} label:{Label("授权并选择百度影片",systemImage:"link").frame(maxWidth:.infinity,alignment:.leading)}.disabled(!model.isConnected)
+     Button(role:.destructive) {baidu.clear();model.clearBaiduSource()} label:{Label("清除百度授权与本机片源",systemImage:"trash").frame(maxWidth:.infinity,alignment:.leading)}
+     Text(model.isConnected ? "双方各自授权并选择同一影片；授权只留在本机。" : "先创建或加入房间，再选择网盘影片。").font(.caption).foregroundStyle(.secondary)
+    }
+    roomCard("本机影片",icon:"laptopcomputer") {
+     if model.usingLocalFile {Label("本地影片：\(model.localFileName)",systemImage:"doc").font(.subheadline).lineLimit(3)}
+     else if model.usingBaiduSource {Text("百度本机片源已选择（授权链接隐藏）").font(.subheadline).foregroundStyle(.secondary)}
+     ViewThatFits(in:.horizontal) {
+      HStack(spacing:10) {localMovieButton;localCopyButton}
+      VStack(spacing:10) {localMovieButton;localCopyButton}
+     }
+     Text("直接选择只读取原文件；兼容导入会复制一份，需要额外影片大小的空间。均不上传影片。").font(.caption).foregroundStyle(.secondary)
+     if !model.sourceNotice.isEmpty {Text(model.sourceNotice).font(.caption).foregroundStyle(.orange)}
+     if model.usingLocalFile {Button(role:.destructive) {model.clearLocalFileSource()} label:{Label("清除本地影片并恢复房间片源",systemImage:"trash").frame(maxWidth:.infinity,alignment:.leading)}}
+     DisclosureGroup("仅本机使用另一播放链接") {
+      VStack(alignment:.leading,spacing:14) {
+       TextField("本机播放链接（可留空）",text:$model.localMediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
+       Button("应用本机片源") {model.applyLocalSource()}
+      }.padding(.top,12)
+     }
+     RequestFeedback(feedback:model.feedback)
+    }
+    roomCard("身份与时间校准",icon:"person.crop.circle") {
+     HStack {Text("昵称").foregroundStyle(.secondary);TextField("昵称",text:$model.nickname).textFieldStyle(.roundedBorder)}
+     HStack {Text("偏移（秒）").foregroundStyle(.secondary);TextField("本机时间偏移（秒，可负数）",text:$model.offsetSeconds).keyboardType(.numbersAndPunctuation).textFieldStyle(.roundedBorder)}
+     Text("本机正片比房间晚8秒开始时，填8。不同画质需要确认相同剪辑并校验时长。").font(.caption).foregroundStyle(.secondary)
+     Button("保存昵称与校准") {model.saveProfile()}
+    }
+    roomCard("开源组件",icon:"doc.text") {
+     DisclosureGroup("源码与许可证") {
+      VStack(alignment:.leading,spacing:14) {
+       Text("包含PrismCore（LGPL-2.1+及商店例外）和MPVKit/FFmpeg。MKV在设备本机重新封装，不经过Muse。目标支持杜比视界P5和DD+ Atmos，TrueHD Atmos未支持。").font(.caption)
+       Link("PrismCore源码与许可证",destination:URL(string:"https://github.com/Wenzlik/PrismCore")!)
+       Link("MPVKit源码与许可证",destination:URL(string:"https://github.com/mpvkit/MPVKit")!)
+      }.padding(.top,12)
+     }
+     Text("TogetherPlayer \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")").font(.caption).foregroundStyle(.secondary)
+    }
+   }.frame(maxWidth:1200).padding(20).frame(maxWidth:.infinity)
+  }.background(Color(red:0.025,green:0.03,blue:0.07)).buttonStyle(RoomActionStyle()).sheet(item:$picker) {selection in
     switch selection {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
@@ -610,6 +626,25 @@ struct FullscreenToolStyle:ButtonStyle {
     Text("房间：\(candidate.roomTitle)\n本机：\(candidate.url.lastPathComponent)\n\(MovieVariantPolicy.namesSuggestSameMovie(candidate.roomTitle,candidate.url.lastPathComponent) ? "去除画质标记后名称相近。" : "文件名称不同，请仔细核对。")名称相近不代表相同剪辑；确认后还会核对双方时长，差异超过5秒暂停同步。")
    }
  }
+ private var localMovieButton:some View {
+  Button {model.beginLocalFileSelection();picker = .local} label:{Label("选择本地影片",systemImage:"folder.fill").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("choose-local-movie")
+ }
+ private var localCopyButton:some View {
+  Button {model.beginLocalFileSelection();picker = .localCopy} label:{Label("兼容导入本地影片（复制一份）",systemImage:"doc.on.doc").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("import-local-movie-copy")
+ }
+ @ViewBuilder private func roomCard<Content:View>(_ title:String,icon:String,@ViewBuilder content:()->Content)->some View {
+  VStack(alignment:.leading,spacing:12) {
+   HStack(spacing:12) {
+    Image(systemName:icon).font(.title2).foregroundStyle(.white).frame(width:40,height:40).background(title == "房间影片" || title == "本机影片" ? Color.purple : Color.blue).clipShape(RoundedRectangle(cornerRadius:10))
+    Text(title).font(.title3.bold()).foregroundStyle(.white)
+   }
+   content()
+  }.padding(18).frame(maxWidth:.infinity,alignment:.leading)
+   .background(Color(red:0.105,green:0.135,blue:0.19))
+   .clipShape(RoundedRectangle(cornerRadius:18))
+   .overlay {RoundedRectangle(cornerRadius:18).stroke(Color.white.opacity(0.08))}
+ }
+
 }
 // Use one presentation route for this screen. In particular, the document
 // browser must also work when RoomScreen itself is shown inside a settings sheet.

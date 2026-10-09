@@ -25,6 +25,19 @@ class WatchInterfaceTest {
    android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use {it.readBytes()}
   }
  }
+ @Test fun testSettingsCardsKeepSourceActionsAndRemoveDiagnosticEntries() {
+  ActivityScenario.launch(MainActivity::class.java).use {
+   onView(withContentDescription("房间 / 设置")).perform(click())
+   onView(withText("创建")).check(matches(isDisplayed()))
+   onView(withText("选择本地影片")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withContentDescription("输入房间影片链接")).perform(scrollTo(),click())
+   onView(withText("设置房间影片")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withText("苹果 HDR / Atmos 测试片")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+   onView(withText("仅替换本机为本地影片（好友继续在线）")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+   onView(withText("模拟断线3秒")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
+   capture("14-room-source-cards")
+  }
+ }
  @Test fun testPortraitLandscapeAndFullscreen() {
   val launch=android.content.Intent(instrumentation.targetContext,MainActivity::class.java).putExtra("uiTestSlow",true)
   ActivityScenario.launch<MainActivity>(launch).use {scenario->
