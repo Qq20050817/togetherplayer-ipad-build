@@ -139,14 +139,14 @@ class WatchInterfaceTest {
   ActivityScenario.launch<MainActivity>(MainActivity::class.java).use {scenario->
    val adapter=BaiduSourceAdapter()
    scenario.onActivity {activity->BaiduBrowserDialog(activity,adapter,"",{_,_->false},{},{throw android.content.ActivityNotFoundException()}).show()}
-   onView(withText("打开官方体验授权页")).perform(click())
-   onView(withText("没有可用浏览器。请复制授权页链接，在浏览器中打开。")).perform(scrollTo()).check(matches(isDisplayed()))
-   onView(withText("复制授权页链接")).perform(scrollTo(),click())
+   onView(withText("打开官方体验授权页")).inRoot(isDialog()).perform(click())
+   onView(withText("没有可用浏览器。请复制授权页链接，在浏览器中打开。")).inRoot(isDialog()).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withText("复制授权页链接")).inRoot(isDialog()).perform(scrollTo(),click())
    scenario.onActivity {activity->
     val clipboard=activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
     assertEquals(BaiduSourceAdapter.AUTHORIZE,clipboard.primaryClip!!.getItemAt(0).text.toString())
    }
-   onView(withText("返回")).perform(click());adapter.close()
+   onView(withText("返回")).inRoot(isDialog()).perform(click());adapter.close()
   }
  }
  @Test fun testFullscreenSettingsRemainVisiblePastIdleDeadline() {

@@ -352,7 +352,7 @@ class MainActivity: Activity() {
   val card=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(16));background=rounded(0xff1b2330.toInt(),18)}
   parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply {setMargins(0,dp(12),0,dp(4))})
   val heading=row(card).apply {gravity=android.view.Gravity.CENTER_VERTICAL}
-  val icon=android.widget.ImageView(this).apply {setImageResource(when(title){"房间连接"->R.drawable.ic_group;"选择片源"->R.drawable.ic_playlist_play;"链接播放"->R.drawable.ic_link;else->R.drawable.ic_settings});setColorFilter(-1);setPadding(dp(9),dp(9),dp(9),dp(9));background=rounded(0xff267bff.toInt(),10)}
+  val icon=android.widget.ImageView(this).apply {setImageResource(when(title){"房间连接"->R.drawable.ic_group;"选择片源"->R.drawable.ic_play_arrow;"链接播放"->R.drawable.ic_link;else->R.drawable.ic_settings});setColorFilter(-1);setPadding(dp(9),dp(9),dp(9),dp(9));background=rounded(0xff267bff.toInt(),10)}
   heading.addView(icon,LinearLayout.LayoutParams(dp(40),dp(40)).apply {rightMargin=dp(12)})
   label(heading,title).apply {textSize=20f;setTextColor(-1);setTypeface(typeface,android.graphics.Typeface.BOLD)}
   return card
