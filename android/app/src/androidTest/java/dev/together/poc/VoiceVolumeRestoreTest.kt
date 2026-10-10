@@ -10,6 +10,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class VoiceVolumeRestoreTest {
  @Test fun repeatedFinishAndRapidPressRestoreUsersVolume() {
+  org.junit.Assert.assertTrue("Volume regression requires real animator timing",android.animation.ValueAnimator.areAnimatorsEnabled())
   ActivityScenario.launch(MainActivity::class.java).use {scenario->
    fun change(block:(VoiceDanmakuController,ExoPlayer)->Unit) {
     scenario.onActivity {activity->
