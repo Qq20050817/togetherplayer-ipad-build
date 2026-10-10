@@ -15,7 +15,7 @@ import UIKit
  deinit {displayLink?.invalidate()}
  func begin() {
   guard let player=player else {return}
-  if original==nil {original=player.volume;userVolume=player.volume}
+  if original==nil {original=userVolume}
   let headphones:Set<AVAudioSession.Port>=[.headphones,.bluetoothA2DP,.bluetoothLE,.bluetoothHFP]
   recordingGain=AVAudioSession.sharedInstance().currentRoute.outputs.contains {headphones.contains($0.portType)} ? 0.22 : 0
   transition(to:(original ?? 0)*recordingGain)

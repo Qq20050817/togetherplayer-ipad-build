@@ -122,8 +122,11 @@ class VoiceDanmakuController(private val activity:Activity,private val player:Ex
   return if(headphones)0.22f else 0f
  }
  private fun duck(lower:Boolean){
+  // Repeated finish/cancel callbacks must not cancel a restoration in progress.
+  // A new press during restoration must use the user's volume, not the ramp's
+  // temporary low value, or each rapid press permanently lowers the baseline.
+  val target=if(lower){if(originalVolume==null)originalVolume=userVolume;originalVolume!!*recordingGain()}else{val value=originalVolume ?: return;originalVolume=null;value}
   ramp?.cancel()
-  val target=if(lower){if(originalVolume==null){originalVolume=player.volume;userVolume=player.volume};originalVolume!!*recordingGain()}else{val value=originalVolume ?: return;originalVolume=null;value}
   ramp=android.animation.ValueAnimator.ofFloat(player.volume,target).apply {duration=480;interpolator=android.animation.TimeInterpolator {t->t*t*t*(t*(6*t-15)+10)};addUpdateListener {player.volume=it.animatedValue as Float};start()}
  }
  companion object {const val VOICE_PERMISSION=702;const val MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip";const val MODEL_SHA="3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"}

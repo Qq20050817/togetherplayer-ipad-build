@@ -3,6 +3,33 @@ import AVFoundation
 @testable import TogetherPoC
 
 final class VoiceDanmakuTests:XCTestCase {
+ func testPauseStartsNewWindowWithoutLosingEarlierWords() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("我觉得",final:false,start:0.2,end:1.0)
+  draft.accept("我觉得这个人",final:false,start:0.2,end:2.0)
+  draft.accept("不太对",final:false,start:4.0,end:5.0)
+  draft.accept("不太对劲",final:false,start:4.0,end:5.4)
+  draft.accept("",final:true)
+  XCTAssertEqual(draft.text,"我觉得这个人 不太对劲")
+ }
+ func testSameWindowCorrectionsDoNotDuplicateText() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("明天",final:false,start:0.2,end:1.0)
+  draft.accept("今天",final:false,start:0.3,end:1.1)
+  draft.accept("今天晚上",final:true,start:0.3,end:2.0)
+  draft.accept("一起看",final:false,start:0.1,end:1.1)
+  XCTAssertEqual(draft.text,"今天晚上 一起看")
+ }
+ @MainActor func testRapidPressDuringRestoreKeepsUserVolume() async throws {
+  let player=AVPlayer();player.volume=0.8
+  let ducker=VoiceVolumeDucker(player:player);ducker.begin()
+  try await Task.sleep(nanoseconds:550_000_000)
+  ducker.end();try await Task.sleep(nanoseconds:50_000_000)
+  ducker.begin();ducker.end();ducker.end()
+  try await Task.sleep(nanoseconds:650_000_000)
+  XCTAssertEqual(ducker.userVolume,0.8,accuracy:0.001)
+  XCTAssertEqual(player.volume,0.8,accuracy:0.001)
+ }
  func testRecognitionAndReleaseNeverSendUntilConfirmation() {
   var gate=VoiceSendGate();var sent:[String]=[]
   gate.begin(room:"r");gate.text="正在说话"
