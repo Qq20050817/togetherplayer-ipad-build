@@ -16,12 +16,17 @@ class CompatiblePlaybackTest {
   try {ActivityScenario.launch(MainActivity::class.java).use {scenario->
    fun playback(a:MainActivity)=a.javaClass.getDeclaredField("playback").apply{isAccessible=true}.get(a) as CompatiblePlayback
    val uri=android.net.Uri.fromFile(file).toString()
-   scenario.onActivity {a->val p=playback(a);p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0));p.volume=.7f}
+   scenario.onActivity {a->val p=playback(a);p.setMediaItem(MediaItem.fromUri(uri),0);val format=androidx.media3.common.Format.Builder().setSampleMimeType("video/hevc").setCodecs("hvc1.2.4.H153.90").setWidth(3840).setHeight(2076).build();assertTrue(a.javaClass.getDeclaredMethod("tryRecoverVideoDecoder",androidx.media3.common.Format::class.java,String::class.java).apply{isAccessible=true}.invoke(a,format,"injected.failed.main10.decoder") as Boolean);p.volume=.7f}
    var ready=false
    val deadline=SystemClock.elapsedRealtime()+45000
    while(!ready && SystemClock.elapsedRealtime()<deadline){scenario.onActivity {a->val p=playback(a);assertNull(p.playerError);ready=p.playbackState==Player.STATE_READY};SystemClock.sleep(100)}
    assertTrue("Integrated fallback did not display a real frame",ready)
-   scenario.onActivity {a->val p=playback(a);assertTrue(p.displayedFrames()>0);assertTrue(p.decodedFrames()>0);assertTrue(p.duration>0);assertFalse("Preparing must not autoplay a paused room",p.playWhenReady);assertFalse(p.isPlaying);assertEquals(.7f,p.volume,.01f);p.volume=0f;assertEquals(0f,p.volume,.001f);p.seekTo(1000);assertEquals(1000,p.currentPosition);p.play();assertTrue(p.playWhenReady);p.pause();assertFalse(p.playWhenReady)}
+   scenario.onActivity {a->val p=playback(a);assertTrue(p.displayedFrames()>0);assertTrue(p.decodedFrames()>0);assertTrue(p.duration>0);assertFalse("Preparing must not autoplay a paused room",p.playWhenReady);assertFalse(p.isPlaying);assertEquals(.7f,p.volume,.01f);p.volume=0f;assertEquals(0f,p.volume,.001f);p.seekTo(1000);assertEquals(1000,p.currentPosition);p.play();assertTrue(p.playWhenReady);p.pause();assertFalse(p.playWhenReady)
+    val clock=ClockSync {0.0};clock.add(0.0,0.0,0.0,0.0);val engine=SyncEngine(Media3Adapter(p),clock)
+    val room=org.json.JSONObject().put("roomId","main10-sync").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","playing").put("position",1000).put("playbackRate",1)
+    engine.receive(room);engine.tick();assertTrue("Room PLAY must reach independent player",p.playWhenReady)
+    engine.receive(org.json.JSONObject(room.toString()).put("version",2).put("state","paused"));engine.tick();assertFalse("Room PAUSE must stop independent player",p.playWhenReady)
+   }
    SystemClock.sleep(400)
    scenario.onActivity {a->val p=playback(a);assertFalse(p.isPlaying);p.setMediaItem(MediaItem.fromUri("https://example.invalid/next.mp4"),0);assertFalse(p.compatibleActive);assertFalse(p.activateCompatibility("https://example.invalid/next.mp4",0));p.clearMediaItems()}
   }} finally {file.delete()}

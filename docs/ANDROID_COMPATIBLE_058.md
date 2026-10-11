@@ -17,7 +17,8 @@
 LibVLC Android 3.6.5（LGPL-2.1-or-later）：
 - 项目与构建源码：https://code.videolan.org/videolan/vlc-android
 - 引擎源码：https://code.videolan.org/videolan/vlc
-- 版本源发布：https://download.videolan.org/pub/videolan/vlc/3.0.21/
 - Maven 源与二进制：https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/3.6.5/
 
 未修改 LibVLC 或其 JNI 库。完整应用源及构建文件随交付提供，可替换依赖并重建。许可证文件位于 licenses/LGPL-2.1-LibVLC.txt。其他原有 Vosk / Jellyfin FFmpeg 依赖许可沿用原交付。
+
+用户交付构建使用 `gradle -p android assembleDebug -PdeliveryArm64=true`，仅保留 arm64-v8a，减小下载体积；云端原生测试仍保留 x86_64。

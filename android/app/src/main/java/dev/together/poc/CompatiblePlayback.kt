@@ -98,7 +98,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  }
  private fun fail(message:String){failure=PlaybackException(message,null,PlaybackException.ERROR_CODE_DECODING_FAILED);wanted=false;state=Player.STATE_IDLE;vlc?.stop();failed(message)}
  private fun closeInput(){vlc?.stop();vlc?.media=null;source?.release();source=null;descriptor?.close();descriptor=null;pendingSeek=null}
- private fun deactivate(){epoch++;closeInput();compatibleActive=false;ready=false;state=Player.STATE_IDLE;failure=null;changed(false)}
+ private fun deactivate(){epoch++;closeInput();compatibleActive=false;ready=false;wanted=false;state=Player.STATE_IDLE;failure=null;changed(false)}
  override fun getCurrentMediaItem():MediaItem?=if(compatibleActive)item else native.currentMediaItem
  override fun getCurrentPosition():Long {
   if(!compatibleActive)return native.currentPosition
