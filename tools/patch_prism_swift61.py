@@ -46,7 +46,9 @@ end = source.index('    /// The RFC 6381', start)
 source = source[:start] + r'''    private var baseRenditionName: String {
         let languageName = track.language.flatMap { Locale.current.localizedString(forLanguageCode: $0) }
         let title = track.title.flatMap { $0.isEmpty ? nil : $0 } ?? languageName ?? "音轨"
-        let codec = track.profileName.flatMap { $0.isEmpty ? nil : $0 } ?? track.codecName.uppercased()
+        let baseCodec = track.codecName.uppercased()
+        let profile = track.profileName.flatMap { $0.isEmpty ? nil : $0 }
+        let codec = profile.map { $0.uppercased().contains(baseCodec) ? $0 : "\(baseCodec) (\($0))" } ?? baseCodec
         let layout = track.channelLayoutDescription.flatMap { $0.isEmpty ? nil : $0 } ?? "\(track.channelCount)声道"
         let delivery: String
         switch route.mode {
