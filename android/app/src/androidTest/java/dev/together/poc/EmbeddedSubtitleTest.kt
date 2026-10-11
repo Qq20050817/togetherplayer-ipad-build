@@ -40,7 +40,21 @@ class EmbeddedSubtitleTest {
    val shown=brightPixels()
    java.io.File("/sdcard/Pictures/TogetherUITests").mkdirs();device.takeScreenshot(java.io.File("/sdcard/Pictures/TogetherUITests/$asset.png"))
    assertTrue("Selected embedded subtitle has no visible pixels: off=$closed on=$shown rect=$area",shown>closed+100)
-   scenario.onActivity {a->assertTrue(player(a).selectedCompatibleTrack(C.TRACK_TYPE_TEXT)>=0);player(a).pause()}
+   scenario.onActivity {a->
+    assertTrue(player(a).selectedCompatibleTrack(C.TRACK_TYPE_TEXT)>=0)
+    a.javaClass.getDeclaredMethod("showFullscreen").apply{isAccessible=true}.invoke(a)
+   }
+   SystemClock.sleep(1000)
+   scenario.onActivity {a->val box=a.javaClass.getDeclaredField("videoBox").apply{isAccessible=true}.get(a) as android.view.View;box.getGlobalVisibleRect(area);player(a).seekTo(6000)}
+   SystemClock.sleep(1200)
+   val fullShown=brightPixels()
+   device.takeScreenshot(java.io.File("/sdcard/Pictures/TogetherUITests/$asset-fullscreen.png"))
+   scenario.onActivity {a->player(a).selectCompatibleTrack(C.TRACK_TYPE_TEXT,-1)}
+   SystemClock.sleep(500)
+   val fullClosed=brightPixels()
+   assertTrue("Fullscreen/seek subtitle missing: off=$fullClosed on=$fullShown rect=$area",fullShown>fullClosed+100)
+   scenario.onActivity {a->player(a).pause()}
+
   }} finally {file.delete()}
  }
 }
