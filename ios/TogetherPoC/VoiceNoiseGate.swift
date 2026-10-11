@@ -15,22 +15,32 @@ struct VoiceNoiseGate {
 struct VoiceRecognitionDraft {
  private var committed:[String]=[]
  private var current=""
+ private var recognitionWindow:Int?
+ private var finalizedWindow:Int?
  private var currentStart:TimeInterval?
  private var currentEnd:TimeInterval?
  var text:String {(committed+[current]).filter {!$0.isEmpty}.joined(separator:" ")}
- mutating func accept(_ value:String,final:Bool,start:TimeInterval?=nil,end:TimeInterval?=nil) {
+ mutating func accept(_ value:String,final:Bool,start:TimeInterval?=nil,end:TimeInterval?=nil,window:Int?=nil) {
+  if let window=window {
+   if recognitionWindow != window {
+    if !current.isEmpty {committed.append(current)}
+    current="";currentStart=nil;currentEnd=nil;recognitionWindow=window
+   }
+   if finalizedWindow == window {return}
+  }
   let trimmed=value.trimmingCharacters(in:.whitespacesAndNewlines)
   // Apple may start a new transcription window after silence without marking
   // the previous result final. A later non-overlapping audio window is a new
   // segment; edits within the same window remain replacements, not appends.
   if !trimmed.isEmpty,!current.isEmpty,let start=start,let previousStart=currentStart,
-     let previousEnd=currentEnd,start>=previousEnd,start>previousStart {
+     let previousEnd=currentEnd,start>=previousEnd,start>previousStart,
+     !trimmed.hasPrefix(current) {
    committed.append(current);current="";currentStart=nil;currentEnd=nil
   }
   if !trimmed.isEmpty {current=trimmed}
   if !trimmed.isEmpty,let start=start,let end=end,start.isFinite,end.isFinite,end>=start {
    currentStart=start;currentEnd=end
   }
-  if final,!current.isEmpty {committed.append(current);current="";currentStart=nil;currentEnd=nil}
+  if final,!current.isEmpty {committed.append(current);current="";currentStart=nil;currentEnd=nil;finalizedWindow=window}
  }
 }

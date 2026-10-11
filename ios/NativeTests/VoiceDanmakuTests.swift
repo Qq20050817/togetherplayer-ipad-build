@@ -3,6 +3,22 @@ import AVFoundation
 @testable import TogetherPoC
 
 final class VoiceDanmakuTests:XCTestCase {
+ func testReissuedSameHypothesisDoesNotAppendAfterTimestampShift() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("他在说谎",final:false,start:0,end:1,window:1)
+  draft.accept("他在说谎",final:false,start:2,end:3,window:1)
+  draft.accept("他在说谎我觉得",final:false,start:4,end:5,window:1)
+  draft.accept("他在说谎我觉得",final:true,start:4,end:5,window:1)
+  draft.accept("他在说谎我觉得",final:true,start:4,end:5,window:1)
+  XCTAssertEqual(draft.text,"他在说谎我觉得")
+ }
+ func testIntentionalRepeatInNewRecognitionRequestIsPreserved() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("快跑",final:true,start:0,end:1,window:1)
+  draft.accept("快跑",final:true,start:0,end:1,window:2)
+  XCTAssertEqual(draft.text,"快跑 快跑")
+ }
+
  func testPauseStartsNewWindowWithoutLosingEarlierWords() {
   var draft=VoiceRecognitionDraft()
   draft.accept("我觉得",final:false,start:0.2,end:1.0)

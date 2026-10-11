@@ -116,7 +116,7 @@ private final class VoiceAudioSink {
      let value=result.bestTranscription.formattedString
      let segments=result.bestTranscription.segments
      self.draft.accept(value,final:result.isFinal,start:segments.first?.timestamp,
-                       end:segments.last.map {$0.timestamp+$0.duration})
+                       end:segments.last.map {$0.timestamp+$0.duration},window:segment)
      let now=ProcessInfo.processInfo.systemUptime
      if result.isFinal || self.state == .finishing || now-self.lastPreviewUpdate>=0.2 {self.preview=self.draft.text;self.lastPreviewUpdate=now}
      if result.isFinal {
