@@ -166,7 +166,7 @@ import CoreMedia
  }
  deinit {for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func diagnostic(_ event: String) {
-  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.5.5","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.5.6","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
@@ -322,10 +322,11 @@ import CoreMedia
    audioGroup=group
    var remuxLabels=remuxAudioLabelsByDisplayName
    audioLabels=group?.options.enumerated().map {index,option in
-    if var choices=remuxLabels[option.displayName],let first=choices.first {
-     choices.removeFirst();remuxLabels[option.displayName]=choices;return first
+    let title=option.commonMetadata.first(where:{$0.commonKey == .commonKeyTitle})?.stringValue ?? option.displayName
+    if var choices=remuxLabels[title],let first=choices.first {
+     choices.removeFirst();remuxLabels[title]=choices;return TrackLabel.localized(first,language:option.extendedLanguageTag)
     }
-    return AudioTrackDetail.label(name:option.displayName,index:index,language:option.extendedLanguageTag ?? option.locale?.identifier,subtypes:option.mediaSubTypes.map {fourCC($0.uint32Value)},tracks:tracks,optionCount:group?.options.count ?? 0)
+    return AudioTrackDetail.label(name:title,index:index,language:option.extendedLanguageTag ?? option.locale?.identifier,subtypes:option.mediaSubTypes.map {fourCC($0.uint32Value)},tracks:tracks,optionCount:group?.options.count ?? 0)
    } ?? []
    if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedAudioIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
    updateMediaInfo();diagnostic("audioOptionsLoaded")
@@ -334,7 +335,10 @@ import CoreMedia
    let group=try? await item.asset.loadMediaSelectionGroup(for:.legible)
    guard generation==trackSelectionGeneration,adapter.player.currentItem === item else {return}
    subtitleGroup=group
-   subtitleLabels=group?.options.map {$0.displayName} ?? []
+   subtitleLabels=group?.options.enumerated().map {index,option in
+    let title=option.commonMetadata.first(where:{$0.commonKey == .commonKeyTitle})?.stringValue ?? option.displayName
+    return TrackLabel.localized(title,language:option.extendedLanguageTag ?? option.locale?.identifier,subtitle:true)+" · 字幕 \(index+1)"
+   } ?? []
    if (externalSubtitles.enabled || selectedSubtitleIndex == -2),let group=group {item.select(nil,in:group)}
    else if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedSubtitleIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
    diagnostic("subtitleOptionsLoaded")
@@ -503,6 +507,11 @@ import CoreMedia
   guard let url=currentOriginalURL else {requestStatus="请先选择并加载影片";return}
   loadMedia(url,forceRemux:true)
  }
+ #if DEBUG
+ func installTrackPlaybackFixture() throws {
+  localVideoTest=true;loadMedia(try TrackUITestFixture.url())
+ }
+ #endif
  func checkLocalVideo() {
   generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;clock.reset();localVideoTest=true
   guard let url=HTTPSource().resolve(mediaURL) else {status="无效测试视频 URL";return}
@@ -567,10 +576,10 @@ import CoreMedia
    let target=engine.target();let position=adapter.position
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
-   let telemetry: [String:Any]=["clientVersion":"0.5.5","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+   let telemetry: [String:Any]=["clientVersion":"0.5.6","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
    var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
    send(["type":"TELEMETRY","data":connectionTelemetry])
-   status="0.5.5 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
+   status="0.5.6 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
   }
   if ticks%50 == 0 {inspectFormats();updateMediaInfo()}
   if ticks%150 == 0 {pingBurst()}

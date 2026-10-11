@@ -53,11 +53,37 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertFalse(app.textFields["voice-result"].exists)
  }
 
+ func testFullscreenProgressAndRealMovieAdjustment() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_TRACK_PLAYBACK_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:20));full.tap()
+  let progress=app.sliders["movie-progress"].firstMatch
+  let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:progress)
+  XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
+  app.buttons["暂停"].firstMatch.tap()
+  progress.adjust(toNormalizedSliderPosition:0.5)
+  let seek=XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH '剩余 00:0'"),object:app.staticTexts["playback-remaining"].firstMatch)
+  XCTAssertEqual(XCTWaiter.wait(for:[seek],timeout:8),.completed)
+  app.buttons["fullscreen-subtitle-adjustments"].tap()
+  let movie=app.otherElements["subtitle-live-movie"].firstMatch
+  XCTAssertTrue(movie.waitForExistence(timeout:5));XCTAssertGreaterThan(movie.frame.width,app.frame.width*0.5)
+  let text=app.staticTexts["这是简体字幕测试"].firstMatch
+  XCTAssertTrue(text.waitForExistence(timeout:8),app.debugDescription)
+  let before=text.frame
+  app.sliders["字幕垂直位置"].adjust(toNormalizedSliderPosition:0.6)
+  let moved=XCTNSPredicateExpectation(predicate:NSPredicate {_,_ in text.frame.minY < before.minY-30},object:text)
+  XCTAssertEqual(XCTWaiter.wait(for:[moved],timeout:5),.completed)
+  capture("20-real-movie-subtitle-adjustment",app)
+  app.buttons["close-subtitle-adjustments"].tap()
+  XCTAssertTrue(progress.waitForExistence(timeout:5))
+ }
  func testSubtitleAdjustmentPanelChangesValuesAndResets() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   let adjust=app.buttons["subtitle-adjustments"].firstMatch
   XCTAssertTrue(adjust.waitForExistence(timeout:15));adjust.tap()
+  XCTAssertTrue(app.otherElements["subtitle-live-movie"].waitForExistence(timeout:5))
+  XCTAssertLessThan(app.otherElements["subtitle-live-movie"].frame.maxX,app.frame.width-250)
   let delay=app.steppers["subtitle-delay"]
   XCTAssertTrue(delay.waitForExistence(timeout:5))
   delay.buttons["subtitle-delay-Increment"].tap()

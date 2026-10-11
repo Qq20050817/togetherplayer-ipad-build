@@ -290,7 +290,7 @@ class MainActivity: Activity() {
   val options=ArrayList<String>();val overrides=ArrayList<androidx.media3.common.TrackSelectionOverride?>()
   options.add("自动选择");overrides.add(null)
   if(type==androidx.media3.common.C.TRACK_TYPE_TEXT){options.add("关闭字幕");overrides.add(null)}
-  for(g in player.currentTracks.groups)if(g.type==type)for(i in 0 until g.length){if(g.isTrackSupported(i)){val f=g.getTrackFormat(i);options.add("${f.label ?: f.language ?: "轨道 ${i+1}"} ${f.sampleMimeType ?: ""}");overrides.add(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup,listOf(i)))}}
+  for(g in player.currentTracks.groups)if(g.type==type)for(i in 0 until g.length){if(g.isTrackSupported(i)){val f=g.getTrackFormat(i);options.add(TrackLabel.label(f.label,f.language,f.sampleMimeType,f.channelCount,overrides.count {it!=null}+1,type==androidx.media3.common.C.TRACK_TYPE_TEXT));overrides.add(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup,listOf(i)))}}
   main.removeCallbacks(hideControls)
   android.app.AlertDialog.Builder(this).setTitle(if(type==androidx.media3.common.C.TRACK_TYPE_AUDIO)"音轨" else "字幕").setItems(options.toTypedArray()){_,i->
    if(type==androidx.media3.common.C.TRACK_TYPE_TEXT)subtitleEnabled=false

@@ -19,11 +19,12 @@ struct AudioTrackDetail: Equatable {
   else if unique.count==1 {detail=unique[0]}
   else if optionCount==1,tracks.count==1 {detail=description(tracks[0].codecs,tracks[0].channels)}
   else {detail=""}
-  let title=name.isEmpty ? "音轨 \(index+1)" : name
+  let title=TrackLabel.localized(name,language:language)
+  if title.contains("源音轨") {return title}
   return detail.isEmpty ? title+" · 音轨 \(index+1)" : title+" ["+detail+"]"
  }
  static func description(_ codecs:[String],_ channels:UInt32?)->String {
-  let names=["mp4a":"AAC","ec-3":"Dolby Digital Plus","ac-3":"Dolby Digital","alac":"ALAC","lpcm":"PCM"]
+  let names=["mp4a":"AAC","ec-3":"Dolby Digital Plus","ac-3":"Dolby Digital","alac":"ALAC","lpcm":"PCM","dtsc":"DTS","dtsh":"DTS-HD","dtsl":"DTS-HD MA"]
   let codec=codecs.map {names[$0] ?? $0.uppercased()}.joined(separator:" / ")
   guard !codec.isEmpty else {return ""}
   return codec+(channels.map {" · \($0)声道"} ?? "")

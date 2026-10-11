@@ -23,6 +23,7 @@ import UniformTypeIdentifiers
   }.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
+   if ProcessInfo.processInfo.environment["TOGETHER_TRACK_PLAYBACK_TEST"]=="1" {try? model.installTrackPlaybackFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
@@ -205,13 +206,13 @@ struct SubtitleHeightKey:PreferenceKey {
    }
    PlaybackActionFeedback(feedback:model.feedback)
    if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(AnimatedAppButtonStyle(.bordered))}
-  }.onAppear {volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume) {modalChanged($0)}
+  }.onAppear {volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume || dragging) {modalChanged($0)}
  }
  private var volumeButton:some View {Button {adjustingVolume=true} label:{Image(systemName:volume>0 ? "speaker.wave.2" : "speaker.slash")}.accessibilityLabel("播放音量").popover(isPresented:$adjustingVolume) {volumeControl.frame(width:220).padding(20)}}
  private var progressRow:some View {
    HStack(spacing:10) {
     Text(PlaybackMonitor.time(dragging ? target : playback.position)).font(.caption.monospacedDigit()).frame(minWidth:45)
-    Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0}),in:0...max(1,playback.duration),onEditingChanged:{editing in if editing {target=playback.position};dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度")
+    Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0;dragging=true}),in:0...max(1,playback.duration),onEditingChanged:{editing in dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
     Text(PlaybackTime.remaining(duration:playback.duration,position:dragging ? target : playback.position)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
    }
  }
@@ -225,7 +226,7 @@ struct SubtitleHeightKey:PreferenceKey {
   }.font(.title2).foregroundColor(.white).buttonStyle(PlaybackTransportStyle())
  }
  private var volumeControl: some View {
-  HStack {Button {volume=volume>0 ? 0 : 1;model.setPlaybackVolume(Float(volume))} label:{Image(systemName:volume>0 ? "speaker.wave.2.fill" : "speaker.slash.fill")}.accessibilityLabel("切换静音");Slider(value:Binding(get:{volume},set:{volume=$0;model.setPlaybackVolume(Float($0))}),in:0...1).accessibilityLabel("播放音量")}
+  HStack {Image(systemName:"speaker.wave.2.fill");SystemVolumeSlider().frame(height:32).accessibilityLabel("系统音量")}
  }
 }
 
@@ -258,7 +259,7 @@ struct SubtitleHeightKey:PreferenceKey {
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
-   .sheet(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles)}
+   .fullScreenCover(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles,player:model.adapter.player,chat:model.chat)}
  }
  private var audioMenu: some View {
   Button {showingAudio=true} label:{Label("音轨",systemImage:"waveform")}.popover(isPresented:$showingAudio) {
@@ -385,7 +386,7 @@ struct FullscreenToolStyle:ButtonStyle {
     }.padding(12).background(Color(white:0.08))
    }
   }.background(Color.black).preferredColorScheme(.dark)
-   .simultaneousGesture(DragGesture(minimumDistance:0).onChanged {_ in controls.beginInteraction()}.onEnded {_ in controls.endInteraction()})
+   .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
    .onAppear {scheduleHide()}.onDisappear {controls.cancel()}
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}

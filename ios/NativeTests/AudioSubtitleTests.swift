@@ -99,13 +99,13 @@ final class AudioSubtitleTests:XCTestCase {
  }
  func testEmptyOptionSubtypeUsesUnambiguousTrackFormats() {
   let track=AudioTrackDetail(language:"eng",codecs:["mp4a"],channels:2)
-  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:0,language:"en-US",subtypes:[],tracks:[track],optionCount:2),"English [AAC · 2声道]")
-  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:0,language:nil,subtypes:[],tracks:[track],optionCount:1),"English [AAC · 2声道]")
+  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:0,language:"en-US",subtypes:[],tracks:[track],optionCount:2),"英语 [AAC · 2声道]")
+  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:0,language:nil,subtypes:[],tracks:[track],optionCount:1),"英语 [AAC · 2声道]")
  }
  func testConflictingTrackFormatsDoNotMislabelAudioOrClaimAtmos() {
   let tracks=[AudioTrackDetail(language:"en",codecs:["mp4a"],channels:2),AudioTrackDetail(language:"eng",codecs:["ec-3"],channels:6)]
-  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:1,language:"en",subtypes:[],tracks:tracks,optionCount:2),"English · 音轨 2")
-  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:0,language:"en",subtypes:["ec-3"],tracks:tracks,optionCount:2),"English [Dolby Digital Plus]")
+  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:1,language:"en",subtypes:[],tracks:tracks,optionCount:2),"英语 · 音轨 2")
+  XCTAssertEqual(AudioTrackDetail.label(name:"English",index:0,language:"en",subtypes:["ec-3"],tracks:tracks,optionCount:2),"英语 [Dolby Digital Plus]")
  }
  @MainActor func testCopiedUppercaseSRTImportLoadsCuesAndInvalidFilePreservesPreviousSubtitle() async throws {
   let url=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".SRT")

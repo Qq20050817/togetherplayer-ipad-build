@@ -1,11 +1,20 @@
 import SwiftUI
+import AVFoundation
 
 @MainActor struct SubtitleAdjustmentPanel:View {
  @ObservedObject var subtitles:ExternalSubtitles
+ let player:AVPlayer
+ @ObservedObject var chat:ChatEngine
  @Environment(\.dismiss) private var dismiss
  var body:some View {
   NavigationStack {
-   Form {
+   GeometryReader {geometry in
+   let wide=geometry.size.width>=700
+   let layout=wide ? AnyLayout(HStackLayout(spacing:0)) : AnyLayout(VStackLayout(spacing:0))
+   layout {
+    PlaybackCanvas(player:player,subtitles:subtitles,chat:chat).accessibilityIdentifier("subtitle-live-movie").frame(maxWidth:.infinity,maxHeight:wide ? .infinity : geometry.size.height*0.42)
+    Form {
+    if subtitles.text.isEmpty {Section {Text("当前没有正在显示的字幕。播放到有字幕的位置后，可直接观察画面中的变化。").font(.caption)}}
     Section("时间偏移") {
      Stepper(value:$subtitles.delay,in:-120...120,step:0.1) {Text(String(format:"字幕偏移 %+.1f 秒",subtitles.delay))}.accessibilityIdentifier("subtitle-delay")
      Text("正数让字幕晚出现，负数让字幕提前；只调整本机字幕，不改变影片同步。")
@@ -35,6 +44,8 @@ import SwiftUI
      Button("恢复默认") {subtitles.resetAdjustments()}.accessibilityIdentifier("reset-subtitle-adjustments")
      Text("字体、粗细、字距、行距、字号和位置会保存。时间偏移用于当前影片，切换影片或导入新的外挂字幕后重置。内置文字字幕与外挂字幕使用同一组设置。")
     }
+    }.frame(width:wide ? 320 : nil)
+   }
    }.navigationTitle("字幕调整").toolbar {Button("完成") {dismiss()}.accessibilityIdentifier("close-subtitle-adjustments")}
   }.preferredColorScheme(.dark)
  }
