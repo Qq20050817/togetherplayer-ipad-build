@@ -48,14 +48,14 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   layout=view
   view.addOnAttachStateChangeListener(object:android.view.View.OnAttachStateChangeListener {
    override fun onViewDetachedFromWindow(v:android.view.View){if(compatibleActive)vlc?.detachViews()}
-   override fun onViewAttachedToWindow(v:android.view.View){main.post {
-    val p=vlc
-    if(compatibleActive && layout===view && view.isAttachedToWindow && p!=null && !p.vlcVout.areViewsAttached()) {
-     p.attachViews(view,null,true,false)
-     applySubtitleSelection()
-    }
-   }}
+   override fun onViewAttachedToWindow(v:android.view.View){main.post {rebindVideoOutput()}}
   })
+ }
+ private fun rebindVideoOutput(){
+  val p=vlc ?: return;val view=layout ?: return
+  if(!compatibleActive || source==null || !view.isAttachedToWindow || p.vlcVout.areViewsAttached())return
+  p.detachViews();p.attachViews(view,null,true,false)
+  applySubtitleSelection()
  }
  private fun applySubtitleSelection(){
   if(source==null)return
@@ -76,7 +76,14 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   closeInput();ready=false;buffering=0f;state=Player.STATE_BUFFERING;failure=null
   compatibleActive=true;changed(true)
   try {
-   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats"));vlc=VLCPlayer(core!!)}
+   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats"));vlc=VLCPlayer(core!!).also {p->
+    p.vlcVout.addCallback(object:org.videolan.libvlc.interfaces.IVLCVout.Callback {
+     override fun onSurfacesDestroyed(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {rebindVideoOutput()}}
+     override fun onSurfacesCreated(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {
+      if(compatibleActive && source!=null){applySubtitleSelection();if(ready){if(wanted)p.play()else p.pause()}}
+     }}
+    })
+   }}
    val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,false)
    p.setEventListener {event->
     if(token!=epoch || !compatibleActive)return@setEventListener

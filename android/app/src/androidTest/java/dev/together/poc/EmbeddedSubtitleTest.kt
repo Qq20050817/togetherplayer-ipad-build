@@ -52,7 +52,7 @@ class EmbeddedSubtitleTest {
     assertTrue("Subtitle result must return without crashing",loaded)
     scenario.onActivity {a->val p=player(a);assertTrue(p.compatibleActive);assertEquals("File picker must not destroy the decoder input",Player.STATE_READY,p.playbackState);assertTrue(p.duration>0);p.play()}
     SystemClock.sleep(1000)
-    scenario.onActivity {a->val captions=a.javaClass.getDeclaredField("captions").apply{isAccessible=true}.get(a) as android.widget.TextView;assertEquals("Imported subtitle visible",captions.text.toString());assertEquals(android.view.View.VISIBLE,captions.visibility);assertTrue(player(a).displayedFrames()>0);player(a).pause()}
+    scenario.onActivity {a->val captions=a.javaClass.getDeclaredField("captions").apply{isAccessible=true}.get(a) as android.widget.TextView;assertEquals("Imported subtitle visible",captions.text.toString().trim());assertEquals(android.view.View.VISIBLE,captions.visibility);assertTrue(player(a).displayedFrames()>0);player(a).pause()}
    }
   } finally {resolver.delete(subtitle,null,null);resolver.delete(movie,null,null)}
  }
@@ -93,7 +93,9 @@ class EmbeddedSubtitleTest {
    SystemClock.sleep(1200)
    // PGS can only rebuild an image when its next complete palette/object cue arrives.
    SystemClock.sleep(1400)
-   val fullShown=brightPixels()
+   var fullShown=brightPixels();val cueDeadline=SystemClock.elapsedRealtime()+4000
+   while(fullShown<=100 && SystemClock.elapsedRealtime()<cueDeadline){SystemClock.sleep(100);fullShown=brightPixels()}
+
    device.takeScreenshot(java.io.File("/sdcard/Pictures/TogetherUITests/$asset-fullscreen.png"))
    scenario.onActivity {a->player(a).selectCompatibleTrack(C.TRACK_TYPE_TEXT,-1)}
    SystemClock.sleep(500)

@@ -10,6 +10,7 @@ adb shell am force-stop com.android.launcher3
 adb shell settings put system screen_off_timeout 1800000
 check_result=0
 gradle --no-daemon connectedDebugAndroidTest || check_result=$?
+adb pull /sdcard/Pictures/TogetherUITests/ ../android-delivery/screenshots/ || true
 for name in 01-portrait 02-room-settings 03-landscape 04-fullscreen-controls 05-fullscreen-hidden; do
   adb pull /sdcard/Pictures/TogetherUITests/$name.png ../android-delivery/screenshots/$name.png || true
 done
