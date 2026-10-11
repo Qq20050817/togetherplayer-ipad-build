@@ -37,6 +37,9 @@ final class TrackLabelTests:XCTestCase {
   let label=AudioTrackDetail.label(name:"English [DTS-HD MA · 5.1 · 源音轨 2]",index:1,language:"en",subtypes:["mp4a"],tracks:[],optionCount:2)
   XCTAssertEqual(label,"英语 [DTS-HD MA · 5.1 · 源音轨 2]")
  }
+ func testForeignEndonymStillShowsChineseLanguage() {
+  XCTAssertTrue(TrackLabel.localized("Français",language:"fr",subtitle:true).hasPrefix("法语"))
+ }
  func testTranslatedSubtitleTypes() {
   XCTAssertEqual(TrackLabel.localized("English (SDH)",language:"en",subtitle:true),"英语 (听障字幕)")
  }
