@@ -7,7 +7,7 @@ android {
  kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
- implementation("org.videolan.android:libvlc-all:3.7.7")
+ implementation("org.videolan.android:libvlc-all:3.6.5")
  implementation("com.alphacephei:vosk-android:0.3.47")
  implementation("net.java.dev.jna:jna:5.13.0@aar")
  androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
