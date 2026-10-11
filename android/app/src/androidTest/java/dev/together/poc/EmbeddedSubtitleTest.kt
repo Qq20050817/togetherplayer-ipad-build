@@ -38,7 +38,7 @@ class EmbeddedSubtitleTest {
      a.javaClass.getDeclaredMethod("importSubtitle").apply{isAccessible=true}.invoke(a)
     }
     val device=UiDevice.getInstance(i)
-    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg("com.google.android.documentsui")),5000))
+    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg(java.util.regex.Pattern.compile("com\\.(google\\.)?android\\.documentsui"))),5000))
     var entry=device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text(name)),2000)
     if(entry==null){device.findObject(androidx.test.uiautomator.By.desc("Show roots"))?.click();device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text("Downloads")),3000)?.click();entry=device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text(name)),5000)}
     assertNotNull("Subtitle must be selectable in actual system Files",entry);entry!!.click()
