@@ -45,6 +45,15 @@ final class AudioSubtitleTests:XCTestCase {
   let loadedGroup=try await item.asset.loadMediaSelectionGroup(for:.legible)
   let group=try XCTUnwrap(loadedGroup)
   XCTAssertTrue(item.currentMediaSelection.selectedMediaOption(in:group) === group.options.first)
+  model.adapter.player.play()
+  for _ in 0..<150 {
+   if model.externalSubtitles.text.contains("Embedded subtitle test") {break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
+  XCTAssertTrue(model.externalSubtitles.text.contains("Embedded subtitle test"))
+  model.adapter.player.pause()
+  model.chooseSubtitle(0)
+  XCTAssertTrue(model.externalSubtitles.text.contains("Embedded subtitle test"),"Reselecting the current track must retain delivered cues")
   model.chooseSubtitle(-2)
   XCTAssertNil(item.currentMediaSelection.selectedMediaOption(in:group))
   model.chooseAudio(0);XCTAssertEqual(model.selectedAudioIndex,0)
@@ -95,6 +104,12 @@ final class AudioSubtitleTests:XCTestCase {
   XCTAssertGreaterThan(captionPlayer.currentTime().seconds,3.5)
   XCTAssertEqual(captions.text,"","Native subtitle must disappear at its real end time")
   captionPlayer.pause()
+  await captionPlayer.seek(to:CMTime(seconds:1.5,preferredTimescale:600),toleranceBefore:.zero,toleranceAfter:.zero)
+  for _ in 0..<100 {
+   if captions.text.contains("Embedded subtitle test") {break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
+  XCTAssertTrue(captions.text.contains("Embedded subtitle test"),"Backward seek must restore the original embedded cue while paused")
   remux.stop()
  }
  func testEmptyOptionSubtypeUsesUnambiguousTrackFormats() {

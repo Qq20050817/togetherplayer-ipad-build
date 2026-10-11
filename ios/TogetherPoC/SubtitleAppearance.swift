@@ -33,9 +33,14 @@ struct NativeSubtitleTimeline {
  }
  mutating func text(at time:Double)->String {
   guard time.isFinite,time>=0 else {return ""}
-  // Preserve the final event before the history window and all upcoming events.
-  if let keep=events.lastIndex(where:{$0.time<time-150}),keep>0 {events.removeFirst(keep)}
-  return events.last(where:{$0.time<=time})?.text ?? ""
+  // Keep this item's history: AVFoundation may not replay already delivered
+  // cues after a backward seek. Item and track changes clear it separately.
+  var lower=0,upper=events.count
+  while lower<upper {
+   let middle=(lower+upper)/2
+   if events[middle].time<=time {lower=middle+1} else {upper=middle}
+  }
+  return lower>0 ? events[lower-1].text : ""
  }
 }
 

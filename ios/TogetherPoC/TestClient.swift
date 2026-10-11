@@ -353,6 +353,9 @@ import CoreMedia
   selectedSubtitleIndex = -2;externalSubtitles.enabled=true
  }
  func chooseSubtitle(_ index: Int) {
+  // Reselecting the active option must not erase cues already delivered ahead
+  // of playback. The player does not necessarily deliver those cues twice.
+  if index==selectedSubtitleIndex && !externalSubtitles.enabled {return}
   externalSubtitles.nativeSelectionChanged(enabled:index != -2);externalSubtitles.enabled=false;selectedSubtitleIndex=index
   guard let item=adapter.player.currentItem,let group=subtitleGroup else {return}
   if index == -1 {item.selectMediaOptionAutomatically(in:group)}

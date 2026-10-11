@@ -3,6 +3,15 @@ import AVFoundation
 @testable import TogetherPoC
 
 final class SubtitleAdjustmentTests:XCTestCase {
+ func testBackwardSeekRetainsPreviouslyDeliveredCuesAfterLongPlayback() {
+  var timeline=NativeSubtitleTimeline()
+  timeline.receive(text:"开场字幕",time:5);timeline.receive(text:"",time:7)
+  timeline.receive(text:"后段字幕",time:600);timeline.receive(text:"",time:602)
+  XCTAssertEqual(timeline.text(at:601),"后段字幕")
+  XCTAssertEqual(timeline.text(at:5.5),"开场字幕")
+  XCTAssertEqual(timeline.text(at:7),"")
+  timeline.clear();XCTAssertEqual(timeline.text(at:5.5),"")
+ }
  func testNativeCueTimingSupportsEarlierLaterAndBlankEndEvents() {
   var timeline=NativeSubtitleTimeline()
   timeline.receive(text:"原片字幕",time:5);timeline.receive(text:"",time:7)
