@@ -510,6 +510,12 @@ import CoreMedia
  #if DEBUG
  func installTrackPlaybackFixture() throws {
   localVideoTest=true;loadMedia(try TrackUITestFixture.url())
+  Task {
+   for _ in 0..<100 {
+    if !subtitleLabels.isEmpty {chooseSubtitle(0);return}
+    try? await Task.sleep(nanoseconds:100_000_000)
+   }
+  }
  }
  #endif
  func checkLocalVideo() {

@@ -58,7 +58,10 @@ import AVFoundation
   nativeTimeline.receive(text:text,time:time);refresh()
  }
  fileprivate func flushNative(_ output:AVPlayerItemLegibleOutput) {
-  guard output === legibleOutput else {return};nativeTimeline.clear();refresh()
+  guard output === legibleOutput else {return}
+  // Seeking can flush output while paused without supplying replacement cues.
+  // Cached events use the same item clock; selection/item changes clear them separately.
+  refresh()
  }
  func beginSelection() {status="请选择字幕文件"}
  func cancelImport() {status="已取消选择字幕"}
