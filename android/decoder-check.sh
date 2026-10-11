@@ -6,7 +6,11 @@ if [ "${1:-false}" = true ]; then
   adb shell input keyevent KEYCODE_WAKEUP
   adb shell wm dismiss-keyguard
   adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-  gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.EmbeddedSubtitleTest
+  result=0
+  gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.EmbeddedSubtitleTest || result=$?
+  mkdir -p android-delivery/screenshots
+  adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true
+  exit "$result"
 else
   bash android/voice-ui-check.sh
 fi
