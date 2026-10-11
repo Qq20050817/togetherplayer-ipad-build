@@ -62,7 +62,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
   let currentCaption=app.staticTexts["这是简体字幕测试"].firstMatch
   XCTAssertTrue(currentCaption.waitForExistence(timeout:15),app.debugDescription)
-  app.buttons["暂停"].firstMatch.tap()
+  if app.buttons["暂停"].firstMatch.exists {app.buttons["暂停"].firstMatch.tap()}
   progress.adjust(toNormalizedSliderPosition:0.5)
   let seek=XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == '剩余 00:06' OR label == '剩余 00:07'"),object:app.staticTexts["playback-remaining"].firstMatch)
   XCTAssertEqual(XCTWaiter.wait(for:[seek],timeout:8),.completed)

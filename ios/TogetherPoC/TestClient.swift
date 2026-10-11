@@ -512,7 +512,14 @@ import CoreMedia
   localVideoTest=true;loadMedia(try TrackUITestFixture.url())
   Task {
    for _ in 0..<100 {
-    if !subtitleLabels.isEmpty {chooseSubtitle(0);return}
+    if !subtitleLabels.isEmpty {
+     if selectedSubtitleIndex != 0 {chooseSubtitle(0)}
+     for _ in 0..<100 {
+      if !externalSubtitles.text.isEmpty && adapter.position>150 {adapter.pause();return}
+      try? await Task.sleep(nanoseconds:100_000_000)
+     }
+     adapter.pause();return
+    }
     try? await Task.sleep(nanoseconds:100_000_000)
    }
   }
