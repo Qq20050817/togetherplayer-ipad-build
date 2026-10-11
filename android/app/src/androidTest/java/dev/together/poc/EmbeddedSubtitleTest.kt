@@ -96,11 +96,13 @@ class EmbeddedSubtitleTest {
    var fullShown=brightPixels();val cueDeadline=SystemClock.elapsedRealtime()+4000
    while(fullShown<=100 && SystemClock.elapsedRealtime()<cueDeadline){SystemClock.sleep(100);fullShown=brightPixels()}
 
+   var outputState=""
+   scenario.onActivity {a->val p=player(a);outputState="position=${p.currentPosition} state=${p.playbackState} wanted=${p.playWhenReady} playing=${p.isPlaying} subtitle=${p.selectedCompatibleTrack(C.TRACK_TYPE_TEXT)} frames=${p.displayedFrames()}"}
    device.takeScreenshot(java.io.File("/sdcard/Pictures/TogetherUITests/$asset-fullscreen.png"))
    scenario.onActivity {a->player(a).selectCompatibleTrack(C.TRACK_TYPE_TEXT,-1)}
    SystemClock.sleep(500)
    val fullClosed=brightPixels()
-   assertTrue("Fullscreen/seek subtitle missing: off=$fullClosed on=$fullShown rect=$area",fullShown>fullClosed+100)
+   assertTrue("Fullscreen/seek subtitle missing: off=$fullClosed on=$fullShown rect=$area $outputState",fullShown>fullClosed+100)
    scenario.onActivity {a->
     val p=player(a);p.selectCompatibleTrack(C.TRACK_TYPE_TEXT,p.compatibleTracks(C.TRACK_TYPE_TEXT).first().id)
     (a.javaClass.getDeclaredField("fullscreenDialog").apply{isAccessible=true}.get(a) as android.app.Dialog).dismiss()
