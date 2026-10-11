@@ -8,7 +8,7 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.Player
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -18,7 +18,7 @@ import java.util.zip.ZipInputStream
 import java.util.concurrent.Executors
 
 /** Offline Chinese recognizer. Only the bundled model is stored; mic PCM remains in RAM. */
-class VoiceDanmakuController(private val activity:Activity,private val player:ExoPlayer,
+class VoiceDanmakuController(private val activity:Activity,private val player:Player,
  private val room:()->String,private val send:(String)->Boolean,private val changed:()->Unit) {
  enum class State {DISABLED,PREPARING,READY,RECORDING,FINISHING,REVIEW}
  var state=State.DISABLED;private set
