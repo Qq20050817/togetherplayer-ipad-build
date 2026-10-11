@@ -38,3 +38,16 @@ struct NativeSubtitleTimeline {
   return events.last(where:{$0.time<=time})?.text ?? ""
  }
 }
+
+// The subtitle's percentage is relative to the visible movie, excluding letterbox bars.
+enum SubtitlePictureLayout {
+ static func picture(container:CGSize,presentation:CGSize)->CGSize {
+  let ratio=presentation.width>0 && presentation.height>0 ? presentation.width/presentation.height : 16.0/9.0
+  let width=min(container.width,container.height*ratio)
+  return CGSize(width:width,height:width/ratio)
+ }
+ static func bottom(container:CGSize,picture:CGSize,fraction:Double,textHeight:CGFloat,inset:Double)->CGFloat {
+  let inside=min(max(16,picture.height*CGFloat(SubtitleAppearance.position(fraction)))+CGFloat(inset),max(16,picture.height-textHeight-16))
+  return max(0,(container.height-picture.height)/2)+inside
+ }
+}

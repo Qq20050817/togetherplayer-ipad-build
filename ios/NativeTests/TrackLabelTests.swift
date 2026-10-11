@@ -2,6 +2,13 @@ import XCTest
 import AVFoundation
 @testable import TogetherPoC
 final class TrackLabelTests:XCTestCase {
+ func testSubtitlePositionExcludesLetterboxBars() {
+  let container=CGSize(width:1200,height:1000)
+  let picture=SubtitlePictureLayout.picture(container:container,presentation:CGSize(width:1920,height:1080))
+  XCTAssertEqual(picture.height,675)
+  XCTAssertEqual(SubtitlePictureLayout.bottom(container:container,picture:picture,fraction:0.1,textHeight:30,inset:0),230,accuracy:0.01)
+ }
+
  @MainActor func testRealMKVSelectionsRetainCodecLayoutAndChineseScript() async throws {
   let model=TestClient(automaticallyConnect:false)
   try model.installTrackPlaybackFixture()
