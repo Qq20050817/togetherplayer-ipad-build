@@ -213,7 +213,7 @@ struct SubtitleHeightKey:PreferenceKey {
  private var progressRow:some View {
    HStack(spacing:10) {
     Text(PlaybackMonitor.time(dragging ? target : playback.position)).font(.caption.monospacedDigit()).frame(minWidth:45)
-    Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0;dragging=true}),in:0...max(1,playback.duration),onEditingChanged:{editing in dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
+    Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0;dragging=true}),in:0...max(1,playback.duration),onEditingChanged:{editing in if editing && !dragging {target=playback.position};dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
     Text(PlaybackTime.remaining(duration:playback.duration,position:dragging ? target : playback.position)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
    }
  }

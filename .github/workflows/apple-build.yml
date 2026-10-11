@@ -3,6 +3,10 @@ name: Build iPad unsigned IPA
 on:
   workflow_dispatch:
     inputs:
+      track_controls_only:
+        description: Verify track metadata and real movie subtitle and seek controls
+        type: boolean
+        default: false
       subtitle_controls_only:
         description: Verify core tests and the room, picker, fullscreen/subtitle/voice regressions
         type: boolean
@@ -16,7 +20,7 @@ on:
       - '.github/workflows/apple-build.yml'
 
 concurrency:
-  group: apple-build-${{ github.ref }}
+  group: apple-build-${{ github.ref }}-${{ inputs.track_controls_only || false }}
   cancel-in-progress: true
 
 permissions:
@@ -71,6 +75,7 @@ jobs:
             build 2>&1 | tee apple-build-logs/build.log
       - name: Verify iPad interface on native simulator
         env:
+          TRACK_CONTROLS_ONLY: ${{ inputs.track_controls_only || false }}
           SUBTITLE_CONTROLS_ONLY: ${{ inputs.subtitle_controls_only || false }}
         shell: bash
         run: |
@@ -89,6 +94,14 @@ jobs:
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenSubtitleImportReturnsAndKeepsControlsVisible
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
+            )
+          fi
+          if [ "$TRACK_CONTROLS_ONLY" = "true" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests/TrackLabelTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleAdjustmentPanelChangesValuesAndResets
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC "${TEST_SELECTION[@]}" \
