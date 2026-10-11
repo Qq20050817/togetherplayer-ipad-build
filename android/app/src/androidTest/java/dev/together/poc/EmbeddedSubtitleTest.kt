@@ -13,6 +13,46 @@ import org.junit.runner.RunWith
 import org.junit.Assert.*
 @RunWith(AndroidJUnit4::class)
 class EmbeddedSubtitleTest {
+ @Test fun compatibleFullscreenCanImportSubtitleThroughActualFiles() {
+  val i=InstrumentationRegistry.getInstrumentation();val resolver=i.targetContext.contentResolver
+  val name="TOGETHER-COMPATIBILITY-SUBTITLE.srt"
+  val values=android.content.ContentValues().apply {
+   put(android.provider.MediaStore.Downloads.DISPLAY_NAME,name)
+   put(android.provider.MediaStore.Downloads.MIME_TYPE,"application/x-subrip")
+   put(android.provider.MediaStore.Downloads.RELATIVE_PATH,"Download/")
+  }
+  val subtitle=resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)!!
+  val movie=java.io.File(i.targetContext.cacheDir,"subtitle-import-test.mkv")
+  try {
+   resolver.openOutputStream(subtitle)!!.use {it.write("1\n00:00:00,000 --> 00:00:19,500\nImported subtitle visible\n".toByteArray())}
+   i.context.assets.open("embedded-pgs.mkv").use {input->movie.outputStream().use {input.copyTo(it)}}
+   ActivityScenario.launch(MainActivity::class.java).use {scenario->
+    fun player(a:MainActivity)=a.javaClass.getDeclaredField("playback").apply{isAccessible=true}.get(a) as CompatiblePlayback
+    scenario.onActivity {a->val p=player(a);val uri=android.net.Uri.fromFile(movie).toString();p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0))}
+    var ready=false;val deadline=SystemClock.elapsedRealtime()+15000
+    while(!ready && SystemClock.elapsedRealtime()<deadline){scenario.onActivity {ready=player(it).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
+    assertTrue(ready)
+    scenario.onActivity {a->
+     val p=player(a);p.selectCompatibleTrack(C.TRACK_TYPE_TEXT,p.compatibleTracks(C.TRACK_TYPE_TEXT).first().id);p.play()
+     a.javaClass.getDeclaredMethod("showFullscreen").apply{isAccessible=true}.invoke(a)
+     a.javaClass.getDeclaredMethod("importSubtitle").apply{isAccessible=true}.invoke(a)
+    }
+    val device=UiDevice.getInstance(i)
+    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg("com.google.android.documentsui")),5000))
+    var entry=device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text(name)),2000)
+    if(entry==null){device.findObject(androidx.test.uiautomator.By.desc("Show roots"))?.click();device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text("Downloads")),3000)?.click();entry=device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.text(name)),5000)}
+    assertNotNull("Subtitle must be selectable in actual system Files",entry);entry!!.click()
+    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg("dev.together.poc")),5000))
+    var loaded=false
+    repeat(50){if(!loaded){scenario.onActivity {a->loaded=a.javaClass.getDeclaredField("subtitleName").apply{isAccessible=true}.get(a)==name};SystemClock.sleep(100)}}
+    assertTrue("Subtitle result must return without crashing",loaded)
+    scenario.onActivity {a->val p=player(a);assertTrue(p.compatibleActive);assertEquals("File picker must not destroy the decoder input",Player.STATE_READY,p.playbackState);assertTrue(p.duration>0);p.play()}
+    SystemClock.sleep(1000)
+    scenario.onActivity {a->val captions=a.javaClass.getDeclaredField("captions").apply{isAccessible=true}.get(a) as android.widget.TextView;assertEquals("Imported subtitle visible",captions.text.toString());assertEquals(android.view.View.VISIBLE,captions.visibility);assertTrue(player(a).displayedFrames()>0);player(a).pause()}
+   }
+  } finally {resolver.delete(subtitle,null,null);movie.delete()}
+ }
+
  @Test fun selectedEmbeddedSubtitleProducesVisiblePixels()=verifyVisibleSubtitle("embedded-subtitle.mkv")
  @Test fun selectedPGSSubtitleProducesVisiblePixels()=verifyVisibleSubtitle("embedded-pgs.mkv")
  private fun verifyVisibleSubtitle(asset:String) {
