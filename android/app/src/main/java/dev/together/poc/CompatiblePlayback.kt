@@ -38,12 +38,30 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private var nativeAudio:Format?=null
  private var pendingSeek:Long?=null
  private var pendingUntil=0L
+ private var requestedSubtitle:Int?=null
  private val compatibleSources=linkedSetOf<String>()
  var compatibleActive=false;private set
  val videoFormat:Format? get()=if(compatibleActive)nativeVideo else native.videoFormat
  val audioFormat:Format? get()=if(compatibleActive)nativeAudio else native.audioFormat
  fun addAnalyticsListener(listener:AnalyticsListener)=native.addAnalyticsListener(listener)
- fun bind(view:VLCVideoLayout){layout=view}
+ fun bind(view:VLCVideoLayout){
+  layout=view
+  view.addOnAttachStateChangeListener(object:android.view.View.OnAttachStateChangeListener {
+   override fun onViewDetachedFromWindow(v:android.view.View){if(compatibleActive)vlc?.detachViews()}
+   override fun onViewAttachedToWindow(v:android.view.View){main.post {
+    val p=vlc
+    if(compatibleActive && layout===view && view.isAttachedToWindow && p!=null && !p.vlcVout.areViewsAttached()) {
+     p.attachViews(view,null,true,false)
+     applySubtitleSelection()
+    }
+   }}
+  })
+ }
+ private fun applySubtitleSelection(){
+  if(source==null)return
+  val id=requestedSubtitle ?: if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))-1 else return
+  vlc?.let {p->if(id<0 || p.spuTracks?.any {it.id==id}==true)p.setSpuTrack(id)}
+ }
  fun activateCompatibility(uri:String,positionMs:Long):Boolean {
   if(layout==null || compatibleActive || android.net.Uri.parse(uri).scheme !in listOf("content","file"))return false
   nativeVideo=native.videoFormat;nativeAudio=native.audioFormat
@@ -67,7 +85,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      VLCPlayer.Event.EndReached->{state=Player.STATE_ENDED;wanted=false}
      VLCPlayer.Event.Buffering->{buffering=event.buffering; if(ready)state=if(buffering<100f)Player.STATE_BUFFERING else Player.STATE_READY}
      VLCPlayer.Event.TimeChanged->{pendingSeek?.let {if(abs(event.timeChanged-it)<500)pendingSeek=null}}
-     VLCPlayer.Event.ESAdded->if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))p.setSpuTrack(-1)
+     VLCPlayer.Event.ESAdded->applySubtitleSelection()
     }
    }
    val parsed=android.net.Uri.parse(uri)
@@ -87,7 +105,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      ready=true;state=Player.STATE_READY;buffering=100f
      if(!wanted)p.pause()
      p.setVolume((native.volume*100).roundToInt())
-     if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))p.setSpuTrack(-1)
+     applySubtitleSelection()
      changed(true)
     }else if(android.os.SystemClock.elapsedRealtime()>=deadline)fail("兼容解码准备超时，未显示视频帧")
     else main.postDelayed({awaitFrame()},50)
@@ -126,12 +144,12 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  override fun setPlaybackSpeed(value:Float)=setPlaybackParameters(PlaybackParameters(value))
  override fun setPlaybackParameters(value:PlaybackParameters){speed=value.speed;native.playbackParameters=value;if(compatibleActive)vlc?.setRate(speed)}
  override fun getPlaybackParameters():PlaybackParameters=if(compatibleActive)PlaybackParameters(speed)else native.playbackParameters
- override fun setTrackSelectionParameters(value:TrackSelectionParameters){native.trackSelectionParameters=value;if(compatibleActive && value.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))vlc?.setSpuTrack(-1)}
- override fun setMediaItem(value:MediaItem,startPositionMs:Long){if(compatibleActive)deactivate();item=value;startPosition=startPositionMs;native.setMediaItem(value,startPositionMs)}
- fun setMediaSource(value:MediaSource,startPositionMs:Long){if(compatibleActive)deactivate();item=value.mediaItem;startPosition=startPositionMs;native.setMediaSource(value,startPositionMs)}
+ override fun setTrackSelectionParameters(value:TrackSelectionParameters){native.trackSelectionParameters=value;if(compatibleActive && value.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)){requestedSubtitle=-1;applySubtitleSelection()}}
+ override fun setMediaItem(value:MediaItem,startPositionMs:Long){if(value.localConfiguration?.uri!=item?.localConfiguration?.uri)requestedSubtitle=null;if(compatibleActive)deactivate();item=value;startPosition=startPositionMs;native.setMediaItem(value,startPositionMs)}
+ fun setMediaSource(value:MediaSource,startPositionMs:Long){if(value.mediaItem.localConfiguration?.uri!=item?.localConfiguration?.uri)requestedSubtitle=null;if(compatibleActive)deactivate();item=value.mediaItem;startPosition=startPositionMs;native.setMediaSource(value,startPositionMs)}
  override fun prepare(){val uri=native.currentMediaItem?.localConfiguration?.uri?.toString();if(uri!=null && uri in compatibleSources)openIndependent(uri)else native.prepare()}
  override fun stop(){if(compatibleActive){epoch++;closeInput();ready=false;state=Player.STATE_IDLE;wanted=false}else native.stop()}
- override fun clearMediaItems(){if(compatibleActive)deactivate();item=null;native.clearMediaItems()}
+ override fun clearMediaItems(){requestedSubtitle=null;if(compatibleActive)deactivate();item=null;native.clearMediaItems()}
  override fun release(){epoch++;closeInput();vlc?.detachViews();vlc?.release();vlc=null;core?.release();core=null;native.release()}
  data class TrackOption(val id:Int,val name:String)
  fun compatibleTracks(type:Int):List<TrackOption> {
@@ -144,7 +162,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   }
  }
  fun selectedCompatibleTrack(type:Int):Int=if(type==C.TRACK_TYPE_AUDIO)vlc?.audioTrack ?: -1 else vlc?.spuTrack ?: -1
- fun selectCompatibleTrack(type:Int,id:Int){if(type==C.TRACK_TYPE_AUDIO)vlc?.setAudioTrack(id)else{native.trackSelectionParameters=native.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,id<0).build();vlc?.setSpuTrack(id)}}
+ fun selectCompatibleTrack(type:Int,id:Int){if(type==C.TRACK_TYPE_AUDIO)vlc?.setAudioTrack(id)else{requestedSubtitle=id;native.trackSelectionParameters=native.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,id<0).build();vlc?.setSpuTrack(id)}}
  fun decodedFrames():Int=source?.stats?.decodedVideo ?: 0
  fun displayedFrames():Int=source?.stats?.displayedPictures ?: 0
 }
