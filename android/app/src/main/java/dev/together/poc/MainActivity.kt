@@ -30,6 +30,7 @@ class Media3Adapter(private val p: ExoPlayer): PlayerAdapter {
 }
 class MainActivity: Activity() {
  private val main=Handler(Looper.getMainLooper());private val http=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
+ private val decoderRecovery=VideoDecoderRecovery();private var videoDecoderName="";private var decoderRecoveryPending=false
  private lateinit var player: ExoPlayer;private lateinit var engine: SyncEngine;private val clock=ClockSync();private val chat=ChatEngine()
  private lateinit var server: EditText;private lateinit var media: EditText;private lateinit var roomInput: EditText;private lateinit var seek: EditText
  private lateinit var status: TextView;private lateinit var requestStatus: TextView;private lateinit var titleField: EditText;private lateinit var nickname: EditText
@@ -71,7 +72,7 @@ class MainActivity: Activity() {
   super.onCreate(savedInstanceState);window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   // Keep a reserve before starting/resuming; a short reserve repeatedly drains on slow sources.
   val buffering=DefaultLoadControl.Builder().setBufferDurationsMs(30000,60000,8000,12000).setPrioritizeTimeOverSizeThresholds(true).build()
-  val renderers=PlaybackRenderers.create(this)
+  val renderers=PlaybackRenderers.create(this,decoderRecovery)
   player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).build();engine=SyncEngine(Media3Adapter(player),clock)
   voice=VoiceDanmakuController(this,player,{if(connected)engine.room?.optString("roomId") ?: "" else ""},{sendVoice(it)},{voiceViews.forEach {it.render()};if(voice.busy){main.removeCallbacks(hideControls);fullscreenControls?.visibility=View.VISIBLE}else if(fullscreenDialog!=null)revealControls()})
   buildInterface()
@@ -81,6 +82,7 @@ class MainActivity: Activity() {
    state.getString("localPickerUri")?.let {pendingLocalMovie=android.net.Uri.parse(it) to state.getInt("localPickerFlags",0)}
   }
   player.addAnalyticsListener(object: AnalyticsListener {
+   override fun onVideoDecoderInitialized(eventTime:AnalyticsListener.EventTime,decoderName:String,initializedTimestampMs:Long,initializationDurationMs:Long){videoDecoderName=decoderName;diagnostic("videoDecoderInitialized",JSONObject().put("codecName",decoderName).put("deviceModel",android.os.Build.MODEL).put("manufacturer",android.os.Build.MANUFACTURER))}
    override fun onBandwidthEstimate(eventTime: AnalyticsListener.EventTime,totalLoadTimeMs: Int,totalBytesLoaded: Long,bitrateEstimate: Long){diagnostic("bandwidthEstimate",JSONObject().put("loadTimeMs",totalLoadTimeMs).put("bytesLoaded",totalBytesLoaded).put("bitrateEstimate",bitrateEstimate))}
    override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime,droppedFrames: Int,elapsedMs: Long){diagnostic("droppedVideoFrames",JSONObject().put("droppedFrames",droppedFrames))}
    override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime,bufferSize: Int,bufferSizeMs: Long,elapsedSinceLastFeedMs: Long){diagnostic("audioUnderrun")}
@@ -94,8 +96,13 @@ class MainActivity: Activity() {
     val details=JSONObject().put("code",error.errorCodeName).put("rendererType",trackType).put("mimeType",mime)
     var cause:Throwable?=error.cause
     while(cause!=null){if(cause is androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException){details.put("codecName",cause.codecInfo?.name ?: "none").put("decoderMimeType",cause.mimeType);break};cause=cause.cause}
+    val format=exo?.rendererFormat
+    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name ?: videoDecoderName
+    details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
+    format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
     diagnostic("playerError",details)
-    requestStatus.text="$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”；若4K HEVC不受设备支持，需使用兼容版本。"
+    if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
+    requestStatus.text=if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
    override fun onPlaybackStateChanged(playbackState: Int){diagnostic("playbackStateChanged")}
    override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters){diagnostic("speedChanged")}
@@ -419,12 +426,35 @@ class MainActivity: Activity() {
   if(r.optString("roomId")!=pendingLocalRoom || r.optString("mediaUrl")!=pendingLocalMedia){requestStatus.text="房间或影片已改变，请重新选择本地影片";return}
   useLocalMovie(selection.first,selection.second)
  }
+ private fun tryRecoverVideoDecoder(format:androidx.media3.common.Format?,failed:String):Boolean {
+  if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending)return false
+  val item=player.currentMediaItem ?: return false
+  val uri=item.localConfiguration?.uri?.toString() ?: return false
+  // Only offer another decoder that reports support for this exact profile/size.
+  // Secure/tunneled playback is not used by our local and authorized sources.
+  val alternatives=runCatching {androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false).filter {it.isFormatSupported(format)}.map {it.name}}.getOrElse {emptyList()}
+  val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives) ?: return false
+  val position=player.currentPosition.coerceAtLeast(0)
+  val retryURL=if(baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL))baiduURL else uri
+  decoderRecoveryPending=true
+  requestStatus.text="正在切换兼容解码器…"
+  diagnostic("videoDecoderRecovery",JSONObject().put("failedCodec",failed).put("nextCodec",next).put("positionMs",position))
+  // Queue after the failed-player callback. Keep the same player, sync engine,
+  // voice controller, source permissions and room. Room state controls resuming.
+  main.post {
+   decoderRecoveryPending=false
+   if(stopped || !foreground || player.currentMediaItem?.localConfiguration?.uri?.toString()!=uri)return@post
+   videoDecoderName="";player.stop();player.clearMediaItems()
+   loadMedia(retryURL,position.toDouble(),preserveSubtitles=true)
+  }
+  return true
+ }
  private fun retryPlayback(){
   val r=engine.room ?: return
   val url=if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){if(!hasBaiduMatch()){requestStatus.text="请先选择同一影片";return};if(localFileUri.isNotBlank())localFileUri else baiduURL}else playbackSource(r.optString("mediaUrl"))
   requestStatus.text="正在重试播放…";loadMedia(url,r.optDouble("position")+engine.timelineOffset)
  }
- private fun loadMedia(url: String,position: Double){val resolved=resolvedMediaUri(url);if(player.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved){clearSubtitle()};player.pause();val item=MediaItem.fromUri(android.net.Uri.parse(resolved));if(url==baiduURL){val network=androidx.media3.datasource.DefaultHttpDataSource.Factory().setUserAgent("pan.baidu.com");val factory=androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,network));player.setMediaSource(factory.createMediaSource(item),position.coerceAtLeast(0.0).toLong())}else player.setMediaItem(item,position.coerceAtLeast(0.0).toLong());player.prepare()}
+ private fun loadMedia(url: String,position: Double,preserveSubtitles:Boolean=false){val resolved=resolvedMediaUri(url);decoderRecovery.beginSource(resolved);videoDecoderName="";if(!preserveSubtitles && player.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved){clearSubtitle()};player.pause();val item=MediaItem.fromUri(android.net.Uri.parse(resolved));if(url==baiduURL){val network=androidx.media3.datasource.DefaultHttpDataSource.Factory().setUserAgent("pan.baidu.com");val factory=androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,network));player.setMediaSource(factory.createMediaSource(item),position.coerceAtLeast(0.0).toLong())}else player.setMediaItem(item,position.coerceAtLeast(0.0).toLong());player.prepare()}
  private fun localDisplayName(uri:android.net.Uri)=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else null} ?: "本地影片"
  private fun localFileIdentity(uri:android.net.Uri):Pair<Long,String> {
   val queried=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.SIZE),null,null,null)?.use {if(it.moveToFirst() && !it.isNull(0))it.getLong(0) else -1L} ?: -1L

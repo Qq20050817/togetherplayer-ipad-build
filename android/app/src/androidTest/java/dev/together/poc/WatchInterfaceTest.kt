@@ -228,6 +228,44 @@ class WatchInterfaceTest {
    assertTrue("File-picker result must be applied after WELCOME",selected)
   }} finally {fixture.delete()}
  }
+ @Test fun testHevcRuntimeRecoveryRestartsSamePlayerAndPreservesSubtitle() {
+  val format=androidx.media3.common.Format.Builder().setSampleMimeType("video/hevc").setWidth(320).setHeight(180).build()
+  val available=androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false).filter {it.isFormatSupported(format)}
+  org.junit.Assume.assumeTrue("Emulator has no HEVC decoder",available.isNotEmpty())
+  val fixture=java.io.File(instrumentation.targetContext.cacheDir,"hevc-recovery.mp4")
+  instrumentation.context.assets.open("hevc-test.mp4").use {input->fixture.outputStream().use {input.copyTo(it)}}
+  val first=java.util.concurrent.CountDownLatch(1);val restarted=java.util.concurrent.CountDownLatch(1)
+  var recovered=false;var failure:String?=null
+  try {ActivityScenario.launch(MainActivity::class.java).use {scenario->
+   var original:androidx.media3.exoplayer.ExoPlayer?=null
+   val subtitle=ExternalSubtitle(listOf(SubtitleCue(0,4000,"保留字幕")))
+   scenario.onActivity {activity->
+    val p=activity.javaClass.getDeclaredField("player").apply {isAccessible=true}.get(activity) as androidx.media3.exoplayer.ExoPlayer;original=p
+    p.addListener(object:androidx.media3.common.Player.Listener {
+     override fun onRenderedFirstFrame(){if(recovered)restarted.countDown()else first.countDown()}
+     override fun onPlayerError(error:androidx.media3.common.PlaybackException){failure=error.errorCodeName;first.countDown();restarted.countDown()}
+    })
+    activity.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply {isAccessible=true}.invoke(activity,android.net.Uri.fromFile(fixture).toString(),1000.0,false)
+    activity.javaClass.getDeclaredField("external").apply {isAccessible=true}.set(activity,subtitle)
+    p.play()
+   }
+   assertTrue("HEVC first frame timed out",first.await(15,java.util.concurrent.TimeUnit.SECONDS));assertNull(failure)
+   scenario.onActivity {activity->
+    val p=original!!;p.pause()
+    recovered=activity.javaClass.getDeclaredMethod("tryRecoverVideoDecoder",androidx.media3.common.Format::class.java,String::class.java).apply {isAccessible=true}.invoke(activity,format,"injected.failed.hevc.decoder") as Boolean
+    assertTrue("Compatible decoder was available but recovery rejected",recovered)
+   }
+   // Allow the recovery callback to stop and reload without a room or autoplay.
+   instrumentation.waitForIdleSync()
+   scenario.onActivity {activity->
+    val p=activity.javaClass.getDeclaredField("player").apply {isAccessible=true}.get(activity) as androidx.media3.exoplayer.ExoPlayer
+    assertSame(original,p);assertFalse(p.playWhenReady)
+    assertSame(subtitle,activity.javaClass.getDeclaredField("external").apply {isAccessible=true}.get(activity))
+    assertTrue("Recovery lost position",p.currentPosition>=900);p.play()
+   }
+   assertTrue("HEVC recovery frame timed out",restarted.await(15,java.util.concurrent.TimeUnit.SECONDS));assertNull(failure)
+  }} finally {fixture.delete()}
+ }
  @Test fun testBundledFfmpegDecodesDtsAudio() {
   val fixture=java.io.File(instrumentation.targetContext.cacheDir,"dts-test.mka")
   instrumentation.context.assets.open("dts-test.mka").use {source->fixture.outputStream().use {source.copyTo(it)}}
