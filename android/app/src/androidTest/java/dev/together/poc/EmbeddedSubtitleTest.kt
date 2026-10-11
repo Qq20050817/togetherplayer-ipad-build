@@ -22,13 +22,17 @@ class EmbeddedSubtitleTest {
    put(android.provider.MediaStore.Downloads.RELATIVE_PATH,"Download/")
   }
   val subtitle=resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)!!
-  val movie=java.io.File(i.targetContext.cacheDir,"subtitle-import-test.mkv")
+  val movie=resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,android.content.ContentValues().apply {
+   put(android.provider.MediaStore.Downloads.DISPLAY_NAME,"TOGETHER-COMPATIBILITY-MOVIE.mkv")
+   put(android.provider.MediaStore.Downloads.MIME_TYPE,"video/x-matroska")
+   put(android.provider.MediaStore.Downloads.RELATIVE_PATH,"Download/")
+  })!!
   try {
    resolver.openOutputStream(subtitle)!!.use {it.write("1\n00:00:00,000 --> 00:00:19,500\nImported subtitle visible\n".toByteArray())}
-   i.context.assets.open("embedded-pgs.mkv").use {input->movie.outputStream().use {input.copyTo(it)}}
+   i.context.assets.open("embedded-pgs.mkv").use {input->resolver.openOutputStream(movie)!!.use {input.copyTo(it)}}
    ActivityScenario.launch(MainActivity::class.java).use {scenario->
     fun player(a:MainActivity)=a.javaClass.getDeclaredField("playback").apply{isAccessible=true}.get(a) as CompatiblePlayback
-    scenario.onActivity {a->val p=player(a);val uri=android.net.Uri.fromFile(movie).toString();p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0))}
+    scenario.onActivity {a->val p=player(a);val uri=movie.toString();p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0))}
     var ready=false;val deadline=SystemClock.elapsedRealtime()+15000
     while(!ready && SystemClock.elapsedRealtime()<deadline){scenario.onActivity {ready=player(it).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
     assertTrue(ready)
@@ -50,7 +54,7 @@ class EmbeddedSubtitleTest {
     SystemClock.sleep(1000)
     scenario.onActivity {a->val captions=a.javaClass.getDeclaredField("captions").apply{isAccessible=true}.get(a) as android.widget.TextView;assertEquals("Imported subtitle visible",captions.text.toString());assertEquals(android.view.View.VISIBLE,captions.visibility);assertTrue(player(a).displayedFrames()>0);player(a).pause()}
    }
-  } finally {resolver.delete(subtitle,null,null);movie.delete()}
+  } finally {resolver.delete(subtitle,null,null);resolver.delete(movie,null,null)}
  }
 
  @Test fun selectedEmbeddedSubtitleProducesVisiblePixels()=verifyVisibleSubtitle("embedded-subtitle.mkv")
