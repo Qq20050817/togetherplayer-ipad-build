@@ -217,8 +217,9 @@ struct PlotFrame {
    let why=score.confidence>=policy.minimumConfidence ? String(score.reasons.prefix(2).joined(separator:"；").prefix(100))+"。" : ""
    complete(question,reason:why+(chosen==nil ? "没有足够的可靠 AI 结果，因此明确使用免费备用题库。" : "")+explanation,frame:snapshot,token:token)
    if autoMoment && result != nil {
-    // Automatic polls are nonblocking; no client should pause playback.
-    let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:false)
+    // Automatic story questions always pause the shared playback. The server
+    // coordinates both answers, readiness, and safe resumption.
+    let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:true)
     if mayPublishAutomatically?()==true && isSubtitleCurrentlyShown?()==false {
      autoSuggestion=safe
      publishAutomatically?(safe)
