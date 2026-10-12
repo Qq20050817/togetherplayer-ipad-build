@@ -146,3 +146,17 @@ final class PlotMemoryTests:XCTestCase {
   controller.cancel();XCTAssertFalse(controller.working)
  }
 }
+
+@MainActor final class PlotAuthorizationGateTests:XCTestCase {
+ func testOneVerifiedOAuthGrantAllowsRequestsWithoutRepeatsOrRestart() {
+  // Diagnostic acceptance measures reliability, not permission.
+  let acceptance=PlotAuthAcceptance()
+  XCTAssertFalse(acceptance.ready)
+  XCTAssertTrue(ChatGPTAuthProbe.hasUsableAuthorization(connected:true,usagePaused:false))
+ }
+ func testMissingGrantOrUsagePauseBlocksCloudWithoutBypassingConsent() {
+  XCTAssertFalse(ChatGPTAuthProbe.hasUsableAuthorization(connected:false,usagePaused:false))
+  XCTAssertFalse(ChatGPTAuthProbe.hasUsableAuthorization(connected:false,usagePaused:true))
+  XCTAssertFalse(ChatGPTAuthProbe.hasUsableAuthorization(connected:true,usagePaused:true))
+ }
+}
