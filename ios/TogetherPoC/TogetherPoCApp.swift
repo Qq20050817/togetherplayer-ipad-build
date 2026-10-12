@@ -20,6 +20,7 @@ import UniformTypeIdentifiers
   TabView {
    WatchScreen(model:model,chat:chat).tabItem {Label("观影",systemImage:"play.rectangle")}.badge(chat.unread)
    RoomScreen(model:model).tabItem {Label("房间与片源",systemImage:"person.2")}
+   ChatGPTAuthDiagnosticView().tabItem {Label("授权测试",systemImage:"checkmark.shield")}
   }.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
