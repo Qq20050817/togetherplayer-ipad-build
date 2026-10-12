@@ -149,7 +149,7 @@ struct PlotFrame {
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
    if requested {
-    if let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
+    if let cached=state.reusable(at:snapshot.position),cached.source=="ChatGPT" {
      complete(cached,reason:"复用该片段已完成的 ChatGPT 问题，没有再次消耗额度",frame:snapshot,token:token);return
     }
     // Explicit model choice is itself a manual request. The automatic-call
