@@ -62,7 +62,13 @@ import SwiftUI
       Toggle("重要剧情自动暂停并提问",isOn:$intelligence.eventDrivenEnabled)
        .disabled(model.isConnected && !model.supportsBlockingPolls)
        .accessibilityIdentifier("plot-event-driven")
-      Text("根据已看剧情的线索和对白空档判断是否需要讨论。出现可靠问题后自动暂停双方播放、展示题目；双方回答并准备好后同步恢复。不按固定分钟数出题。")
+      Text("优先识别新事实、前后矛盾与尚未解开的悬念，避开密集对白；只有可靠的 AI 问题才会暂停双方，答完后同步继续。两次自动暂停至少间隔10分钟，不在固定时间点出题。")
+       .font(.caption2).foregroundStyle(.secondary)
+      if let beat=intelligence.latestBeat {
+       Text("最近字幕信号（非 AI 结论）：新线索 \(beat.informationChange)/3 · 矛盾 \(beat.contradiction)/3 · 悬念 \(beat.unresolvedMystery)/3 · \(beat.isCandidate ? "候选转折" : "继续观影")")
+        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-beat-signal")
+      }
+      Text("暂通过已播放字幕判断，不能识别无对白的重要镜头；没有可靠剧情依据时不会自动暂停。")
        .font(.caption2).foregroundStyle(.secondary)
       if model.isConnected && !model.supportsBlockingPolls {
        Text("当前房间服务端未声明支持同步答题暂停。为避免出现无法自动恢复的情况，自动提问暂不触发；需要升级到已测试的阻塞答题服务端。")
