@@ -77,6 +77,18 @@ final class FakePlayer: PlayerAdapter {
   let recoverySeeks=player.seekCount;engine.tick();precondition(player.seekCount==recoverySeeks && player.playing && player.rate==1)
   now += 1999;engine.tick();precondition(player.seekCount==recoverySeeks)
   now += 1;engine.tick();precondition(player.seekCount==recoverySeeks+1)
+  // Holding the picture speeds up this client without the sync loop immediately undoing it.
+  engine.resetSession();clock.add(0,0,0,0);now=1000
+  engine.receive(room("playing",1));player.duration=3_900_000;player.position=11_000
+  precondition(engine.beginTemporaryFastForward() && player.rate==2)
+  let heldSeeks=player.seekCount;now=2000;player.position=16_000
+  engine.tick();precondition(player.rate==2 && player.seekCount==heldSeeks)
+  engine.endTemporaryFastForward();precondition(player.rate==1)
+  engine.tick();precondition(player.seekCount==heldSeeks+1,"room sync must resume on release")
+  precondition(engine.beginTemporaryFastForward())
+  engine.receive(room("paused",2));engine.tick()
+  precondition(!player.playing && player.rate==1 && !engine.beginTemporaryFastForward())
+  engine.resetSession();precondition(player.rate==1)
   print("iOS SyncEngine regression checks passed")
  }
 }

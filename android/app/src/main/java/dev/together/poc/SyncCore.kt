@@ -36,6 +36,7 @@ class ClockSync(private val monotonicNow: () -> Double = { SystemClock.elapsedRe
 class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  var room: JSONObject? = null; private set
  private var correctionSpeed=1f
+ private var temporaryFastForward=false
  private var excessiveDriftSince: Double?=null
  private var driftAtWindowStart=0.0
  private var lastAutoSeekAt: Double?=null
@@ -45,6 +46,7 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  var resyncCount=0;private set
  val version get() = room?.optLong("version") ?: 0L
  fun resetSession() {
+  stopTemporaryFastForward()
   player.pause(); player.setPlaybackSpeed(1f)
   room=null; clock.reset();resetCorrection();lastAutoSeekAt=null;wasUnready=false;settleUntil=0.0
  }
@@ -53,6 +55,13 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
    if(room?.optString("roomId") != next.optString("roomId") || next.getLong("version") != version) {resetCorrection();lastAutoSeekAt=null}
    room=next
   }
+ }
+ fun beginTemporaryFastForward():Boolean {
+  if(target()?.second!="playing" || !player.isReady() || player.isBuffering())return false
+  temporaryFastForward=true;player.setPlaybackSpeed(2f);player.play();return true
+ }
+ fun stopTemporaryFastForward() {
+  if(temporaryFastForward){temporaryFastForward=false;player.setPlaybackSpeed(1f)}
  }
  private fun resetCorrection() {correctionSpeed=1f;excessiveDriftSince=null}
  private fun speed(error: Double): Float {
@@ -79,8 +88,9 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   val now=clock.localNow()
   if(!player.isReady() || player.isBuffering())wasUnready=true
   else if(wasUnready){wasUnready=false;settleUntil=now+2000}
-  if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>200) player.seekTo(position.toLong()); return error }
+  if (state=="paused") { stopTemporaryFastForward();resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>200) player.seekTo(position.toLong()); return error }
   if (!player.isReady() || player.isBuffering()) {excessiveDriftSince=null;return null}
+  if(temporaryFastForward) {player.setPlaybackSpeed(2f);player.play();return error}
   if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(1f);player.play();return error}
   if(abs(error)>=500) {if(excessiveDriftSince==null) {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else excessiveDriftSince=null
   var overdue=excessiveDriftSince?.let {now-it>=10000} ?: false
