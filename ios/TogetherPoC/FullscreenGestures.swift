@@ -27,6 +27,7 @@ struct FullscreenGestureSurface:UIViewRepresentable {
  var tap:()->Void
  var feedback:(String)->Void
  var interacting:(Bool)->Void
+ var brightnessObserved:(CGFloat)->Void
  func makeCoordinator()->Coordinator {Coordinator(self)}
  func makeUIView(context:Context)->FullscreenTouchView {
   let view=FullscreenTouchView()
@@ -62,7 +63,6 @@ struct FullscreenGestureSurface:UIViewRepresentable {
   var parent:FullscreenGestureSurface
   weak var surface:FullscreenTouchView?
   var volumeView:MPVolumeView?
-  let originalBrightness=UIScreen.main.brightness
   var origin:CGPoint = .zero
   var initial:CGFloat=0
   var left=false
@@ -102,16 +102,22 @@ struct FullscreenGestureSurface:UIViewRepresentable {
     parent.interacting(true)
    }
    guard sliding else {return}
-   let value=min(1,max(0,initial-dy/max(1,view.bounds.height)))
+   // A half-to-two-thirds-height swipe should cover most of the brightness
+   // range even on a large 12.9-inch iPad, with clamping at both ends.
+   let travel=left ? view.bounds.height*0.65 : view.bounds.height
+   let value=min(1,max(0,initial-dy/max(1,travel)))
    if left {
     UIScreen.main.brightness=value
+    let observed=UIScreen.main.brightness
+    parent.brightnessObserved(observed)
     view.accessibilityValue="亮度 \(Int((value*100).rounded()))%"
+    parent.feedback("亮度目标 \(Int((value*100).rounded()))% · 屏幕读数 \(Int((observed*100).rounded()))%")
    } else if let slider=volumeView?.subviews.compactMap({$0 as? UISlider}).first {
     slider.setValue(Float(value),animated:false)
     slider.sendActions(for:.valueChanged)
     view.accessibilityValue="音量 \(Int((slider.value*100).rounded()))%"
+    parent.feedback("音量 \(Int((slider.value*100).rounded()))%")
    }
-   parent.feedback("\(left ? "亮度" : "音量") \(Int(value*100))%")
   }
   func end() {
    let tapped=tracking && !sliding && !holding && !ignored
@@ -139,11 +145,10 @@ struct FullscreenGestureSurface:UIViewRepresentable {
    ignored=false
    surface=nil
    volumeView=nil
-   let brightness=originalBrightness
-   DispatchQueue.main.async {
-    stopHold?(false)
-    UIScreen.main.brightness=brightness
-   }
+   // Do not undo the user-selected system brightness when SwiftUI rebuilds
+   // the gesture view or when the fullscreen modal closes. On iPad this made
+   // a successful swipe appear ineffective moments later.
+   DispatchQueue.main.async {stopHold?(false)}
   }
  }
 }

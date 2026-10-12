@@ -9,6 +9,13 @@ final class WatchInterfaceTests: XCTestCase {
   let surface=app.otherElements["fullscreen-gesture-surface"].firstMatch
   XCTAssertTrue(surface.waitForExistence(timeout:5))
   XCTAssertTrue(app.descendants(matching:.any)["fullscreen-device-status"].firstMatch.exists)
+  // Real UIScreen getter is independently displayed; the gesture's requested
+  // percentage must not be mistaken for confirmed physical brightness.
+  let hardwareReadback=app.staticTexts["fullscreen-brightness-readback"].firstMatch
+  let brightnessSlider=app.sliders["fullscreen-brightness-slider"].firstMatch
+  XCTAssertTrue(hardwareReadback.exists,"必须显示系统实际读取的屏幕亮度")
+  XCTAssertTrue(brightnessSlider.exists,"必须提供独立的系统亮度控制作为排查入口")
+  XCTAssertTrue((hardwareReadback.label.filter({$0.isNumber})).count>=1)
   let bar=app.otherElements["fullscreen-control-bar"].firstMatch
   XCTAssertLessThanOrEqual(surface.frame.maxY,bar.frame.minY+1)
   XCTAssertGreaterThan(surface.frame.width,app.windows.firstMatch.frame.width*0.7,"手势层必须覆盖视频宽度")
