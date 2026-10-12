@@ -58,6 +58,10 @@ import SwiftUI
       Text(model.supportsBlockingPolls ? "开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
        .font(.caption).foregroundStyle(.secondary)
       if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}}
+      Toggle("重要剧情后自动出题",isOn:$intelligence.eventDrivenEnabled)
+       .accessibilityIdentifier("plot-event-driven")
+      Text("依据已观看字幕识别值得讨论的疑点，等对白空档轻提示双方；不按固定时间提问，也不自动暂停。不具备可靠线索时宁可不出题。")
+       .font(.caption2).foregroundStyle(.secondary)
       Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases){mode in Text(mode.title).tag(mode)}}
        .pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
       Text("苹果本地 AI：\(PlotLocalAI.available ? "系统模型可用" : "系统模型暂不可用") · 已采集字幕线索：\(model.externalSubtitles.observedPlotEvidence().count) 条")
