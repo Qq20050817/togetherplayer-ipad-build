@@ -36,6 +36,7 @@ struct PlotFrame {
  private var momentTask:Task<Void,Never>?
  private var mostRecentAutoKey=""
  private var mostRecentAutoPosition = -Double.infinity
+ private var mostRecentPublishedPosition = -Double.infinity
  var mayPublishAutomatically:(()->Bool)?
  var publishAutomatically:((PlotQuestion)->Void)?
  var isSubtitleCurrentlyShown:(()->Bool)?
@@ -56,7 +57,7 @@ struct PlotFrame {
  }
  func collect() async {
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
-  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;lastKey=snapshot.key}
+  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic}
@@ -72,9 +73,10 @@ struct PlotFrame {
   let beat=PlotMomentGate.assess(snapshot.evidence,position:snapshot.position,minQuietSeconds:0)
   latestBeat=beat
   guard beat.isCandidate else{return}
-  // Only unusually valuable turning points interrupt both people. Cooldown
-  // controls interruption frequency; it is not a schedule for new questions.
-  guard snapshot.key != mostRecentAutoKey || snapshot.position-mostRecentAutoPosition>600 else{return}
+  // There is no timed question schedule. These are only safety backoffs
+  // after failed attempts and after a successfully published interruption.
+  guard snapshot.key != mostRecentAutoKey ||
+   PlotMomentGate.canAttempt(position:snapshot.position,lastAttempt:mostRecentAutoPosition,lastPublished:mostRecentPublishedPosition) else{return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
    try? await Task.sleep(nanoseconds:3_500_000_000)
@@ -242,6 +244,7 @@ struct PlotFrame {
     if mayPublishAutomatically?()==true && isSubtitleCurrentlyShown?()==false,
      let now=frame?(),now.key==snapshot.key,now.position>=snapshot.position,
      now.position-snapshot.position<=45 {
+     mostRecentPublishedPosition=now.position
      autoSuggestion=safe
      publishAutomatically?(safe)
     }
