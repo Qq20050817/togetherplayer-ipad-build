@@ -270,7 +270,7 @@ class MainActivity: Activity() {
  private fun send(obj: JSONObject){if(connected)ws?.send(obj.toString())}
  private fun pingBurst(){repeat(5){i->val g=generation;main.postDelayed({if(g==generation)send(JSONObject().put("type","PING").put("t1",clock.localNow()))},i*200L)}}
  private fun receive(obj: JSONObject,t4: Double) {
-  if(obj.has("poll"))plotPoll=obj.optJSONObject("poll")
+  if(obj.has("poll") && obj.optString("type")!="PLOT_POLL_STATE")plotPoll=obj.optJSONObject("poll")
   val type=obj.optString("type");if(type=="PONG"){clock.add(obj.getDouble("t1"),obj.getDouble("t2"),obj.getDouble("t3"),t4);return}
   if(type=="WELCOME"){sequence=obj.optLong("lastSequence");connected=true;attempt=0;pingBurst()}
   obj.optJSONObject("room")?.let {r->
@@ -300,7 +300,15 @@ class MainActivity: Activity() {
     val incoming=plotPoll?.optString("id") ?: ""
     if(incoming.isNotBlank() && incoming!=previous) {
      val prompt=plotPoll?.optString("question")?.take(36)?.trim().orEmpty()
-     Toast.makeText(this,if(prompt.isEmpty())"🎭 收到新的剧情推理题" else "🎭 $prompt",Toast.LENGTH_LONG).show()
+     Toast.makeText(this,if(prompt.isEmpty())"🎭 剧情推理：请双方回答" else "🎭 $prompt",Toast.LENGTH_LONG).show()
+     val submitted=plotPoll?.optJSONArray("submitted") ?: org.json.JSONArray()
+     val myID=credentials?.optString("userId") ?: ""
+     val alreadyVoted=(0 until submitted.length()).any{submitted.optString(it)==myID}
+     if(foreground && !alreadyVoted && plotPoll?.optBoolean("waitingForAnswers")==true){
+      // The server locks playback. Open the question without tapping tools.
+      // Briefly yield so the PAUSE/STATE packet can update the player.
+      main.postDelayed({if(connected && plotPoll?.optString("id")==incoming && plotPoll?.optBoolean("waitingForAnswers")==true)showPlotPoll()},250)
+     }
     }
     if(plotPoll!=null)requestStatus.text=if(plotPoll?.optBoolean("waitingForAnswers")==true)
      "请先回答剧情问题，再继续播放" else "收到剧情推理题 · 点观影工具查看"
@@ -377,6 +385,7 @@ class MainActivity: Activity() {
  private var speedHoldID:String?=null
  private val speedHoldHeartbeat=object:Runnable {override fun run(){val id=speedHoldID ?: return;if(!connected){setSpeedHold(false);return};send(JSONObject().put("type","SPEED_HOLD").put("data",JSONObject().put("active",true).put("holdId",id)));main.postDelayed(this,500)}}
  private fun setSpeedHold(active:Boolean){
+  if(active && plotPoll?.optBoolean("waitingForAnswers")==true)return
   if(active){if(speedHoldID!=null || !connected || engine.room?.optString("state")!="playing")return;speedHoldID=java.util.UUID.randomUUID().toString();speedHoldHeartbeat.run()}
   else {main.removeCallbacks(speedHoldHeartbeat);val id=speedHoldID ?: return;speedHoldID=null;send(JSONObject().put("type","SPEED_HOLD").put("data",JSONObject().put("active",false).put("holdId",id)))}
  }
