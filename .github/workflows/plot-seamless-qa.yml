@@ -1,12 +1,12 @@
-name: Verify smart model routing and iPad package
+name: Verify story-turn prompts and iPad package
 on:
   push:
-    branches: [fix/plot-smart-model-routing-20261013]
+    branches: [feat/plot-story-turn-awareness-20261013]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: smart-plot-${{ github.ref }}
+  group: story-turn-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   ipad:
@@ -40,12 +40,12 @@ jobs:
       - name: Package verified unsigned IPA
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.3-SmartRouting-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-delivery/TogetherPlayer-0.6.3-SeamlessPlot-unsigned.ipa > plot-delivery/SHA256SUMS.txt
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.3-StoryTurn-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-delivery/TogetherPlayer-0.6.3-StoryTurn-unsigned.ipa > plot-delivery/SHA256SUMS.txt
           printf "Source branch: %s\nSource SHA: %s\nCI: iPad build and regression tests succeeded\n" "$GITHUB_REF_NAME" "$GITHUB_SHA" > plot-delivery/BUILD.txt
           printf "Requires in-person Apple AI and official ChatGPT OAuth validation before release. No server deployed.\n" >> plot-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.3-SmartRouting-candidate
+          name: TogetherPlayer-iPad-v0.6.3-StoryTurn-candidate
           path: plot-delivery/
           retention-days: 7
