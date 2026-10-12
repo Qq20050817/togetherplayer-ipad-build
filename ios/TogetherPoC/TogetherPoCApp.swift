@@ -73,6 +73,9 @@ import UniformTypeIdentifiers
     guard id != nil,!fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
     plotPollOpen=true
    }
+   .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
+    if revealed==true && model.plotPoll?["blocking"] as? Bool == true {plotPollOpen=false}
+   }
  }
  private var header: some View {
   ViewThatFits(in:.horizontal) {
@@ -497,6 +500,11 @@ struct FullscreenToolStyle:ButtonStyle {
     }
    }
    .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
+   .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
+    if revealed==true && model.plotPoll?["blocking"] as? Bool == true {
+     plotPollOpen=false;plotHintVisible=false
+    }
+   }
   }
  }
  private var tools:some View {
