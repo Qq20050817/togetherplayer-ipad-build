@@ -170,10 +170,14 @@ import UniformTypeIdentifiers
    let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:player.currentItem?.presentationSize ?? .zero)
    ZStack(alignment:.bottom) {
     Color.black
+    StableVideo(player:player).equatable().allowsHitTesting(false)
+    // The gesture target is confined to the inner picture. This keeps the
+    // top-corner fullscreen/chat buttons and player controls outside its
+    // hit-test region, while leaving long-press available over the film.
     if let model {
-     StableVideo(player:player).equatable().modifier(HoldToFastForward(model:model))
-    } else {
-     StableVideo(player:player).equatable().allowsHitTesting(false)
+     HoldPressTarget(model:model)
+      .frame(width:max(1,geometry.size.width-160),height:max(1,geometry.size.height-140))
+      .frame(maxWidth:.infinity,maxHeight:.infinity)
     }
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
@@ -184,7 +188,7 @@ import UniformTypeIdentifiers
 }
 // Attach the hold gesture to VideoPlayer itself, rather than inserting an
 // independent UIView layer that steals fullscreen toolbar/button taps.
-@MainActor private struct HoldToFastForward: ViewModifier {
+@MainActor private struct HoldPressTarget: View {
  @ObservedObject var model: TestClient
  @GestureState private var pressing=false
  @State private var active=false
@@ -195,8 +199,9 @@ import UniformTypeIdentifiers
     if case .second(true,_) = value {state=true}
    }
  }
- func body(content:Content) -> some View {
-  content.simultaneousGesture(holdGesture)
+ var body:some View {
+  Color.clear.contentShape(Rectangle())
+   .simultaneousGesture(holdGesture)
    .overlay(alignment:.top) {
     if active {
      Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
