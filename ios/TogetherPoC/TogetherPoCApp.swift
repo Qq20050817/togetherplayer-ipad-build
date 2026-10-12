@@ -512,7 +512,13 @@ struct FullscreenToolStyle:ButtonStyle {
        if model.isMyMessage(message) {Spacer(minLength:24)}
        if !model.isMyMessage(message) {Image(systemName:"person.crop.circle.fill").font(.title2).foregroundColor(.blue)}
        VStack(alignment:model.isMyMessage(message) ? .trailing : .leading,spacing:4) {
-        Text(message.name).font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing:6) {
+         Text(model.isMyMessage(message) ? "我" : message.name)
+         let time=ChatTimestamp.label(milliseconds:message.timestamp)
+         if !time.isEmpty {
+          Text(time).monospacedDigit().accessibilityIdentifier("chat-message-time-\(message.id)")
+         }
+        }.font(.caption2).foregroundStyle(.secondary)
         Text(message.text).font(.callout).padding(10).background(model.isMyMessage(message) ? Color.blue : Color.white.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius:12)).textSelection(.enabled)
        }
        if !model.isMyMessage(message) {Spacer(minLength:24)}
