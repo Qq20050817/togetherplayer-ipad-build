@@ -377,7 +377,7 @@ struct FullscreenToolStyle:ButtonStyle {
    if controls.visible && !composing {VStack {
     HStack {Text(model.roomTitle).lineLimit(1);Spacer();FullscreenDeviceStatus();Button("退出全屏") {dismiss()}}.padding(12).background(Color.black.opacity(0.65))
     Spacer()
-   }.simultaneousGesture(TapGesture().onEnded {scheduleHide()})}
+   }}
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
    if controls.visible && !composing {
     VStack(spacing:4) {
