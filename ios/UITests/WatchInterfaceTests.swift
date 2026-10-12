@@ -1,6 +1,29 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testPlotAIEntrancesRemainVisibleInWatchAndFullscreen() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
+  app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let headerAI=app.buttons["watch-header-plot-ai-button"].firstMatch
+  XCTAssertTrue(headerAI.waitForExistence(timeout:15),"普通观影页应有常驻 AI 入口")
+  XCTAssertTrue(headerAI.isHittable,"AI 入口不能藏在可横向滚动的工具栏内")
+  headerAI.tap()
+  XCTAssertTrue(app.navigationBars["🎭 剧情推理室"].firstMatch.waitForExistence(timeout:5))
+  app.buttons["完成"].firstMatch.tap()
+  let cardAI=app.buttons["watch-plot-ai-button"].firstMatch
+  XCTAssertTrue(cardAI.exists,"播放器控制区应展示 AI 剧情推理")
+  enterFullscreen(app)
+  let fullscreenAI=app.buttons["fullscreen-plot-ai-button"].firstMatch
+  XCTAssertTrue(fullscreenAI.waitForExistence(timeout:5),"全屏控制条顶部应固定显示 AI 入口")
+  XCTAssertTrue(fullscreenAI.isHittable)
+  fullscreenAI.tap()
+  XCTAssertTrue(app.navigationBars["🎭 剧情推理室"].firstMatch.waitForExistence(timeout:5))
+  app.buttons["完成"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5),"关闭 AI 面板不应退出全屏")
+ }
  func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
