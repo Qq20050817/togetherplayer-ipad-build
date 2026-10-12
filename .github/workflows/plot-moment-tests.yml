@@ -1,0 +1,28 @@
+name: Verify subtitle-triggered plot moments on iPad
+on:
+  push:
+    branches: [feat/plot-event-driven-prompt-20261013]
+    paths: ['ios/**', '.github/workflows/plot-moment-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  plot-moments:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Prepare dependencies
+        run: |
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath plot-unit-derived
+          python3 tools/patch_prism_swift61.py plot-unit-derived/SourcePackages/checkouts/PrismCore
+      - name: Test actual plot-moment trigger policy on native iPad simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/plot-ipad-devices.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/plot-ipad-devices.json"))["devices"]; print(next(v["udid"] for devices in d.values() for v in devices if "iPad" in v["name"]))')
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC             -only-testing:TogetherPoCCoreTests/PlotMomentGateTests             -destination "platform=iOS Simulator,id=$DEVICE_ID"             -derivedDataPath plot-unit-derived CODE_SIGNING_ALLOWED=NO test
