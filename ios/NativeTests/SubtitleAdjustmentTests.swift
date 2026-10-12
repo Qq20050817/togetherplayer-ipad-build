@@ -3,6 +3,18 @@ import AVFoundation
 @testable import TogetherPoC
 
 final class SubtitleAdjustmentTests:XCTestCase {
+ func testPlotExcerptIncludesCompletedNativeCuesAndRejectsFutureAndOpenCue() {
+  var timeline=NativeSubtitleTimeline()
+  timeline.receive(text:"已播台词",time:5);timeline.receive(text:"",time:7)
+  timeline.receive(text:"未来台词",time:10);timeline.receive(text:"",time:12)
+  timeline.receive(text:"尚未结束",time:14)
+  XCTAssertEqual(timeline.completedText(before:6),[])
+  XCTAssertEqual(timeline.completedText(before:8),["已播台词"])
+  XCTAssertEqual(timeline.completedText(before:99),["已播台词","未来台词"])
+  XCTAssertEqual(timeline.completedText(before:99,limit:1),["未来台词"])
+  XCTAssertEqual(timeline.completedText(before:.nan),[])
+ }
+
  func testBackwardSeekRetainsPreviouslyDeliveredCuesAfterLongPlayback() {
   var timeline=NativeSubtitleTimeline()
   timeline.receive(text:"开场字幕",time:5);timeline.receive(text:"",time:7)

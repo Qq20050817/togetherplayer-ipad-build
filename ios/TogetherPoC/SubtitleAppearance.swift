@@ -31,6 +31,12 @@ struct NativeSubtitleTimeline {
   if let index=events.firstIndex(where:{abs($0.time-time)<0.001}) {events[index]=Event(time:time,text:text)}
   else {events.append(Event(time:time,text:text));events.sort {$0.time<$1.time}}
  }
+ // Only completed text intervals can enter plot prompts; ahead-of-playback
+ // legible callbacks and an open-ended final cue must never leak future text.
+ func completedText(before cutoff:Double,limit:Int=22)->[String] {
+  guard cutoff.isFinite,cutoff>=0,events.count>1 else {return []}
+  return Array(zip(events,events.dropFirst()).filter{!$0.0.text.isEmpty && $0.1.time<=cutoff}.map{$0.0.text}.suffix(max(0,limit)))
+ }
  mutating func text(at time:Double)->String {
   guard time.isFinite,time>=0 else {return ""}
   // Keep this item's history: AVFoundation may not replay already delivered

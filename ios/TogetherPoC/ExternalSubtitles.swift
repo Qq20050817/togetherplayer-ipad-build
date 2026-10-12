@@ -30,7 +30,9 @@ import AVFoundation
  func observedPlotExcerpt() -> String {
   let cutoff=player.currentTime().seconds-delay
   guard cutoff.isFinite && cutoff>=0 else {return ""}
-  let past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff}.suffix(22).map{$0.text} ?? []
+  let past:[String]
+  if enabled {past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff}.suffix(22).map{$0.text} ?? []}
+  else {past=nativeEnabled ? nativeTimeline.completedText(before:cutoff) : []}
   return past.joined(separator:"\n")
  }
 
