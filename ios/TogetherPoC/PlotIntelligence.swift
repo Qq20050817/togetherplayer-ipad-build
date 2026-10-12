@@ -59,7 +59,7 @@ struct PlotFrame {
  }
  var previewUsable:Bool {guard let current=frame?() else {return false};return current.key==lastKey && current.position>=previewCutoff}
  func generate(manualDeep:Bool=false,regenerate:Bool=false) {
-  guard !working,let snapshot=frame?() else {reason="请先加载影片并连接房间";return}
+  guard !working,let snapshot=frame?() else {reason="请先加载影片；本机出题无需房间在线";return}
   cancel();lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
   working=true;result=nil;reason="正在分析已观看的剧情…"
   operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate)}
@@ -75,52 +75,100 @@ struct PlotFrame {
    requests=state.budget.total;automaticRequests=state.budget.automatic
    let context=state.context(at:snapshot.position)
    let history=state.questions.filter{$0.cutoff<=snapshot.position}.map{$0.question.text}
-   if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position) {
-    complete(cached,reason:"复用这个已观看片段的问题，不消耗额度",frame:snapshot,token:token);return
+   // Explicit model choices MUST NOT silently reuse a free-template cache.
+   // This also permits users to switch from a cached fallback to real AI.
+   let explicitlyCloud=manualDeep || mode == .chatgpt
+   let explicitlyLocal=mode == .local && !manualDeep
+   func matchesSelection(_ item:PlotQuestion)->Bool {
+    if explicitlyCloud {return item.source=="ChatGPT"}
+    if explicitlyLocal {return item.source=="Apple 设备端 AI"}
+    return true
+   }
+   if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
+    complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
    let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
    var local:PlotQuestion?
-   if mode == .smart || mode == .local {local=await PlotLocalAI.question(context)}
+   if mode == .smart || mode == .local {
+    // Even without subtitles, use the REAL on-device model for an honest
+    // context-free question; never claim it analyzed unobserved movie content.
+    local=context.sufficient ? await PlotLocalAI.question(context) : await PlotLocalAI.genericQuestion(at:snapshot.position)
+   }
    guard valid(snapshot,token:token) else {cancel();return}
-   let localGood=local.map{PlotQuality.check($0,context:context,history:history)} ?? false
+   let localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:!context.sufficient && $0.evidenceIDs.isEmpty)} ?? false
    var chosen=localGood ? local : nil
-   var explanation=localGood ? "本地问题有具体证据，无需调用 ChatGPT" : "本地上下文或出题质量不足，使用备用题库"
+   var explanation=localGood ? (context.sufficient ? "苹果本地 AI 已根据已观看的字幕出题" : "苹果本地 AI 已生成通用讨论题；没有冒充理解未提供的剧情") :
+     (PlotLocalAI.available ? "本地 AI 的回答未通过格式、线索或重复检查" : "苹果系统设备端语言模型暂不可用")
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
-   let requested=manualDeep || mode == .chatgpt || (mode == .smart && policy.wantsCloud(score,localQuality:localGood))
+   let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood))
    if requested {
-    if let cached=state.reusable(at:snapshot.position) {
-     complete(cached,reason:"同片段已有可复用问题，未再次请求 ChatGPT",frame:snapshot,token:token);return
+    if let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
+     complete(cached,reason:"复用该片段已完成的 ChatGPT 问题，没有再次消耗额度",frame:snapshot,token:token);return
     }
-    let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working && context.sufficient && (manualDeep || automaticAllowed)
-    if allowed,try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:manualDeep,limit:limit,interval:180) {
-     let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
-     do {
-      guard valid(snapshot,token:token) else {cancel();return}
-      let text=try await auth.performInference(instructions:PlotLocalAI.questionInstructions,input:context.boundedInput,canSend:{self.valid(snapshot,token:token)})
-      guard valid(snapshot,token:token) else {return}
-      if var cloud=PlotPromptMaker.parse(text),PlotQuality.check(cloud,context:context,history:history) {
-       cloud=PlotQuestion(text:cloud.text,choices:cloud.choices,source:"ChatGPT",evidenceIDs:cloud.evidenceIDs,kind:cloud.kind)
-       chosen=cloud;explanation=manualDeep ? "你手动请求了深度推理" : "本地题目不足，依据已观看的跨场景线索升级"
-      } else {try await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180));explanation="云端题目未通过证据或重复检查，安全回退"}
-     } catch {try? await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180));explanation="ChatGPT 不可用，已停止该片段自动重试并回退"}
-    } else {explanation="云端授权验证、同意、额度或调用间隔条件未满足，继续本地方案"}
+    // Explicit model choice is itself a manual request. The automatic-call
+    // toggle must only control automatic smart routing, not manual selection.
+    // With no subtitles, never send invented film details; ask a general
+    // question using the actual ChatGPT model.
+    let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working &&
+       (context.sufficient || explicitlyCloud) && (explicitlyCloud || automaticAllowed)
+    if allowed {
+     if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:explicitlyCloud,limit:limit,interval:180) {
+      let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
+      do {
+       guard valid(snapshot,token:token) else {cancel();return}
+       let instruction=context.sufficient ? PlotLocalAI.questionInstructions : PlotLocalAI.noEvidenceInstructions
+       let input=context.sufficient ? context.boundedInput : "当前影片播放到约\(Int(snapshot.position/60))分钟，暂无足够的已观看字幕；请生成一道不依赖任何虚构细节的通用讨论问题。"
+       let text=try await auth.performInference(instructions:instruction,input:input,canSend:{self.valid(snapshot,token:token)})
+       guard valid(snapshot,token:token) else {return}
+       if let cloud=PlotPromptMaker.parse(text),PlotQuality.check(cloud,context:context,history:history,allowGeneric:!context.sufficient && cloud.evidenceIDs.isEmpty) {
+        chosen=PlotQuestion(text:cloud.text,choices:cloud.choices,source:"ChatGPT",evidenceIDs:cloud.evidenceIDs,kind:cloud.kind)
+        explanation=context.sufficient ? "ChatGPT 已根据已观看的字幕生成问题" : "ChatGPT 已生成通用讨论题，未读取或编造影片剧情"
+       } else {
+        try? await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180))
+        explanation="ChatGPT 已返回内容，但问题格式、线索引用或重复检查未通过；没有冒充成功"
+       }
+      } catch {
+       try? await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180))
+       explanation="ChatGPT 请求失败：\(error.localizedDescription)。不会自动重试或切换到付费 API"
+      }
+     } else {
+      explanation="该片段已请求过或仍在3分钟冷却期，为防止重复消耗额度暂不再次调用 ChatGPT"
+     }
+    } else if !consent {
+     explanation="尚未同意向 ChatGPT 发送必要剧情摘要，请到授权与隐私设置开启"
+    } else if !creditsDisabled {
+     explanation="尚未确认已在官方设置禁用额外 Credits，请先完成额度保护设置"
+    } else if !auth.integrationReady {
+     explanation="ChatGPT 尚未完成首次授权，或本机授权已失效；不需要连续调用验收"
+    } else if auth.usagePaused {
+     explanation="ChatGPT 额度暂停；请检查官方用量设置"
+    } else if !context.sufficient && !explicitlyCloud {
+     explanation="没有足够的已观看字幕，智能模式不自动消耗 ChatGPT 额度"
+    } else {
+     explanation="当前云端调用暂不可用，请稍后再试"
+    }
    }
    guard valid(snapshot,token:token) else {cancel();return}
-   let question=chosen ?? PlotFallback.question(context:context,history:history)
-   guard PlotQuality.check(question,context:context,history:history,allowGeneric:chosen==nil) else {
-    cancel();reason="暂时没有通过检查的新问题，可以继续观看后再生成";return
+   // A user's explicit model selection is NOT the 'free template' mode.
+   // Display the real failure instead of silently substituting a template.
+   if (explicitlyCloud || explicitlyLocal) && chosen == nil {
+    selectedModel=explicitlyCloud ? "ChatGPT 未出题" : "苹果本地 AI 未出题"
+    reason=explanation;working=false;deadline?.cancel();deadline=nil;return
    }
-   // Summaries are optional and generated only during a manual request. No
-   // perpetual inference or background cloud requests while watching.
-   let clues=(mode == .smart || mode == .local) && PlotLocalAI.available ? await PlotLocalAI.summarize(context) : []
+   let question=chosen ?? PlotFallback.question(context:context,history:history)
+   guard PlotQuality.check(question,context:context,history:history,allowGeneric:chosen==nil || !context.sufficient && question.evidenceIDs.isEmpty) else {
+    cancel();reason="生成的问题没有通过安全或重复检查，请稍后重试";return
+   }
+   let clues=(mode == .smart || mode == .local) && PlotLocalAI.available && context.sufficient ? await PlotLocalAI.summarize(context) : []
    guard valid(snapshot,token:token) else {cancel();return}
    try await memory.finish(key:snapshot.key,question:question,cutoff:snapshot.position,clues:clues,context:context)
    let why=score.confidence>=policy.minimumConfidence ? String(score.reasons.prefix(2).joined(separator:"；").prefix(100))+"。" : ""
-   complete(question,reason:why+explanation,frame:snapshot,token:token)
+   complete(question,reason:why+(chosen==nil ? "没有足够的可靠 AI 结果，因此明确使用免费备用题库。" : "")+explanation,frame:snapshot,token:token)
   } catch {
-   guard generation==token else {return};cancel();reason="本地记忆保存失败，未调用付费接口；可稍后重试"
+   guard generation==token else {return}
+   cancel();reason="本地剧情记忆保存失败；没有消耗新的云端请求，请稍后再试"
   }
  }
  private func valid(_ snapshot:PlotFrame,token:Int)->Bool {
