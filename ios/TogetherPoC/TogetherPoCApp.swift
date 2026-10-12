@@ -382,6 +382,7 @@ struct FullscreenToolStyle:ButtonStyle {
      .padding(12)
      .background(Color.black.opacity(0.65))
      .frame(maxWidth:.infinity,alignment:.top)
+     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
    }
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
    if controls.visible && !composing {
@@ -393,6 +394,7 @@ struct FullscreenToolStyle:ButtonStyle {
      layout {tools.frame(width:min(708,geometry.size.width-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
+     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
    }
    if composing {
     // Keep the movie in its own region above the composer and keyboard.
@@ -404,7 +406,8 @@ struct FullscreenToolStyle:ButtonStyle {
     }.padding(12).background(Color(white:0.08))
    }
   }.background(Color.black).preferredColorScheme(.dark)
-   .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
+   // Do not install an outer tap recognizer over the UIKit movie touch surface.
+   // It can cancel touch-ended delivery, leaving controls hidden after a tap.
    .onAppear {scheduleHide()}.onDisappear {model.setSpeedHold(false);controls.cancel()}
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
