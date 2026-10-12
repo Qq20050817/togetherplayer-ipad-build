@@ -1,203 +1,24 @@
-name: Build iPad unsigned IPA
-
+name: Publish iPad plot polls and chat timestamps
 on:
   workflow_dispatch:
-    inputs:
-      track_controls_only:
-        description: Verify track metadata and real movie subtitle and seek controls
-        type: boolean
-        default: false
-      subtitle_controls_only:
-        description: Verify core tests and the room, picker, fullscreen/subtitle/voice regressions
-        type: boolean
-        default: false
-  push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013]
-    paths:
-      - 'ios/**'
-      - 'tools/package_unsigned_ipa.py'
-      - 'tools/patch_prism_swift61.py'
-      - '.github/workflows/apple-build.yml'
-
-concurrency:
-  group: apple-build-${{ github.ref }}-${{ inputs.track_controls_only || false }}
-  cancel-in-progress: true
-
 permissions:
-  contents: read
-
+  contents: write
+  actions: read
 jobs:
-  apple-build:
-    runs-on: macos-26
-    timeout-minutes: 45
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Record Apple toolchain
-        run: |
-          mkdir -p apple-build-logs
-          xcodebuild -version | tee apple-build-logs/toolchain.txt
-          swift --version | tee -a apple-build-logs/toolchain.txt
-      - name: Generate Xcode project
-        run: |
-          brew install xcodegen
-          xcodegen generate --spec ios/project.yml
-      - name: Verify external subtitle parser
-        run: |
-          xcrun swiftc ios/TogetherPoC/SubtitleParser.swift ios/tests/SubtitleParserRegression.swift -o /tmp/together-subtitle-check
-          /tmp/together-subtitle-check
-          xcrun swiftc ios/TogetherPoC/DanmakuQueue.swift ios/tests/DanmakuRegression.swift -o /tmp/together-danmaku-check
-          /tmp/together-danmaku-check
-          xcrun swiftc ios/TogetherPoC/DanmakuQueue.swift ios/TogetherPoC/ChatEngine.swift ios/tests/ChatRefreshRegression.swift -o /tmp/together-chat-refresh-check
-          /tmp/together-chat-refresh-check
-          xcrun swiftc ios/TogetherPoC/BaiduMediaReference.swift ios/tests/BaiduReferenceRegression.swift -o /tmp/together-baidu-reference-check
-          /tmp/together-baidu-reference-check
-          xcrun swiftc ios/TogetherPoC/SyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/together-sync-check
-          /tmp/together-sync-check
-          xcrun swiftc ios/TogetherPoC/DanmakuMotion.swift ios/tests/DanmakuMotionRegression.swift -o /tmp/together-danmaku-motion-check
-          /tmp/together-danmaku-motion-check
-      - name: Build for physical iPad architecture without signing
-        id: physical_build
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 tools/resolve_apple_packages.py \
-            -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
-            -derivedDataPath apple-build-derived 2>&1 | tee apple-build-logs/resolve.log
-          python3 tools/patch_prism_swift61.py apple-build-derived/SourcePackages/checkouts/PrismCore
-          xcodebuild \
-            -project ios/TogetherPoC.xcodeproj \
-            -scheme TogetherPoC \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath apple-build-derived \
-            -resultBundlePath apple-build-logs/Build.xcresult \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee apple-build-logs/build.log
-      - name: Verify iPad interface on native simulator
+      - name: Require native checks and download validated client
         env:
-          TRACK_CONTROLS_ONLY: ${{ inputs.track_controls_only || false }}
-          SUBTITLE_CONTROLS_ONLY: ${{ inputs.subtitle_controls_only || false }}
-        shell: bash
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          xcrun simctl list devices available -j > /tmp/together-simulators.json
-          DEVICE_ID=$(python3 -c 'import json; devices=json.load(open("/tmp/together-simulators.json"))["devices"]; print(next(d["udid"] for values in devices.values() for d in values if "iPad" in d["name"]))')
-          TEST_SELECTION=(-only-testing:TogetherPoCCoreTests -only-testing:TogetherPoCUITests)
-          if [ "$SUBTITLE_CONTROLS_ONLY" = "true" ]; then
-            TEST_SELECTION=(
-              -only-testing:TogetherPoCCoreTests
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testTappingUppercaseMP4ReturnsFromFilesAndLoadsLocalSource
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleAdjustmentPanelChangesValuesAndResets
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleImportReturnsFromFiles
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenSubtitleImportReturnsAndKeepsControlsVisible
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
-            )
-          fi
-          if [ "$TRACK_CONTROLS_ONLY" = "true" ]; then
-            TEST_SELECTION=(
-              -only-testing:TogetherPoCCoreTests/TrackLabelTests
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleAdjustmentPanelChangesValuesAndResets
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
-            )
-          fi
-          # Isolated brightness hotfix validates its gesture regression separately
-          # from the known intermittent room-media layout test in the full suite.
-          if [ "${GITHUB_REF_NAME}" = "fix/fullscreen-brightness-swipe-20261012" ]; then
-            TEST_SELECTION=(
-              -only-testing:TogetherPoCCoreTests
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
-            )
-          fi
-          # Release candidate: verify brightness, hold, exit/re-enter stability
-          # and surrounding fullscreen/media controls alongside the core suite.
-          if [ "${GITHUB_REF_NAME}" = "release/v0.6.1-fullscreen-exit-20261013" ]; then
-            TEST_SELECTION=(
-              -only-testing:TogetherPoCCoreTests
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
-            )
-          fi
-          # Validate physical-brightness readback, exit survival and fullscreen
-          # interaction on the isolated iPad brightness hotfix.
-          if [ "${GITHUB_REF_NAME}" = "fix/ipad-real-brightness-20261013" ]; then
-            TEST_SELECTION=(
-              -only-testing:TogetherPoCCoreTests
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
-            )
-          fi
-          if [ "${GITHUB_REF_NAME}" = "feat/plot-polls-local-ai-20261013" ]; then
-            TEST_SELECTION=(
-              -only-testing:TogetherPoCCoreTests
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash
-              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
-            )
-          fi
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC "${TEST_SELECTION[@]}" \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            -derivedDataPath apple-build-derived \
-            -resultBundlePath apple-build-logs/Interface.xcresult \
-            CODE_SIGNING_ALLOWED=NO test 2>&1 | tee apple-build-logs/interface.log
-      - name: Export native interface screenshots
-        if: always()
-        run: |
-          if [ -d apple-build-logs/Interface.xcresult ]; then
-            xcrun xcresulttool export attachments --path apple-build-logs/Interface.xcresult --output-path apple-build-logs/screenshots
-          fi
-      - name: Preserve interface screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: iPad-native-interface-screenshots
-          path: apple-build-logs/screenshots/
-          retention-days: 7
-          if-no-files-found: warn
-      - name: Package unsigned IPA for on-device signing
-        if: always() && steps.physical_build.outcome == 'success'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/package_unsigned_ipa.py \
-            apple-build-derived/Build/Products/Release-iphoneos/TogetherPoC.app \
-            apple-delivery/TogetherPlayer-unsigned.ipa \
-            --notices ios/TogetherPoC.swiftpm/Licenses
-          mkdir -p apple-delivery/source
-          cp -R ios apple-delivery/source/ios
-          cp tools/package_unsigned_ipa.py apple-delivery/source/
-          cp tools/patch_prism_swift61.py apple-delivery/source/
-          mkdir -p apple-delivery/source/PrismCore
-          cp -R apple-build-derived/SourcePackages/checkouts/PrismCore/Sources apple-delivery/source/PrismCore/
-          cp apple-build-derived/SourcePackages/checkouts/PrismCore/Package.swift apple-delivery/source/PrismCore/
-          cp apple-build-derived/SourcePackages/checkouts/PrismCore/LICENSE apple-delivery/source/PrismCore/
-          cp docs/APPLE_CLOUD_BUILD.md apple-delivery/
-          cp .github/workflows/apple-build.yml apple-delivery/source/
-          shasum -a 256 apple-delivery/TogetherPlayer-unsigned.ipa > apple-delivery/SHA256SUMS.txt
-      - name: Upload IPA and relink source
-        if: always() && steps.physical_build.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: TogetherPlayer-unsigned-iPad
-          path: apple-delivery/
-          retention-days: 7
-          if-no-files-found: error
-      - name: Preserve compiler diagnostics even on failure
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: apple-compiler-diagnostics
-          path: apple-build-logs/
-          retention-days: 7
-          if-no-files-found: warn
+          test "$(gh run view 38305465767 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
+          gh run download 38305465767 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-unsigned-iPad --dir apple-delivery
+          cp apple-delivery/TogetherPlayer-unsigned.ipa TogetherPlayer-iPad-0.6.2-unsigned.ipa
+          cd apple-delivery/source
+          zip -qr ../../TogetherPlayer-iPad-0.6.2-source.zip .
+          cd ../..
+          sha256sum TogetherPlayer-iPad-0.6.2-unsigned.ipa TogetherPlayer-iPad-0.6.2-source.zip > SHA256SUMS.txt
+          gh release create v0.6.2-ipad TogetherPlayer-iPad-0.6.2-unsigned.ipa TogetherPlayer-iPad-0.6.2-source.zip SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target 82e3a8fd86531579b44354bc063bc83dce9bf4dd --title 'TogetherPlayer iPad 0.6.2 · Plot polls and chat timestamps' --notes 'Plot questions use optional local Apple Foundation Models or free templates. Answers remain concealed until both current members submit. Chat retains original server timestamps. Both clients require 0.6.2 and the sync server has been updated. Completed embedded or external text captions only; physical Apple Intelligence has not been tested. Native regressions and live two-peer protocol checks passed. Unsigned IPA: sign with your existing certificate before installing. User original movie and physical iPad have not been tested directly.' --prerelease
