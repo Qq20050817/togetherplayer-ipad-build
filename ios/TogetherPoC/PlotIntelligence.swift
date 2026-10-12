@@ -67,7 +67,7 @@ struct PlotFrame {
   // arbitrary movie timestamp. The debounce is a quiet-window safety check,
   // not a repeating timer that manufactures questions.
   guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,autoSuggestion == nil,mayPublishAutomatically?()==true,
-   let snapshot=frame?(),PlotMomentGate.likelyQuestionMoment(snapshot.evidence,position:snapshot.position) else{return}
+   let snapshot=frame?(),PlotMomentGate.likelyQuestionMoment(snapshot.evidence,position:snapshot.position,minQuietSeconds:0) else{return}
   guard snapshot.key != mostRecentAutoKey || snapshot.position-mostRecentAutoPosition>180 else{return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
