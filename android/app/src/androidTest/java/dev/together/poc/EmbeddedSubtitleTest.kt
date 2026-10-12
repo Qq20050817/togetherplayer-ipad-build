@@ -81,7 +81,8 @@ class EmbeddedSubtitleTest {
    val closed=brightPixels()
    scenario.onActivity {a->val p=player(a);p.selectCompatibleTrack(C.TRACK_TYPE_TEXT,p.compatibleTracks(C.TRACK_TYPE_TEXT).first().id);p.seekTo(3000);p.play()}
    SystemClock.sleep(1200)
-   val shown=brightPixels()
+   var shown=brightPixels();val initialDeadline=SystemClock.elapsedRealtime()+4000
+   while(shown<=closed+100 && SystemClock.elapsedRealtime()<initialDeadline){SystemClock.sleep(100);shown=brightPixels()}
    java.io.File("/sdcard/Pictures/TogetherUITests").mkdirs();device.takeScreenshot(java.io.File("/sdcard/Pictures/TogetherUITests/$asset.png"))
    assertTrue("Selected embedded subtitle has no visible pixels: off=$closed on=$shown rect=$area",shown>closed+100)
    scenario.onActivity {a->
@@ -110,7 +111,8 @@ class EmbeddedSubtitleTest {
    SystemClock.sleep(700)
    scenario.onActivity {a->val box=a.javaClass.getDeclaredField("videoBox").apply{isAccessible=true}.get(a) as android.view.View;box.getGlobalVisibleRect(area);player(a).seekTo(11000)}
    SystemClock.sleep(1400)
-   val returned=brightPixels()
+   var returned=brightPixels();val returnedDeadline=SystemClock.elapsedRealtime()+4000
+   while(returned<=100 && SystemClock.elapsedRealtime()<returnedDeadline){SystemClock.sleep(100);returned=brightPixels()}
    device.takeScreenshot(java.io.File("/sdcard/Pictures/TogetherUITests/$asset-returned.png"))
    assertTrue("Subtitle lost after leaving fullscreen: on=$returned rect=$area",returned>100)
    scenario.onActivity {a->assertTrue(player(a).selectedCompatibleTrack(C.TRACK_TYPE_TEXT)>=0);player(a).pause()}
