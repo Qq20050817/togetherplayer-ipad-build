@@ -132,7 +132,7 @@ final class PlotMemoryTests:XCTestCase {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
   let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
   XCTAssertFalse(controller.automaticAllowed);XCTAssertFalse(controller.consent);XCTAssertFalse(controller.creditsDisabled)
-  XCTAssertEqual(controller.limit,10);controller.limit=30;XCTAssertEqual(controller.limit,30)
+  XCTAssertEqual(controller.limit,5);controller.limit=30;XCTAssertEqual(controller.limit,30)
   controller.limit=100;XCTAssertEqual(controller.limit,50)
  }
  func testNoSubtitleFallbackCompletesWithoutAuthorizingCloudAndCanCancel() async throws {
