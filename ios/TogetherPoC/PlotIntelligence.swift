@@ -21,6 +21,7 @@ struct PlotFrame {
  @Published private(set) var requests=0
  @Published private(set) var automaticRequests=0
  @Published private(set) var assessment=PlotComplexity.uncertain
+ @Published private(set) var latestBeat:PlotBeatAssessment?
  @Published private(set) var previewCutoff=0.0
  @Published private(set) var autoSuggestion:PlotQuestion?
  let auth=ChatGPTAuthProbe()
@@ -55,7 +56,7 @@ struct PlotFrame {
  }
  func collect() async {
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
-  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;lastKey=snapshot.key}
+  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic}
@@ -67,8 +68,13 @@ struct PlotFrame {
   // arbitrary movie timestamp. The debounce is a quiet-window safety check,
   // not a repeating timer that manufactures questions.
   guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,mayPublishAutomatically?()==true,
-   let snapshot=frame?(),PlotMomentGate.likelyQuestionMoment(snapshot.evidence,position:snapshot.position,minQuietSeconds:0) else{return}
-  guard snapshot.key != mostRecentAutoKey || snapshot.position-mostRecentAutoPosition>180 else{return}
+   let snapshot=frame?() else{return}
+  let beat=PlotMomentGate.assess(snapshot.evidence,position:snapshot.position,minQuietSeconds:0)
+  latestBeat=beat
+  guard beat.isCandidate else{return}
+  // Only unusually valuable turning points interrupt both people. Cooldown
+  // controls interruption frequency; it is not a schedule for new questions.
+  guard snapshot.key != mostRecentAutoKey || snapshot.position-mostRecentAutoPosition>600 else{return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
    try? await Task.sleep(nanoseconds:3_500_000_000)
@@ -82,7 +88,7 @@ struct PlotFrame {
  }
  func acknowledgeAutoSuggestion() {autoSuggestion=nil}
  func playbackJumped() {
-  momentTask?.cancel();momentTask=nil;autoSuggestion=nil
+  momentTask?.cancel();momentTask=nil;autoSuggestion=nil;latestBeat=nil
   guard let current=frame?() else {cancel();result=nil;return}
   if current.key != lastKey || (working && current.position<generationCutoff) {cancel()}
   if current.key != lastKey || current.position<previewCutoff {result=nil}
@@ -122,15 +128,15 @@ struct PlotFrame {
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
-   let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
    if autoMoment && (!context.sufficient || !PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position)) {working=false;deadline?.cancel();deadline=nil;return}
+   let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
    var local:PlotQuestion?
    if mode == .smart || mode == .local {
     // Even without subtitles, use the REAL on-device model for an honest
     // context-free question; never claim it analyzed unobserved movie content.
-    local=context.sufficient ? await PlotLocalAI.question(context) : await PlotLocalAI.genericQuestion(at:snapshot.position)
+    local=context.sufficient ? await PlotLocalAI.question(context,automatic:autoMoment) : await PlotLocalAI.genericQuestion(at:snapshot.position)
    }
    guard valid(snapshot,token:token) else {cancel();return}
    var localGeneric = !context.sufficient
@@ -167,7 +173,7 @@ struct PlotFrame {
       let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
       do {
        guard valid(snapshot,token:token) else {cancel();return}
-       let instruction=context.sufficient ? PlotLocalAI.questionInstructions : PlotLocalAI.noEvidenceInstructions
+       let instruction=context.sufficient ? (autoMoment ? PlotLocalAI.importantMomentInstructions : PlotLocalAI.questionInstructions) : PlotLocalAI.noEvidenceInstructions
        let input=context.sufficient ? context.boundedInput : "当前影片播放到约\(Int(snapshot.position/60))分钟，暂无足够的已观看字幕；请生成一道不依赖任何虚构细节的通用讨论问题。"
        let text=try await auth.performInference(instructions:instruction,input:input,canSend:{self.valid(snapshot,token:token)})
        guard valid(snapshot,token:token) else {return}
@@ -217,7 +223,7 @@ struct PlotFrame {
    }
    // An automatic suggestion is NEVER a free template or an uncited question.
    // Avoid popping up an unrelated generic question mid-film.
-   if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true) {
+   if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true || !PlotMomentGate.questionIsTimely(chosen!,context:context)) {
     working=false;deadline?.cancel();deadline=nil;return
    }
    let question=chosen ?? PlotFallback.question(context:context,history:history)
@@ -233,7 +239,9 @@ struct PlotFrame {
     // Automatic story questions always pause the shared playback. The server
     // coordinates both answers, readiness, and safe resumption.
     let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:true)
-    if mayPublishAutomatically?()==true && isSubtitleCurrentlyShown?()==false {
+    if mayPublishAutomatically?()==true && isSubtitleCurrentlyShown?()==false,
+     let now=frame?(),now.key==snapshot.key,now.position>=snapshot.position,
+     now.position-snapshot.position<=45 {
      autoSuggestion=safe
      publishAutomatically?(safe)
     }
