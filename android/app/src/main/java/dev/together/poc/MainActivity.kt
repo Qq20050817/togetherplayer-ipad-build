@@ -270,6 +270,7 @@ class MainActivity: Activity() {
  private fun send(obj: JSONObject){if(connected)ws?.send(obj.toString())}
  private fun pingBurst(){repeat(5){i->val g=generation;main.postDelayed({if(g==generation)send(JSONObject().put("type","PING").put("t1",clock.localNow()))},i*200L)}}
  private fun receive(obj: JSONObject,t4: Double) {
+  if(obj.has("poll"))plotPoll=obj.optJSONObject("poll")
   val type=obj.optString("type");if(type=="PONG"){clock.add(obj.getDouble("t1"),obj.getDouble("t2"),obj.getDouble("t3"),t4);return}
   if(type=="WELCOME"){sequence=obj.optLong("lastSequence");connected=true;attempt=0;pingBurst()}
   obj.optJSONObject("room")?.let {r->

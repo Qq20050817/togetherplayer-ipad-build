@@ -8,6 +8,7 @@ import XCTest
   XCTAssertEqual(valid?.source,"Apple 设备端 AI")
   XCTAssertNil(PlotPromptMaker.parse(#"{"question":"猜","options":["单选"]}"#))
   XCTAssertNil(PlotPromptMaker.parse("系统无法识别剧情"))
+  XCTAssertNil(PlotPromptMaker.parse(#"{"question":"这个人为什么隐瞒真相？","options":["同一个答案","同一个答案"]}"#))
  }
  func testFallbackCanRunWithoutSubtitlesOrAPI() async {
   let question=await PlotPromptMaker.create(excerpt:"")

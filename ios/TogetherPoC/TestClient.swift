@@ -503,7 +503,7 @@ import CoreMedia
    if let file=pendingLocalFile {pendingLocalFile=nil;useLocalFile(file)}
   }
   if type=="PLOT_POLL_STATE" {plotPoll=obj["poll"] as? [String:Any]}
-  if type=="WELCOME" {plotPoll=obj["poll"] as? [String:Any]}
+  if obj.keys.contains("poll") {plotPoll=obj["poll"] as? [String:Any]}
   if type=="CHAT_MESSAGE",let message=obj["message"] as? [String:Any] {acceptChat(message,live:true)}
   if type=="REACTION",let emoji=obj["emoji"] as? String {chat.reaction(emoji,now:clock.localNow())}
   if type=="CHAT_TYPING",obj["userId"] as? String != credentials?["userId"] as? String {chat.typing(obj["name"] as? String ?? "好友",now:clock.localNow())}

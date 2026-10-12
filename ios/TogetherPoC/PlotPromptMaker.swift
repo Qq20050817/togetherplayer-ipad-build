@@ -35,7 +35,8 @@ struct PlotQuestion {
     let question=obj["question"] as? String,
     let raw=obj["options"] as? [String] else {return nil}
   let text=question.trimmingCharacters(in:.whitespacesAndNewlines)
-  let choices=Array(raw.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)}.filter{!$0.isEmpty && $0.count<=80}.prefix(4))
+  let unique=raw.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)}.filter{!$0.isEmpty && $0.count<=80}.reduce(into:[String]()){result,option in if !result.contains(option){result.append(option)}}
+  let choices=Array(unique.prefix(4))
   guard text.count>=5 && text.count<=200 && choices.count>=2 else {return nil}
   return PlotQuestion(text:text,choices:choices,source:"Apple 设备端 AI")
  }
