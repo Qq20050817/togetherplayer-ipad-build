@@ -28,14 +28,18 @@ import CryptoKit
  private let launchID=UUID().uuidString
  @Published private(set) var integrationReady=false
  @Published private(set) var usagePaused=false
- @Published private(set) var verificationStatus="需验证首次授权、连续两次调用和重启后调用"
+ @Published private(set) var verificationStatus="可选诊断：可以额外检查连续调用和重启后是否保持授权"
+ // The repeat/restart acceptance marker is diagnostic ONLY; one valid OAuth
+ // authorization is enough to use the model until revoked or exhausted.
+ static func hasUsableAuthorization(connected:Bool,usagePaused:Bool)->Bool {connected && !usagePaused}
+ var canSendInference:Bool {Self.hasUsableAuthorization(connected:connected,usagePaused:usagePaused)}
  private var inferenceActive=false
  private var apiSession=URLSession(configuration:.ephemeral)
  private var sessionEpoch=0
  private var diagnosticTask:Task<Void,Never>?
  private func invalidateUsage() {
   integrationReady=false;UserDefaults.standard.set(false,forKey:verificationKey+"-restart")
-  verificationStatus="授权失效，需要重新授权并验收"
+  verificationStatus="请求被拒绝，请检查账号授权或重新连接；连续调用测试不是使用前提"
  }
  private var authorizationTimeout:Task<Void,Never>?
  private var verificationKey:String {guard let c=ChatGPTLocalKeychain.read() else {return "plot-auth-unconnected"};return "plot-auth-check-"+PlotMemoryStore.key(c.clientID+c.subject)}
@@ -209,12 +213,13 @@ import CryptoKit
   }
   UserDefaults.standard.set(issued,forKey:"plot-chatgpt-client-id")
   connected=true;integrationReady=false
+  usagePaused=false;UserDefaults.standard.removeObject(forKey:verificationKey+"-usage-paused")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-acceptance")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-diagnostics");diagnosticRequests=0
   UserDefaults.standard.removeObject(forKey:verificationKey+"-run")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-calls")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-restart")
-  status="身份和权限已验证；还需连续两次与重启后的真实调用检查"
+  status="✅ 已授权，可直接在 TogetherPlayer 内使用 ChatGPT；连续调用与重启测试仅为可选诊断"
  }
  private func credentials() async throws -> ChatGPTLocalCredentials {
   guard var current=ChatGPTLocalKeychain.read(),current.scopes.split(separator:" ").contains("chatgpt.tokens.use.direct") else {
@@ -237,7 +242,7 @@ import CryptoKit
   return current
  }
  func performInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
-  guard connected,integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收或额度暂停"])}
+  guard canSendInference else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未授权或订阅使用已暂停"])}
   return try await requestInference(instructions:instructions,input:input,canSend:canSend)
  }
  private func requestInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
