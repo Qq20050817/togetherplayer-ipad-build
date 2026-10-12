@@ -1,7 +1,7 @@
-name: Package plot-intelligence v0.6.3 iPad candidate
+name: Verify iPad first-use ChatGPT authorization fix
 on:
   push:
-    branches: [delivery/plot-intelligence-063-20261013]
+    branches: [fix/plot-auth-first-use-offline-20261013]
     paths: ['.github/workflows/plot-intelligence-ipa.yml']
   workflow_dispatch:
 permissions:
@@ -25,13 +25,13 @@ jobs:
       - name: Package candidate with source identity
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-063-delivery/TogetherPlayer-v0.6.3-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-063-delivery/TogetherPlayer-v0.6.3-unsigned.ipa > plot-063-delivery/SHA256SUMS.txt
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-063-delivery/TogetherPlayer-v0.6.3-OAuth-first-use-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-063-delivery/TogetherPlayer-v0.6.3-OAuth-first-use-unsigned.ipa > plot-063-delivery/SHA256SUMS.txt
           echo "Source branch: ${GITHUB_REF_NAME}" > plot-063-delivery/BUILD.txt
           echo "Source SHA: ${GITHUB_SHA}" >> plot-063-delivery/BUILD.txt
-          echo "This is a candidate build, not a verified production release. New poll protocol requires compatible server deployment." >> plot-063-delivery/BUILD.txt
+          echo "This is a candidate build; only iPad OAuth first-use and offline AI preview are changed. New poll protocol still requires a compatible server." >> plot-063-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.3-candidate
+          name: TogetherPlayer-iPad-v0.6.3-OAuth-first-use-fix
           path: plot-063-delivery/
           retention-days: 7
