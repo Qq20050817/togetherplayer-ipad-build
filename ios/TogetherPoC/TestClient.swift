@@ -430,6 +430,7 @@ import CoreMedia
  }
  private func reconnect(_ g: Int,reason: String="receive") {
   guard g==generation,foreground,credentials != nil else {return}
+  setSpeedHold(false)
   voice.cancel(message:"连接中断，当前录音已取消，未发送")
   // Invalidate both send and receive callbacks before scheduling one retry.
   generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil

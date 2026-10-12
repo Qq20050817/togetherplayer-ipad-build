@@ -12,7 +12,7 @@ struct FullscreenGestureSurface:UIViewRepresentable {
  func makeCoordinator()->Coordinator {Coordinator(self)}
  func makeUIView(context:Context)->UIView {
   let view=UIView();view.backgroundColor = .clear
-  view.accessibilityIdentifier="fullscreen-gesture-surface"
+  view.accessibilityIdentifier="fullscreen-gesture-surface";view.isAccessibilityElement=true;view.accessibilityLabel="全屏播放手势"
   let c=context.coordinator;c.surface=view
   let volume=MPVolumeView(frame:CGRect(x:0,y:0,width:1,height:1));volume.alpha=0.01;volume.showsRouteButton=false;volume.isUserInteractionEnabled=false
   view.addSubview(volume);c.volumeView=volume

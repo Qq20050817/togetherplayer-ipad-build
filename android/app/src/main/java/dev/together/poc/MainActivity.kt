@@ -265,7 +265,7 @@ class MainActivity: Activity() {
    override fun onClosed(webSocket: WebSocket,code: Int,reason: String){main.post {if(g==generation)reconnect(g)}}
   })}catch(e: Exception){requestStatus.text="连接地址无效"}
  }
- private fun reconnect(g: Int){if(g!=generation)return;voice.cancel("连接中断，录音已取消，未发送");connected=false;engine.resetSession();attempt++;status.text="自动重连中…";main.postDelayed({if(!stopped && foreground && generation==g)connect()},(500L shl attempt.coerceAtMost(5)).coerceAtMost(15000))}
+ private fun reconnect(g: Int){if(g!=generation)return;setSpeedHold(false);voice.cancel("连接中断，录音已取消，未发送");connected=false;engine.resetSession();attempt++;status.text="自动重连中…";main.postDelayed({if(!stopped && foreground && generation==g)connect()},(500L shl attempt.coerceAtMost(5)).coerceAtMost(15000))}
  private fun send(obj: JSONObject){if(connected)ws?.send(obj.toString())}
  private fun pingBurst(){repeat(5){i->val g=generation;main.postDelayed({if(g==generation)send(JSONObject().put("type","PING").put("t1",clock.localNow()))},i*200L)}}
  private fun receive(obj: JSONObject,t4: Double) {
