@@ -8,7 +8,7 @@ struct PlotFrame {
  var prediction:PlotPrediction?
 }
 @MainActor final class PlotIntelligence:ObservableObject {
- @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");if working {cancel()}}}
+ @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");if working {cancel()};result=nil;selectedModel="尚未出题";reason="已切换为"+mode.title+"，请重新生成"}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
  @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
@@ -83,7 +83,7 @@ struct PlotFrame {
     await useExplicitLocal(context,history:history,snapshot:snapshot,token:token)
     return
    }
-   if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position) {
+   if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position), (mode == .smart || cached.source == "免费备用题库") {
     complete(cached,reason:"复用这个已观看片段的问题，不消耗额度",frame:snapshot,token:token);return
    }
    let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
@@ -96,7 +96,7 @@ struct PlotFrame {
    var chosen=localGood ? local : nil
    var explanation=localGood ? "本地问题有具体证据，无需调用 ChatGPT" : "本地上下文或出题质量不足，使用备用题库"
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
-   let requested=manualDeep || mode == .chatgpt || (mode == .smart && policy.wantsCloud(score,localQuality:localGood))
+   let requested=mode == .smart && policy.wantsCloud(score,localQuality:localGood)
    if requested {
     if let cached=state.reusable(at:snapshot.position) {
      complete(cached,reason:"同片段已有可复用问题，未再次请求 ChatGPT",frame:snapshot,token:token);return
