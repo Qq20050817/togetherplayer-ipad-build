@@ -27,6 +27,7 @@ struct FullscreenGestureSurface:UIViewRepresentable {
  var tap:()->Void
  var feedback:(String)->Void
  var interacting:(Bool)->Void
+ var brightnessObserved:(CGFloat)->Void
  func makeCoordinator()->Coordinator {Coordinator(self)}
  func makeUIView(context:Context)->FullscreenTouchView {
   let view=FullscreenTouchView()
@@ -62,7 +63,6 @@ struct FullscreenGestureSurface:UIViewRepresentable {
   var parent:FullscreenGestureSurface
   weak var surface:FullscreenTouchView?
   var volumeView:MPVolumeView?
-  let originalBrightness=UIScreen.main.brightness
   var origin:CGPoint = .zero
   var initial:CGFloat=0
   var left=false
@@ -105,6 +105,8 @@ struct FullscreenGestureSurface:UIViewRepresentable {
    let value=min(1,max(0,initial-dy/max(1,view.bounds.height)))
    if left {
     UIScreen.main.brightness=value
+    let observed=UIScreen.main.brightness
+    parent.brightnessObserved(observed)
     view.accessibilityValue="亮度 \(Int((value*100).rounded()))%"
    } else if let slider=volumeView?.subviews.compactMap({$0 as? UISlider}).first {
     slider.setValue(Float(value),animated:false)
@@ -139,11 +141,10 @@ struct FullscreenGestureSurface:UIViewRepresentable {
    ignored=false
    surface=nil
    volumeView=nil
-   let brightness=originalBrightness
-   DispatchQueue.main.async {
-    stopHold?(false)
-    UIScreen.main.brightness=brightness
-   }
+   // Do not undo the user-selected system brightness when SwiftUI rebuilds
+   // the gesture view or when the fullscreen modal closes. On iPad this made
+   // a successful swipe appear ineffective moments later.
+   DispatchQueue.main.async {stopHold?(false)}
   }
  }
 }
