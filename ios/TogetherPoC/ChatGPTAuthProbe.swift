@@ -230,7 +230,7 @@ import CryptoKit
   return current
  }
  func performInference(instructions:String,input:String) async throws -> String {
-  guard integrationReady else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收"])}
+  guard integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收或额度暂停"])}
   return try await requestInference(instructions:instructions,input:input)
  }
  private func requestInference(instructions:String,input:String) async throws -> String {
@@ -277,7 +277,7 @@ import CryptoKit
  private func pauseUsage() {usagePaused=true;UserDefaults.standard.set(true,forKey:verificationKey+"-usage-paused");status="ChatGPT 额度受限，已暂停云端调用；可在官方用量设置查看"}
  @Published private(set) var diagnosticRequests=0
  func testRepeatedCall() {
-  guard !working,connected else {return}
+  guard !working,connected,!inferenceActive else {return}
   let key=verificationKey
   let used=UserDefaults.standard.integer(forKey:key+"-diagnostics")
   guard used<6 else {status="授权验证已达6次上限，请先排查失败原因";return}
