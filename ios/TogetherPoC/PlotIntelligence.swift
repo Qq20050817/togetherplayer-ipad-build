@@ -66,7 +66,7 @@ struct PlotFrame {
   // Event-driven: only after a caption ends, not at each new subtitle or an
   // arbitrary movie timestamp. The debounce is a quiet-window safety check,
   // not a repeating timer that manufactures questions.
-  guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,autoSuggestion == nil,mayPublishAutomatically?()==true,
+  guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,mayPublishAutomatically?()==true,
    let snapshot=frame?(),PlotMomentGate.likelyQuestionMoment(snapshot.evidence,position:snapshot.position,minQuietSeconds:0) else{return}
   guard snapshot.key != mostRecentAutoKey || snapshot.position-mostRecentAutoPosition>180 else{return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
