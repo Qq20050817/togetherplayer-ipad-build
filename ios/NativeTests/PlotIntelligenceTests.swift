@@ -117,16 +117,48 @@ final class PlotMemoryTests:XCTestCase {
   XCTAssertTrue(model.requestStatus.contains("先回答"))
   XCTAssertFalse(model.supportsBlockingPolls,"older servers must not falsely advertise this mode")
  }
- func testUnverifiedChatGPTModeFallsBackWithoutSpendingRequests() async throws {
+ func testExplicitChatGPTNeverSilentlyUsesFallbackOrSpendsWithoutConsent() async throws {
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let store=PlotMemoryStore(directory:nil)
+  let controller=PlotIntelligence(memory:store,preferences:preferences)
+  controller.mode = .chatgpt;controller.automaticAllowed=false;controller.consent=false;controller.creditsDisabled=false
+  let cues=(0..<3).map{PlotEvidence.cue(start:Double($0*3),end:Double($0*3+2),text:"已经发生的对话\($0)",source:"test")}
+  let frame=PlotFrame(key:"guard-test",position:10,evidence:cues)
+  controller.frame={frame}
+  // A previously cached free-template question must not masquerade as ChatGPT.
+  let context=PlotContext(cutoff:10,recent:cues,earlier:[],predictions:[])
+  let fallback=PlotFallback.question(context:context,history:[])
+  try await store.finish(key:frame.key,question:fallback,cutoff:10,clues:[],context:context)
+  controller.generate()
+  for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
+  XCTAssertNil(controller.result)
+  XCTAssertEqual(controller.selectedModel,"ChatGPT 未出题")
+  XCTAssertTrue(controller.reason.contains("同意"))
+  XCTAssertEqual(controller.requests,0)
+ }
+ func testManualChatGPTWithoutSubtitlesExplainsConsentInsteadOfReturningTemplate() async throws {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
   let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
-  controller.mode = .chatgpt;controller.automaticAllowed=true;controller.consent=true;controller.creditsDisabled=true
-  let cues=(0..<3).map{PlotEvidence.cue(start:Double($0*3),end:Double($0*3+2),text:"已经发生的对话\($0)",source:"test")}
-  controller.frame={PlotFrame(key:"guard-test",position:10,evidence:cues)}
+  controller.mode = .chatgpt
+  controller.frame={PlotFrame(key:"no-subtitles",position:80,evidence:[])}
   controller.generate()
-  for _ in 0..<30 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
-  XCTAssertEqual(controller.result?.source,"免费备用题库");XCTAssertEqual(controller.requests,0)
-  XCTAssertTrue(controller.reason.contains("条件未满足"))
+  for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
+  XCTAssertNil(controller.result)
+  XCTAssertEqual(controller.selectedModel,"ChatGPT 未出题")
+  XCTAssertTrue(controller.reason.contains("同意"))
+  XCTAssertEqual(controller.requests,0)
+ }
+ func testExplicitLocalModeDoesNotClaimFreeTemplateWasRealAI() async throws {
+  guard !PlotLocalAI.available else {return} // Device-specific model availability.
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  controller.mode = .local
+  controller.frame={PlotFrame(key:"no-device-model",position:80,evidence:[])}
+  controller.generate()
+  for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
+  XCTAssertNil(controller.result)
+  XCTAssertEqual(controller.selectedModel,"苹果本地 AI 未出题")
+  XCTAssertTrue(controller.reason.contains("暂不可用"))
  }
  func testDefaultsDisableCloudAndLimitIsUserConfigurable() {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
