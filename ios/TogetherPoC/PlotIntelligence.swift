@@ -97,10 +97,19 @@ struct PlotFrame {
     local=context.sufficient ? await PlotLocalAI.question(context) : await PlotLocalAI.genericQuestion(at:snapshot.position)
    }
    guard valid(snapshot,token:token) else {cancel();return}
-   let localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:!context.sufficient && $0.evidenceIDs.isEmpty)} ?? false
+   var localGeneric = !context.sufficient
+   var localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:localGeneric && $0.evidenceIDs.isEmpty)} ?? false
+   if !localGood && context.sufficient && (mode == .local || mode == .smart) && PlotLocalAI.available {
+    // Try one genuine zero-cost model question, without claiming to know
+    // a movie scene that the strict subtitle-evidence validator rejected.
+    local=await PlotLocalAI.genericQuestion(at:snapshot.position)
+    guard valid(snapshot,token:token) else {cancel();return}
+    localGeneric=true
+    localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:$0.evidenceIDs.isEmpty)} ?? false
+   }
    var chosen=localGood ? local : nil
-   var explanation=localGood ? (context.sufficient ? "苹果本地 AI 已根据已观看的字幕出题" : "苹果本地 AI 已生成通用讨论题；没有冒充理解未提供的剧情") :
-     (PlotLocalAI.available ? "本地 AI 的回答未通过格式、线索或重复检查" : "苹果系统设备端语言模型暂不可用")
+   var explanation=localGood ? (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题") :
+     (PlotLocalAI.available ? "本地 AI 回答未通过格式、线索或重复检查" : "苹果系统设备端语言模型暂不可用")
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood))
    if requested {
@@ -158,7 +167,7 @@ struct PlotFrame {
     reason=explanation;working=false;deadline?.cancel();deadline=nil;return
    }
    let question=chosen ?? PlotFallback.question(context:context,history:history)
-   guard PlotQuality.check(question,context:context,history:history,allowGeneric:chosen==nil || !context.sufficient && question.evidenceIDs.isEmpty) else {
+   guard chosen != nil || PlotQuality.check(question,context:context,history:history,allowGeneric:true) else {
     cancel();reason="生成的问题没有通过安全或重复检查，请稍后重试";return
    }
    let clues=(mode == .smart || mode == .local) && PlotLocalAI.available && context.sufficient ? await PlotLocalAI.summarize(context) : []
