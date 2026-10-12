@@ -347,6 +347,8 @@ class MainActivity: Activity() {
   content.addView(overlay,LinearLayout.LayoutParams(-1,-2));videoBox.setOnClickListener {if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()}
   val gestureSurface=FullscreenGestureView(this,dialog,{setSpeedHold(it)},{if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()})
   videoBox.addView(gestureSurface,FrameLayout.LayoutParams(-1,-1))
+  // A SurfaceView or dynamically added subtitle layer must not steal fullscreen swipes.
+  gestureSurface.elevation=dp(12).toFloat()
   val deviceStatus=TextView(this).apply {textSize=11f;setTextColor(-1);setPadding(dp(8),dp(4),dp(8),dp(4));setBackgroundColor(0x66000000);contentDescription="当前时间和电池电量"}
   videoBox.addView(deviceStatus,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.TOP or android.view.Gravity.END).apply{setMargins(0,dp(8),dp(8),0)})
   val refreshDevice=object:Runnable {override fun run(){val battery=registerReceiver(null,android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));val level=battery?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1) ?: -1;val scale=battery?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100) ?: 100;val percent=if(level>=0 && scale>0)"${level*100/scale}%"else "—";deviceStatus.text="${java.text.SimpleDateFormat("HH:mm",java.util.Locale.getDefault()).format(java.util.Date())}  电量 $percent";main.postDelayed(this,15000)}};refreshDevice.run()
