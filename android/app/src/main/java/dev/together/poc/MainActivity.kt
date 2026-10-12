@@ -323,7 +323,7 @@ class MainActivity: Activity() {
   val options=poll.optJSONArray("options") ?: org.json.JSONArray()
   val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
   val choices=android.widget.RadioGroup(this).apply{orientation=android.widget.RadioGroup.VERTICAL}
-  for(i in 0 until options.length()){val value=options.optString(i);choices.addView(android.widget.RadioButton(this).apply{id=View.generateViewId();text=value;tag=value})}
+  for(i in 0 until options.length()){val value=options.optString(i);choices.addView(android.widget.RadioButton(this).apply{this.id=View.generateViewId();text=value;tag=value})}
   body.addView(choices)
   val custom=EditText(this).apply{hint="自己填写答案（可选）";maxLines=3}
   body.addView(custom)
