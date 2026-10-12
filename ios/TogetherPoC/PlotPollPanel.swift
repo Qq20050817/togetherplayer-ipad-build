@@ -53,6 +53,7 @@ import SwiftUI
       .foregroundStyle(.secondary)}
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
       Divider()
+      if !model.isConnected {Text("房间已断线：仍可在本机生成问题预览，重新连接后才能发布给好友。").font(.caption).foregroundStyle(.orange)}
       Toggle("答题后继续播放",isOn:$pauseForPoll).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
       Text(model.supportsBlockingPolls ? "开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
        .font(.caption).foregroundStyle(.secondary)
