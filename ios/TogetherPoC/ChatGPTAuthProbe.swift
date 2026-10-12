@@ -18,6 +18,7 @@ import CryptoKit
   let redirect:String
   let clientID:String
   let start:Date
+  let epoch:Int
  }
  private var pending:Attempt?
  private var listener:NWListener?
@@ -29,6 +30,9 @@ import CryptoKit
  @Published private(set) var usagePaused=false
  @Published private(set) var verificationStatus="需验证首次授权、连续两次调用和重启后调用"
  private var inferenceActive=false
+ private var apiSession=URLSession(configuration:.ephemeral)
+ private var sessionEpoch=0
+ private var diagnosticTask:Task<Void,Never>?
  private func invalidateUsage() {
   integrationReady=false;UserDefaults.standard.set(false,forKey:verificationKey+"-restart")
   verificationStatus="授权失效，需要重新授权并验收"
@@ -58,6 +62,7 @@ import CryptoKit
  }
  func connect() {
   guard !working,!inferenceActive else{return}
+  sessionEpoch+=1
   integrationReady=false
   working=true;status="正在启动 iPad 本地授权回调…";testText=""
   authorizationTimeout?.cancel()
@@ -99,7 +104,7 @@ import CryptoKit
   let state=Self.random(),nonce=Self.random()
   let redirect="http://127.0.0.1:\(port)/auth/callback"
   let clientID=ChatGPTLocalKeychain.read()?.clientID ?? UserDefaults.standard.string(forKey:"plot-chatgpt-client-id") ?? "dynamic_agent_client"
-  pending=Attempt(state:state,nonce:nonce,verifier:verifier,redirect:redirect,clientID:clientID,start:Date())
+  pending=Attempt(state:state,nonce:nonce,verifier:verifier,redirect:redirect,clientID:clientID,start:Date(),epoch:sessionEpoch)
   let hash=SHA256.hash(data:Data(verifier.utf8))
   let challenge=Data(hash).base64EncodedString().replacingOccurrences(of:"+",with:"-").replacingOccurrences(of:"/",with:"_").replacingOccurrences(of:"=",with:"")
   var args=[
@@ -157,9 +162,9 @@ import CryptoKit
    do {
     try await exchange(code:code,issued:issued,attempt:attempt)
    }catch {
-    status="回调成功，但令牌验证失败：\(error.localizedDescription)"
+    if sessionEpoch==attempt.epoch {status="回调成功，但令牌验证失败：\(error.localizedDescription)"}
    }
-   working=false
+   if sessionEpoch==attempt.epoch {working=false}
   }
  }
  private func requestForm(_ fields:[String:String]) async throws -> [String:Any] {
@@ -170,7 +175,7 @@ import CryptoKit
   request.httpMethod="POST";request.timeoutInterval=25
   request.setValue("application/x-www-form-urlencoded",forHTTPHeaderField:"Content-Type")
   request.httpBody=Data(body.utf8)
-  let (data,response)=try await URLSession.shared.data(for:request)
+  let (data,response)=try await apiSession.data(for:request)
   let code=(response as? HTTPURLResponse)?.statusCode ?? 0
   guard (200..<300).contains(code),
    let result=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else {
@@ -192,6 +197,7 @@ import CryptoKit
     throw NSError(domain:"ChatGPTAuth",code:1,userInfo:[NSLocalizedDescriptionKey:"OpenAI 未提供完整授权信息"])
   }
   let subject=try await ChatGPTIdentityVerifier.signedIdentity(idToken,clientID:issued,nonce:attempt.nonce)
+  guard sessionEpoch==attempt.epoch,!Task.isCancelled else {throw CancellationError()}
   guard scopes.split(separator:" ").contains("chatgpt.tokens.use.direct") else{
    throw NSError(domain:"ChatGPTAuth",code:2,userInfo:[NSLocalizedDescriptionKey:"账号已经登录，但未同意使用 ChatGPT 订阅额度"])
   }
@@ -215,8 +221,10 @@ import CryptoKit
    throw NSError(domain:"ChatGPTAuth",code:4,userInfo:[NSLocalizedDescriptionKey:"尚未授权"])
   }
   if current.expiresAt>Date().timeIntervalSince1970+90{return current}
+  let epoch=sessionEpoch
   let renewed=try await requestForm(["grant_type":"refresh_token","client_id":current.clientID,
     "refresh_token":current.refreshToken,"resource":Self.resource])
+  guard sessionEpoch==epoch,!Task.isCancelled else {throw CancellationError()}
   guard let access=renewed["access_token"] as? String else {
    throw NSError(domain:"ChatGPTAuth",code:5,userInfo:[NSLocalizedDescriptionKey:"授权已过期，请重新登录"])
   }
@@ -229,17 +237,19 @@ import CryptoKit
   return current
  }
  func performInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
-  guard integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收或额度暂停"])}
+  guard connected,integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收或额度暂停"])}
   return try await requestInference(instructions:instructions,input:input,canSend:canSend)
  }
  private func requestInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
   guard !inferenceActive else {throw CancellationError()}
   inferenceActive=true;defer {inferenceActive=false}
+  let epoch=sessionEpoch
   try Task.checkCancellation()
   let c=try await credentials()
   var models=URLRequest(url:URL(string:"https://api.openai.com/v1/models")!);models.timeoutInterval=20
   models.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization")
-  let (data,response)=try await URLSession.shared.data(for:models)
+  let (data,response)=try await apiSession.data(for:models)
+  guard sessionEpoch==epoch,!Task.isCancelled else {throw CancellationError()}
   let modelCode=(response as? HTTPURLResponse)?.statusCode ?? 0
   if modelCode==401 || modelCode==403 {invalidateUsage()}
   if modelCode==429 {pauseUsage()}
@@ -250,7 +260,7 @@ import CryptoKit
   var req=URLRequest(url:URL(string:"https://api.openai.com/v1/responses")!);req.timeoutInterval=40
   req.httpMethod="POST";req.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization");req.setValue("application/json",forHTTPHeaderField:"Content-Type")
   req.httpBody=try JSONSerialization.data(withJSONObject:["model":selected,"instructions":instructions,"input":[["role":"user","content":input]],"store":false,"stream":true] as [String:Any])
-  let (bytes,res)=try await URLSession.shared.bytes(for:req)
+  let (bytes,res)=try await apiSession.bytes(for:req)
   let code=(res as? HTTPURLResponse)?.statusCode ?? 0
   guard code==200 else {
    if code==401 || code==403 {invalidateUsage()}
@@ -260,6 +270,7 @@ import CryptoKit
   var answer="",completed=false
   for try await line in bytes.lines {
    try Task.checkCancellation()
+   guard sessionEpoch==epoch else {throw CancellationError()}
    guard line.hasPrefix("data: "),let data=String(line.dropFirst(6)).data(using:.utf8),let event=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else {continue}
    switch event["type"] as? String {
    case "response.output_text.delta":answer+=event["delta"] as? String ?? "";if answer.count>6000 {throw CancellationError()}
@@ -271,6 +282,7 @@ import CryptoKit
    default:break
    }
   }
+  guard sessionEpoch==epoch else {throw CancellationError()}
   guard completed,!answer.isEmpty else {throw NSError(domain:"ChatGPTAuth",code:12,userInfo:[NSLocalizedDescriptionKey:"未收到完整结果"])}
   return answer
  }
@@ -283,7 +295,8 @@ import CryptoKit
   guard used<6 else {status="授权验证已达6次上限，请先排查失败原因";return}
   diagnosticRequests=used+1;UserDefaults.standard.set(diagnosticRequests,forKey:key+"-diagnostics")
   working=true;testText="";status="使用本机授权执行一次真实调用…"
-  Task {
+  let epoch=sessionEpoch
+  diagnosticTask=Task {
    do {
     let answer=try await requestInference(instructions:"这是用户主动发起的授权验证。",input:"只回复：授权调用成功")
     testText=answer
@@ -296,11 +309,12 @@ import CryptoKit
     usagePaused=false;UserDefaults.standard.set(false,forKey:key+"-usage-paused")
     verificationStatus=check.ready ? "本机连续调用和重启后调用已验证" : check.calls>=2 ? "两次连续调用成功；请彻底退出并重开 App 后再测试一次" : "第一次调用成功，请再测试一次"
     status="真实调用成功；"+verificationStatus
-   } catch {status="真实调用尚未成功：\(error.localizedDescription)"}
-   working=false
+   } catch {if sessionEpoch==epoch {status="真实调用尚未成功：\(error.localizedDescription)"}}
+   if sessionEpoch==epoch {working=false}
   }
  }
  func disconnect() {
+  sessionEpoch+=1;diagnosticTask?.cancel();apiSession.invalidateAndCancel();apiSession=URLSession(configuration:.ephemeral)
   listener?.cancel();listener=nil;pending=nil
   authorizationTimeout?.cancel();authorizationURL=nil;ChatGPTLocalKeychain.delete();connected=false;integrationReady=false;working=false;testText=""
   status="已清除本机授权。若需要取消远端授权，请到 ChatGPT 设置中断开 TogetherPlayer。"
@@ -308,6 +322,7 @@ import CryptoKit
  func cancelAuthorization() {
   authorizationURL=nil
   guard pending != nil || listener != nil else {return}
+  sessionEpoch+=1
   pending=nil;listener?.cancel();listener=nil;authorizationTimeout?.cancel();working=false;status="已取消授权"
  }
 }
