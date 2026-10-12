@@ -854,7 +854,8 @@ extension TestClient {
    guard connected else {return}
    speedHoldID=UUID().uuidString
    sendSpeedHold()
-   speedHoldTimer=Timer.scheduledTimer(withTimeInterval:0.5,repeats:true){[weak self] _ in Task {@MainActor in self?.sendSpeedHold()}}
+   let timer=Timer(timeInterval:0.5,repeats:true){[weak self] _ in Task {@MainActor in self?.sendSpeedHold()}}
+   speedHoldTimer=timer;RunLoop.main.add(timer,forMode:.common)
   } else {
    speedHoldTimer?.invalidate();speedHoldTimer=nil
    guard let id=speedHoldID else {return};speedHoldID=nil
