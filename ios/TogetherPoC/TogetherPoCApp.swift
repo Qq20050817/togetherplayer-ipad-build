@@ -79,6 +79,8 @@ import UniformTypeIdentifiers
  private var brand: some View {Button {settings=true} label:{Label("一起看",systemImage:"person.2.fill").font(.title3.bold()).foregroundColor(.white)}.accessibilityLabel("打开房间与片源")}
  private var headerActions: some View {
   HStack(spacing:12) {
+   Button {plotPollOpen=true} label:{Label("AI",systemImage:"sparkles").font(.caption.bold()).padding(.horizontal,8).frame(minHeight:36)}
+    .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 剧情推理").accessibilityIdentifier("watch-header-plot-ai-button")
    ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Image(systemName:"link").frame(width:36,height:36)}.disabled(!model.isConnected)
    Button {settings=true} label:{Image(systemName:"gearshape").frame(width:36,height:36)}.accessibilityLabel("房间设置")
    Button {model.leaveRoom()} label:{Label("离开房间",systemImage:"rectangle.portrait.and.arrow.right").font(.caption.bold()).padding(10)}.background(Color(red:0.95,green:0.17,blue:0.34)).clipShape(RoundedRectangle(cornerRadius:12)).disabled(!model.isConnected)
