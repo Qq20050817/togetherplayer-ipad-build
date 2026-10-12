@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
@@ -113,6 +113,18 @@ jobs:
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+            )
+          fi
+          # Release candidate: verify brightness, hold, exit/re-enter stability
+          # and surrounding fullscreen/media controls alongside the core suite.
+          if [ "${GITHUB_REF_NAME}" = "release/v0.6.1-fullscreen-exit-20261013" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
             )
           fi
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC "${TEST_SELECTION[@]}" \
