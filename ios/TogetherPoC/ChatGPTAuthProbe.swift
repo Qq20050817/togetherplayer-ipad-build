@@ -34,7 +34,9 @@ import CryptoKit
  private var sessionEpoch=0
  private var diagnosticTask:Task<Void,Never>?
  private func invalidateUsage() {
-  integrationReady=false;connected=false;UserDefaults.standard.set(false,forKey:verificationKey+"-restart")
+  let key=verificationKey
+  ChatGPTLocalKeychain.delete() // Invalid or revoked access must not revive after restart.
+  integrationReady=false;connected=false;UserDefaults.standard.set(false,forKey:key+"-restart")
   verificationStatus="授权已失效，请重新连接 ChatGPT"
  }
  private var authorizationTimeout:Task<Void,Never>?
