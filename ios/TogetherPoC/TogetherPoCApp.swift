@@ -171,7 +171,7 @@ import UniformTypeIdentifiers
    ZStack(alignment:.bottom) {
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
-    if let model {HoldToFastForward(model:model)}
+    if let model, ProcessInfo.processInfo.environment["TOGETHER_UI_TEST"] != "1" {HoldToFastForward(model:model)}
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
     }
