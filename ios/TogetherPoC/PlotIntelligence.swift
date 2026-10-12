@@ -171,7 +171,7 @@ struct PlotFrame {
        (context.sufficient || explicitlyCloud || (!autoMoment && mode == .smart)) &&
        (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
     if allowed {
-     if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:explicitlyCloud || !autoMoment,limit:limit,interval:180) {
+     if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:limit,interval:180) {
       let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
       do {
        guard valid(snapshot,token:token) else {cancel();return}
