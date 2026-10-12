@@ -61,6 +61,12 @@ enum PlotMomentGate {
  static func likelyQuestionMoment(_ values:[PlotEvidence],position:Double,minQuietSeconds:Double=1.8)->Bool {
   assess(values,position:position,minQuietSeconds:minQuietSeconds).isCandidate
  }
+ static func canAttempt(position:Double,lastAttempt:Double,lastPublished:Double)->Bool {
+  // Failed AI attempts need a short retry guard; successful interruptions
+  // need a much longer break to preserve the viewing experience.
+  position.isFinite && position>=0 &&
+   position-lastAttempt>=120 && position-lastPublished>=600
+ }
  static func questionIsTimely(_ question:PlotQuestion,context:PlotContext)->Bool {
   let recentIDs=Set(context.recent.suffix(8).map(\.id))
   return !question.evidenceIDs.isEmpty && !recentIDs.isDisjoint(with:question.evidenceIDs)
