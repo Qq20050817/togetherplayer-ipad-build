@@ -44,6 +44,7 @@ import UniformTypeIdentifiers
  @ObservedObject var chat: ChatEngine
  @State private var fullscreen=false
  @State private var settings=false
+ @State private var plotPollOpen=false
  @State private var sidebar=0
  var body: some View {
   GeometryReader {geometry in
@@ -66,6 +67,7 @@ import UniformTypeIdentifiers
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
+   .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
  }
  private var header: some View {
@@ -96,6 +98,8 @@ import UniformTypeIdentifiers
     }
    VStack(alignment:.leading,spacing:12) {
     PlaybackControls(model:model)
+    Button {plotPollOpen=true} label:{Label("AI 剧情推理",systemImage:"sparkles").font(.subheadline.bold()).frame(maxWidth:.infinity).padding(.vertical,5)}
+     .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("watch-plot-ai-button")
     HStack {TrackControls(model:model,subtitles:model.externalSubtitles);Spacer();Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
     if !model.sourceNotice.isEmpty {HStack(alignment:.top) {Text(model.sourceNotice).font(.caption).foregroundColor(.orange);Spacer();Button(model.sourceResetLabel) {model.restoreRoomSource()}.font(.caption).buttonStyle(AnimatedAppButtonStyle(.bordered))}}
     if !model.roomNotice.isEmpty {Text(model.roomNotice).font(.caption).foregroundColor(.orange)}
@@ -401,6 +405,8 @@ struct FullscreenToolStyle:ButtonStyle {
       .font(.caption.monospacedDigit())
       .accessibilityIdentifier("fullscreen-brightness-readback")
      FullscreenDeviceStatus()
+     Button {plotPollOpen=true} label:{Label("AI 推理",systemImage:"sparkles").font(.caption.bold())}
+      .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("fullscreen-plot-ai-button")
      Button("退出全屏") {dismiss()}
     }
      .padding(12)
@@ -448,7 +454,7 @@ struct FullscreenToolStyle:ButtonStyle {
   ScrollView(.horizontal,showsIndicators:false) {HStack(spacing:6) {
    TrackControls(model:model,subtitles:model.externalSubtitles,showsVoice:false,compact:true,modalChanged:{controls.setBusy("tracks",$0)})
    Button {composing=true} label:{Label("发弹幕",systemImage:"text.bubble.fill")}.accessibilityLabel("发弹幕").disabled(!model.isConnected)
-   Button {plotPollOpen=true} label:{Label("剧情推理",systemImage:"theatermasks.fill")}.accessibilityLabel("剧情推理")
+   Button {plotPollOpen=true} label:{Label("AI 剧情推理",systemImage:"sparkles")}.accessibilityLabel("AI 剧情推理")
    Button {adjustingDanmaku=true} label:{Label("弹幕字号",systemImage:"textformat.size")}.accessibilityLabel("弹幕字号").popover(isPresented:$adjustingDanmaku) {DanmakuSettings(showsSpeed:false).frame(width:280).padding(20)}
    Button {adjustingSpeed=true} label:{Label("弹幕速度",systemImage:"speedometer")}.accessibilityLabel("弹幕速度").popover(isPresented:$adjustingSpeed) {DanmakuSettings(showsFont:false).frame(width:280).padding(20)}
   }.font(.caption).buttonStyle(FullscreenToolStyle())}.frame(maxWidth:810).frame(height:36)
