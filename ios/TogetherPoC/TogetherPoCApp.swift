@@ -350,6 +350,7 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var adjustingDanmaku=false
  @State private var adjustingSpeed=false
  @State private var gestureFeedback=""
+ @State private var screenBrightness=Double(UIScreen.main.brightness)
  var body: some View {
   GeometryReader {geometry in
   VStack(spacing:0) {
@@ -373,12 +374,28 @@ struct FullscreenToolStyle:ButtonStyle {
     FullscreenGestureSurface(hold:{model.setSpeedHold($0)},tap:{
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
-    },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)})
+    },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)},brightnessObserved:{screenBrightness=Double($0)})
      .padding(.top,controls.visible ? 60 : 0)
      .frame(maxWidth:.infinity,maxHeight:.infinity)
    }
    if controls.visible && !composing {
-    HStack {Text(model.roomTitle).lineLimit(1);Spacer();FullscreenDeviceStatus();Button("退出全屏") {dismiss()}}
+    HStack {
+     Text(model.roomTitle).lineLimit(1)
+     Spacer()
+     Image(systemName:"sun.max.fill").accessibilityHidden(true)
+     Slider(value:Binding(get:{screenBrightness},set:{level in
+      UIScreen.main.brightness=CGFloat(level)
+      screenBrightness=Double(UIScreen.main.brightness)
+     }),in:0...1)
+      .frame(width:112)
+      .accessibilityLabel("屏幕亮度")
+      .accessibilityIdentifier("fullscreen-brightness-slider")
+     Text("\(Int((screenBrightness*100).rounded()))%")
+      .font(.caption.monospacedDigit())
+      .accessibilityIdentifier("fullscreen-brightness-readback")
+     FullscreenDeviceStatus()
+     Button("退出全屏") {dismiss()}
+    }
      .padding(12)
      .background(Color.black.opacity(0.65))
      .frame(maxWidth:.infinity,alignment:.top)
@@ -408,7 +425,11 @@ struct FullscreenToolStyle:ButtonStyle {
   }.background(Color.black).preferredColorScheme(.dark)
    // Do not install an outer tap recognizer over the UIKit movie touch surface.
    // It can cancel touch-ended delivery, leaving controls hidden after a tap.
-   .onAppear {scheduleHide()}.onDisappear {model.setSpeedHold(false);controls.cancel()}
+   .onAppear {screenBrightness=Double(UIScreen.main.brightness);scheduleHide()}
+   .onReceive(NotificationCenter.default.publisher(for:UIScreen.brightnessDidChangeNotification)) {_ in
+    screenBrightness=Double(UIScreen.main.brightness)
+   }
+   .onDisappear {model.setSpeedHold(false);controls.cancel()}
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
