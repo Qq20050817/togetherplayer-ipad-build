@@ -155,10 +155,13 @@ import CoreMedia
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
   plotIntelligence.frame={ [weak self] in
-   guard let self,let room=self.engine.room else {return nil}
+   // Offline local analysis should not require a live room transport.
+   guard let self,self.adapter.player.currentItem != nil else {return nil}
+   let identity=self.engine.room?.mediaUrl ?? self.currentOriginalURL?.absoluteString ?? self.loadedURL
+   guard !identity.isEmpty else {return nil}
    let position=max(0,self.adapter.position/1000)
-   var components=URLComponents(string:room.mediaUrl);components?.query=nil;components?.fragment=nil
-   let key=PlotMemoryStore.key(components?.string ?? room.mediaUrl)
+   var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
+   let key=PlotMemoryStore.key(components?.string ?? identity)
    var prediction:PlotPrediction?
    if let poll=self.plotPoll,poll["revealed"] as? Bool==true,let id=poll["id"] as? String,let question=poll["question"] as? String,let end=poll["revealPositionMs"] as? Double {
     prediction=PlotPrediction(id:id,end:max(0,(end+self.engine.timelineOffset)/1000),question:question,answers:self.plotPollAnswers)
