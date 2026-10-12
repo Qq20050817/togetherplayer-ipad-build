@@ -51,7 +51,7 @@ import SwiftUI
       .id(id)
      } else {Text("还没有剧情问题。房主可以根据已播放的字幕出一道题；没有字幕也能使用免费问题模板。")
       .foregroundStyle(.secondary)}
-     if model.isRoomHost {
+     if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
       Divider()
       Toggle("答题后继续播放",isOn:$pauseForPoll).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
       Text(model.supportsBlockingPolls ? "开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
@@ -68,11 +68,11 @@ import SwiftUI
        .font(.caption2).foregroundStyle(.secondary)
       Button("ChatGPT 授权与隐私设置") {authOpen=true}.buttonStyle(.bordered)
       Button {intelligence.generate()} label:{Label(intelligence.working ? "正在分析…" : "根据已观看剧情生成问题",systemImage:"sparkles")}
-       .disabled(intelligence.working || !model.isConnected)
+       .disabled(intelligence.working || model.adapter.player.currentItem == nil)
        .buttonStyle(.borderedProminent)
        .accessibilityIdentifier("plot-ai-generate")
       if intelligence.working {Button("取消分析") {intelligence.cancel()}.buttonStyle(.bordered)}
-      Button("手动深度推理一次") {intelligence.generate(manualDeep:true)}.disabled(intelligence.working || !model.isConnected)
+      Button("手动深度推理一次") {intelligence.generate(manualDeep:true)}.disabled(intelligence.working || model.adapter.player.currentItem == nil)
       if let draft=intelligence.result,intelligence.previewUsable {
        Text(draft.source).font(.caption).foregroundStyle(.secondary)
        TextField("问题预览（可以编辑）",text:$editQuestion,axis:.vertical).textFieldStyle(.roundedBorder).accessibilityIdentifier("plot-question-preview")
@@ -85,7 +85,7 @@ import SwiftUI
        }.disabled(!model.isConnected || !(5...200).contains(editQuestion.count) || editOptions.contains(where:{$0.isEmpty || $0.count>80}) || Set(editOptions).count != editOptions.count).accessibilityIdentifier("plot-publish")
       }
      }
-     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析且授权验收通过后，才向 OpenAI 发送本题所需的已观看摘要。设备端 AI 不可用会采用免费题库。")
+     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析且 ChatGPT 授权有效时，才向 OpenAI 发送本题所需的已观看摘要。设备端 AI 不可用会采用免费题库。")
       .font(.caption2).foregroundStyle(.secondary)
     }.padding(20).frame(maxWidth:.infinity,alignment:.leading)
    }
@@ -111,12 +111,12 @@ import SwiftUI
     Text("请先在官方用量设置中禁止本应用使用 Credits。应用无法替你修改这一账号设置；该确认不代表服务器已验证设置。")
     Toggle("我已关闭本应用的 Credits 使用",isOn:$intelligence.creditsDisabled)
    }
-   Section("首次授权与真实调用验收") {
+   Section("ChatGPT 首次授权（只需一次）") {
     Text(auth.status);Text(auth.verificationStatus)
     Button("Continue with ChatGPT") {auth.connect()}.disabled(auth.working)
-    Text("授权后主动测试两次，彻底退出并重新打开 App，再测试一次。全部成功后才允许智能调用。每次测试会消耗一次订阅请求。")
-    Button("执行一次真实调用检查") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || !intelligence.consent || !intelligence.creditsDisabled)
-    Text("授权验证请求：\(auth.diagnosticRequests) 次（最多6次）")
+    Text("首次授权成功后即可出题；下次使用会自动复用或刷新授权，不必再做连续调用测试。下方真实调用检查仅用于故障诊断，每次会消耗一次订阅请求。")
+    Button("可选：执行一次调用诊断") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || !intelligence.consent || !intelligence.creditsDisabled)
+    Text("可选诊断请求：\(auth.diagnosticRequests) 次（最多6次）")
     if !auth.testText.isEmpty {Text(auth.testText)}
     Button("清除本机授权",role:.destructive) {auth.disconnect();intelligence.automaticAllowed=false}
    }
