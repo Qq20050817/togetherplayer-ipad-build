@@ -16,6 +16,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify Swift toolchain
         run: swift --version
+      - name: Parse all changed iPad Swift sources
+        run: |
+          set -euo pipefail
+          swiftc -frontend -parse ios/TogetherPoC/PlotAI.swift ios/TogetherPoC/PlotIntelligence.swift ios/TogetherPoC/PlotPollPanel.swift ios/NativeTests/PlotMomentGateTests.swift
       - name: Compile and test production gate
         run: |
           set -euo pipefail
