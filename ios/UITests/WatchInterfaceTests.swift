@@ -40,6 +40,12 @@ final class WatchInterfaceTests: XCTestCase {
   XCUIDevice.shared.orientation = .landscapeLeft
   enterFullscreen(app)
   let plot=app.buttons["剧情推理"].firstMatch;XCTAssertTrue(plot.waitForExistence(timeout:5));plot.tap()
+  // This test explicitly selects the free mode. Smart mode no longer
+  // masquerades as free when neither real model is available in Simulator.
+  let modePicker=app.descendants(matching:.any)["plot-ai-mode"].firstMatch
+  XCTAssertTrue(modePicker.waitForExistence(timeout:5));modePicker.tap()
+  let free=app.buttons["免费备用题库"].firstMatch
+  XCTAssertTrue(free.waitForExistence(timeout:5));free.tap()
   let generate=app.buttons["plot-ai-generate"].firstMatch;XCTAssertTrue(generate.waitForExistence(timeout:5));generate.tap()
   let preview=app.descendants(matching:.any)["plot-question-preview"].firstMatch
   XCTAssertTrue(preview.waitForExistence(timeout:10));XCTAssertTrue(app.buttons["plot-publish"].exists)
