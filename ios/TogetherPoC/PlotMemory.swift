@@ -47,7 +47,10 @@ struct PlotBudget:Codable,Equatable {
  var total:Int {automatic+manual}
  // Count dispatched requests, including failures, before doing network I/O.
  mutating func reserve(segment:Int,now:Double,manualRequest:Bool,limit:Int=10,interval:Double=180)->Bool {
-  guard now-lastRequest>=interval,!failedSegments.contains(segment) else {return false}
+  guard now-lastRequest>=interval else {return false}
+  // A failed automatic attempt must not permanently block an explicit user
+  // retry; the shared request interval still prevents rapid repeated calls.
+  if !manualRequest && failedSegments.contains(segment) {return false}
   if manualRequest {manual+=1} else {guard automatic<max(0,limit) else {return false};automatic+=1}
   lastRequest=now;return true
  }
