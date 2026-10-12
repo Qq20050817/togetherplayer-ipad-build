@@ -229,11 +229,11 @@ import CryptoKit
   }
   return current
  }
- func performInference(instructions:String,input:String) async throws -> String {
+ func performInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
   guard integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收或额度暂停"])}
-  return try await requestInference(instructions:instructions,input:input)
+  return try await requestInference(instructions:instructions,input:input,canSend:canSend)
  }
- private func requestInference(instructions:String,input:String) async throws -> String {
+ private func requestInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
   guard !inferenceActive else {throw CancellationError()}
   inferenceActive=true;defer {inferenceActive=false}
   try Task.checkCancellation()
@@ -247,6 +247,7 @@ import CryptoKit
   guard modelCode==200,let body=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],let items=body["models"] as? [[String:Any]],let selected=items.first(where:{$0["visibility"] as? String=="list"})?["slug"] as? String else {
    throw NSError(domain:"ChatGPTAuth",code:7,userInfo:[NSLocalizedDescriptionKey:"模型列表不可用"])
   }
+  guard canSend() else {throw CancellationError()}
   var req=URLRequest(url:URL(string:"https://api.openai.com/v1/responses")!);req.timeoutInterval=40
   req.httpMethod="POST";req.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization");req.setValue("application/json",forHTTPHeaderField:"Content-Type")
   req.httpBody=try JSONSerialization.data(withJSONObject:["model":selected,"instructions":instructions,"input":[["role":"user","content":input]],"store":false,"stream":true] as [String:Any])

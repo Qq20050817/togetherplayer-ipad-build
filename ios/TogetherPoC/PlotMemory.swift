@@ -57,6 +57,18 @@ struct PlotCacheEntry:Codable {
  let cutoff:Double
  let question:PlotQuestion
 }
+struct PlotDecision:Codable {
+ let timestamp:Double
+ let position:Double
+ let mode:String
+ let selectedModel:String
+ let reason:String
+ let complexityScore:Int
+ let confidence:Double
+ let requests:Int
+ let quality:String
+ let misjudgmentReview:String
+}
 struct PlotMemoryState:Codable {
  var evidence:[PlotEvidence]=[]
  var clues:[PlotClue]=[]
@@ -64,6 +76,7 @@ struct PlotMemoryState:Codable {
  var budget=PlotBudget()
  var cache:[PlotCacheEntry]=[]
  var questions:[PlotCacheEntry]=[]
+ var decisions:[PlotDecision]=[]
  mutating func ingest(_ values:[PlotEvidence],cutoff:Double) {
   guard cutoff.isFinite,cutoff>=0 else {return}
   var seen=Set(evidence.map(\.id))
@@ -137,4 +150,5 @@ actor PlotMemoryStore {
   var state=load(key);state.addClues(clues,context:context);state.remember(question,at:cutoff);try save(state,key:key)
  }
  func fail(key:String,segment:Int) throws {var state=load(key);state.budget.failedSegments.insert(segment);try save(state,key:key)}
+ func record(key:String,decision:PlotDecision) throws {var state=load(key);state.decisions.append(decision);state.decisions=Array(state.decisions.suffix(200));try save(state,key:key)}
 }

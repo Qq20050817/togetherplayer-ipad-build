@@ -8,10 +8,10 @@ struct PlotFrame {
  var prediction:PlotPrediction?
 }
 @MainActor final class PlotIntelligence:ObservableObject {
- @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode")}}
+ @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");if working {cancel()}}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed")}}
- @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent")}}
- @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits")}}
+ @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
+ @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
  @Published var limit:Int {didSet {limit=min(50,max(1,limit));preferences.set(limit,forKey:"plot-cloud-limit")}}
  @Published private(set) var working=false
  @Published private(set) var result:PlotQuestion?
@@ -66,6 +66,7 @@ struct PlotFrame {
  private func run(_ snapshot:PlotFrame,token:Int,manualDeep:Bool,regenerate:Bool) async {
   do {
    let state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
+   requests=state.budget.total;automaticRequests=state.budget.automatic
    let context=state.context(at:snapshot.position)
    let history=state.questions.filter{$0.cutoff<=snapshot.position}.map{$0.question.text}
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position) {
@@ -90,7 +91,8 @@ struct PlotFrame {
     if allowed,try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:manualDeep,limit:limit,interval:180) {
      let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
      do {
-      let text=try await auth.performInference(instructions:PlotLocalAI.questionInstructions,input:context.boundedInput)
+      guard valid(snapshot,token:token) else {cancel();return}
+      let text=try await auth.performInference(instructions:PlotLocalAI.questionInstructions,input:context.boundedInput,canSend:{self.valid(snapshot,token:token)})
       guard valid(snapshot,token:token) else {return}
       if var cloud=PlotPromptMaker.parse(text),PlotQuality.check(cloud,context:context,history:history) {
        cloud=PlotQuestion(text:cloud.text,choices:cloud.choices,source:"ChatGPT",evidenceIDs:cloud.evidenceIDs,kind:cloud.kind)
@@ -119,6 +121,8 @@ struct PlotFrame {
  private func complete(_ question:PlotQuestion,reason:String,frame snapshot:PlotFrame,token:Int) {
   guard valid(snapshot,token:token) else {return}
   result=question;previewCutoff=snapshot.position;self.reason=reason;selectedModel=question.source;working=false;deadline?.cancel();deadline=nil
+  let decision=PlotDecision(timestamp:Date().timeIntervalSince1970,position:snapshot.position,mode:mode.rawValue,selectedModel:question.source,reason:reason,complexityScore:assessment.complexityScore,confidence:assessment.confidence,requests:requests,quality:question.evidenceIDs.isEmpty ? "generic_fallback" : "evidence_checked",misjudgmentReview:"notReviewed")
+  Task(priority:.utility) {try? await memory.record(key:snapshot.key,decision:decision)}
  }
  deinit {timer?.invalidate();operation?.cancel();deadline?.cancel()}
 }

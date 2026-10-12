@@ -109,6 +109,17 @@ final class PlotMemoryTests:XCTestCase {
  }
 }
 @MainActor final class PlotControllerTests:XCTestCase {
+ func testUnverifiedChatGPTModeFallsBackWithoutSpendingRequests() async throws {
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  controller.mode = .chatgpt;controller.automaticAllowed=true;controller.consent=true;controller.creditsDisabled=true
+  let cues=(0..<3).map{PlotEvidence.cue(start:Double($0*3),end:Double($0*3+2),text:"已经发生的对话\($0)",source:"test")}
+  controller.frame={PlotFrame(key:"guard-test",position:10,evidence:cues)}
+  controller.generate()
+  for _ in 0..<30 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
+  XCTAssertEqual(controller.result?.source,"免费备用题库");XCTAssertEqual(controller.requests,0)
+  XCTAssertTrue(controller.reason.contains("条件未满足"))
+ }
  func testDefaultsDisableCloudAndLimitIsUserConfigurable() {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
   let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
