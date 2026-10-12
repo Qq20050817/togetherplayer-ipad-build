@@ -26,7 +26,33 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.buttons["退出全屏"].exists)
   surface.press(forDuration:0.7)
   app.buttons["退出全屏"].tap()
+  XCTAssertTrue(app.buttons["全屏观影"].firstMatch.waitForExistence(timeout:6),"退出全屏后主界面必须恢复")
+  XCTAssertEqual(app.state,.runningForeground,"退出全屏不能导致 App 闪退")
   XCTAssertFalse(app.otherElements["fullscreen-gesture-surface"].exists)
+ }
+ func testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_VOICE_GESTURE_TEST"]="1"
+  app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let full=app.buttons["全屏观影"].firstMatch
+  XCTAssertTrue(full.waitForExistence(timeout:15))
+  for cycle in 0..<3 {
+   full.tap()
+   let surface=app.otherElements["fullscreen-gesture-surface"].firstMatch
+   XCTAssertTrue(surface.waitForExistence(timeout:5))
+   if cycle == 1 {
+    surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:0.8))
+     .press(forDuration:0.05,thenDragTo:surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:0.2)))
+   }
+   if cycle == 2 {surface.press(forDuration:0.7)}
+   let exit=app.buttons["退出全屏"].firstMatch
+   XCTAssertTrue(exit.waitForExistence(timeout:5))
+   exit.tap()
+   XCTAssertTrue(full.waitForExistence(timeout:6),"第\(cycle+1)次退出后必须返回主界面")
+   XCTAssertEqual(app.state,.runningForeground,"第\(cycle+1)次退出全屏后 App 不能退出运行")
+  }
  }
  func testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()

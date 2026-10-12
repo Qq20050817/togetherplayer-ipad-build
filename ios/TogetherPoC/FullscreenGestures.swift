@@ -53,8 +53,10 @@ struct FullscreenGestureSurface:UIViewRepresentable {
  }
  func updateUIView(_ view:FullscreenTouchView,context:Context) {context.coordinator.parent=self}
  static func dismantleUIView(_ view:FullscreenTouchView,coordinator:Coordinator) {
-  coordinator.finish()
-  UIScreen.main.brightness=coordinator.originalBrightness
+  // UIKit may cancel active touches while SwiftUI is removing this view.
+  // Clear callbacks first so removal cannot publish into a disappearing view.
+  view.onStart=nil;view.onMove=nil;view.onEnd=nil;view.onCancel=nil
+  coordinator.detach()
  }
  @MainActor final class Coordinator:NSObject {
   var parent:FullscreenGestureSurface
@@ -125,6 +127,23 @@ struct FullscreenGestureSurface:UIViewRepresentable {
    ignored=false
    parent.interacting(false)
    parent.feedback("")
+  }
+  func detach() {
+   // No @State/ObservableObject notifications synchronously during dismantle.
+   longPress?.cancel()
+   longPress=nil
+   let stopHold=holding ? parent.hold : nil
+   holding=false
+   tracking=false
+   sliding=false
+   ignored=false
+   surface=nil
+   volumeView=nil
+   let brightness=originalBrightness
+   DispatchQueue.main.async {
+    stopHold?(false)
+    UIScreen.main.brightness=brightness
+   }
   }
  }
 }
