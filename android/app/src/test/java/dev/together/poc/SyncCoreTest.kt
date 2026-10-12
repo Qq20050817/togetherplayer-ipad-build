@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.json.JSONObject
 
 class SyncCoreTest {
+ @Test fun longPressSpeedIsTemporaryAndNeverOverridesPausedRoom() {
+  var now=1000.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
+  val player=FakePlayer();val engine=SyncEngine(player,clock)
+  assertFalse(engine.beginTemporaryFastForward())
+  val room=JSONObject("""{"roomId":"hold","version":1,"executeAt":0,"state":"playing","position":0,"updatedAt":0,"playbackRate":1,"before":{}}""")
+  engine.receive(room);player.pos=1000
+  assertTrue(engine.beginTemporaryFastForward());assertEquals(2f,player.rate,0.001f)
+  now=2000.0;player.pos=5000;engine.tick()
+  assertEquals(2f,player.rate,0.001f);assertEquals(0,player.seeks)
+  engine.stopTemporaryFastForward();assertEquals(1f,player.rate,0.001f)
+  engine.tick();assertEquals(1,player.seeks);assertEquals(2000L,player.pos)
+  assertTrue(engine.beginTemporaryFastForward())
+  engine.receive(JSONObject(room.toString()).put("version",2).put("state","paused").put("position",2000).put("updatedAt",2000))
+  engine.tick();assertFalse(player.playing);assertEquals(1f,player.rate,0.001f)
+  assertFalse(engine.beginTemporaryFastForward())
+  engine.resetSession();assertEquals(1f,player.rate,0.001f)
+ }
  class FakePlayer : PlayerAdapter {
   var pos=0L;var rate=1f;var playing=false;var seeks=0;var ready=true;var acceptSeek=true;var durationMs=4000000L;var buffering=false
   override fun play() {playing=true};override fun pause() {playing=false}
