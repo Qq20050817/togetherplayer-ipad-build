@@ -171,7 +171,7 @@ import UniformTypeIdentifiers
    ZStack(alignment:.bottom) {
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
-    if let model {Color.clear.contentShape(Rectangle()).modifier(HoldToFastForward(model:model))}
+    if let model {HoldToFastForward(model:model)}
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
     }
@@ -179,36 +179,60 @@ import UniformTypeIdentifiers
   }
  }
 }
-@MainActor private struct HoldToFastForward: ViewModifier {
- @ObservedObject var model: TestClient
- @GestureState private var pressing=false
- @State private var active=false
- private var holdGesture: some Gesture {
-  LongPressGesture(minimumDuration:0.45,maximumDistance:30)
-   .sequenced(before:DragGesture(minimumDistance:0))
-   .updating($pressing) {value,state,_ in
-    if case .second(true,_) = value {state=true}
+// A UIKit recognizer on the movie surface leaves sibling SwiftUI toolbar buttons
+// untouched. It detects both hold-start and finger-up without consuming taps.
+private struct HoldSpeedTouchLayer: UIViewRepresentable {
+ var onHold: (Bool) -> Void
+ final class Coordinator: NSObject {
+  var onHold: (Bool) -> Void
+  init(_ onHold: @escaping (Bool) -> Void) {self.onHold=onHold}
+  @objc func pressed(_ recognizer: UILongPressGestureRecognizer) {
+   switch recognizer.state {
+   case .began: onHold(true)
+   case .ended, .cancelled, .failed: onHold(false)
+   default: break
    }
+  }
  }
- func body(content: Content) -> some View {
-  // Keep overlay controls outside the hold recognizer's touch scope.
-  content.simultaneousGesture(holdGesture, including: .gesture)
-   .overlay(alignment:.top) {
-    if active {
-     Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
-      .padding(.horizontal,16).padding(.vertical,8)
-      .background(Color(red:0.09,green:0.17,blue:0.24).opacity(0.85)).clipShape(Capsule())
-      .padding(.top,64).allowsHitTesting(false)
-      .accessibilityIdentifier("temporary-2x-indicator")
-    }
+ func makeCoordinator() -> Coordinator {Coordinator(onHold)}
+ func makeUIView(context: Context) -> UIView {
+  let view=UIView(frame:.zero)
+  view.backgroundColor = .clear
+  view.isAccessibilityElement=false
+  let gesture=UILongPressGestureRecognizer(target:context.coordinator,action:#selector(Coordinator.pressed(_:)))
+  gesture.minimumPressDuration=0.45
+  gesture.allowableMovement=30
+  gesture.cancelsTouchesInView=false
+  gesture.delaysTouchesBegan=false
+  view.addGestureRecognizer(gesture)
+  return view
+ }
+ func updateUIView(_ view:UIView,context:Context) {context.coordinator.onHold=onHold}
+}
+@MainActor private struct HoldToFastForward: View {
+ @ObservedObject var model:TestClient
+ @State private var active=false
+ var body: some View {
+  HoldSpeedTouchLayer {holding in
+   if holding {
+    if !active {active=model.engine.beginTemporaryFastForward()}
+   } else {
+    if active {model.engine.endTemporaryFastForward();active=false}
    }
-   .onChange(of:pressing) {holding in
-    if holding {if !active {active=model.engine.beginTemporaryFastForward()}}
-    else {model.engine.endTemporaryFastForward();active=false}
+  }
+  .overlay(alignment:.top) {
+   if active {
+    Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
+     .padding(.horizontal,16).padding(.vertical,8)
+     .background(Color(red:0.09,green:0.17,blue:0.24).opacity(0.85)).clipShape(Capsule())
+     .padding(.top,64).allowsHitTesting(false)
+     .accessibilityIdentifier("temporary-2x-indicator")
    }
-   .onDisappear {model.engine.endTemporaryFastForward();active=false}
+  }
+  .onDisappear {if active {model.engine.endTemporaryFastForward();active=false}}
  }
 }
+
 struct SubtitleHeightKey:PreferenceKey {
  static var defaultValue:CGFloat=0
  static func reduce(value:inout CGFloat,nextValue:()->CGFloat) {value=max(value,nextValue())}
