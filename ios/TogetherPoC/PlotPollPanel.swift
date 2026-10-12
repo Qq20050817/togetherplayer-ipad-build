@@ -9,6 +9,7 @@ import SwiftUI
  @State private var generating=false
  @State private var selected=""
  @State private var custom=""
+ @StateObject private var authProbe=ChatGPTAuthProbe()
  var body:some View {
   NavigationStack {
    ScrollView {
@@ -63,6 +64,25 @@ import SwiftUI
        ForEach(draft.choices,id:\.self){choice in Text("○ \(choice)").font(.subheadline)}
        Button("发布问题给两个人") {model.publishPlotPoll(draft);preview=nil}.disabled(!model.isConnected)
       }
+     }
+     DisclosureGroup("🧪 ChatGPT 首次授权及连续调用试验") {
+      VStack(alignment:.leading,spacing:12) {
+       Text("首次登录将打开官方 ChatGPT 授权页面。只保留本机授权，不把密码、令牌、电影、字幕传给房间服务端。")
+        .font(.caption).foregroundStyle(.secondary)
+       Text(authProbe.status).font(.callout).accessibilityIdentifier("chatgpt-auth-status")
+       Button("Continue with ChatGPT") {authProbe.connect()}
+        .disabled(authProbe.working)
+        .buttonStyle(.borderedProminent).accessibilityIdentifier("chatgpt-auth-start")
+       Button("在播放器内测试调用（可重复点击）") {authProbe.testRepeatedCall()}
+        .disabled(!authProbe.connected || authProbe.working)
+        .accessibilityIdentifier("chatgpt-auth-test")
+       if !authProbe.testText.isEmpty {Text(authProbe.testText).font(.callout)}
+       if authProbe.connected {
+        Button("清除本机授权",role:.destructive){authProbe.disconnect()}
+       }
+       Text("授权测试版：若回调无法回到 iPad，请勿多次提交授权；返回应用查看诊断。此入口不会改变默认苹果本地 AI 出题方式。")
+        .font(.caption2).foregroundStyle(.secondary)
+      }.padding(10)
      }
      Text("隐私：只把问题、选项和回答发送到房间；字幕留在 iPad。设备端 AI 不可用会自动使用免费模板。")
       .font(.caption2).foregroundStyle(.secondary)
