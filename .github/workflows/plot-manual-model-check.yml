@@ -1,0 +1,48 @@
+name: Verify explicit plot AI model choice
+on:
+  push:
+    branches: [fix/plot-manual-model-selection-20261013]
+    paths: ['.github/workflows/plot-manual-model-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ipad:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build iPad release unsigned
+        run: |
+          set -euo pipefail
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath manual-ai-build
+          python3 tools/patch_prism_swift61.py manual-ai-build/SourcePackages/checkouts/PrismCore
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath manual-ai-build CODE_SIGNING_ALLOWED=NO build
+      - name: Verify explicit cloud/local mode does not silently use fallback
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j >/tmp/tp-sims.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/tp-sims.json"))["devices"]; print(next(x["udid"] for v in d.values() for x in v if "iPad" in x["name"]))')
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath manual-ai-build CODE_SIGNING_ALLOWED=NO \
+            -only-testing:TogetherPoCCoreTests/PlotControllerTests/testManualChatGPTWithoutGrantReportsErrorAndDoesNotUseFallback \
+            -only-testing:TogetherPoCCoreTests/PlotControllerTests/testManualLocalWithoutOnDeviceModelReportsErrorNotFallback \
+            -only-testing:TogetherPoCCoreTests/PlotMemoryTests/testBudgetCountsDispatchesAndPreventsLoops test
+      - name: Package v0.6.3 candidate
+        if: success()
+        run: |
+          set -euo pipefail
+          python3 tools/package_unsigned_ipa.py manual-ai-build/Build/Products/Release-iphoneos/TogetherPoC.app candidate/TogetherPlayer-v0.6.3-explicit-model-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 candidate/TogetherPlayer-v0.6.3-explicit-model-unsigned.ipa > candidate/SHA256SUMS.txt
+          echo "Source: ${GITHUB_REPOSITORY}@${GITHUB_SHA}" > candidate/BUILD.txt
+          echo "Manual local and ChatGPT failures are always surfaced. Only smart mode falls back to the free bank." >> candidate/BUILD.txt
+          echo "Unsigned candidate. Server update and real-model on-device validation are separate." >> candidate/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: TogetherPlayer-iPad-v0.6.3-manual-model-fixed
+          path: candidate/
+          retention-days: 7
