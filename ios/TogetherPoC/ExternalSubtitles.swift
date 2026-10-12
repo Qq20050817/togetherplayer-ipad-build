@@ -25,6 +25,15 @@ import AVFoundation
  private var observer: Any?
  private var generation=0
  var available: Bool {document != nil}
+ // Only subtitles strictly at/before the current player time may enter a
+ // generative question prompt; never pass the whole movie's subtitle file.
+ func observedPlotExcerpt() -> String {
+  let cutoff=player.currentTime().seconds-delay
+  guard cutoff.isFinite && cutoff>=0 else {return ""}
+  let past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff+0.25}.suffix(22).map{$0.text} ?? []
+  return past.joined(separator:"\n")
+ }
+
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
   self.player=player;self.preferences=preferences
   fontSize=SubtitleAppearance.font(preferences.object(forKey:"subtitle-font-size") as? Double ?? 24)

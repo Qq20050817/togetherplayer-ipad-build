@@ -21,7 +21,15 @@ import CoreMedia
  @Published var isRoomHost=false
  @Published var isConnected=false
  let chat=ChatEngine()
+ @Published var plotPoll:[String:Any]?
  let library=MediaLibrary()
+ var plotPollSubmitted:Bool {
+  guard let myID=credentials?["userId"] as? String else {return false}
+  return (plotPoll?["submitted"] as? [String] ?? []).contains(myID)
+ }
+ var plotPollAnswers:[String:String] {plotPoll?["answers"] as? [String:String] ?? [:]}
+ var plotMyUserID:String {credentials?["userId"] as? String ?? ""}
+
  @Published var videoBadges: [String]=[]
  var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : engine.room?.state == "playing"}
  var playbackTitle: String {usingLocalFile ? localFileName : usingBaiduSource ? baiduFileName : roomTitle}
@@ -494,6 +502,8 @@ import CoreMedia
    for message in outbox.values {send(message)}
    if let file=pendingLocalFile {pendingLocalFile=nil;useLocalFile(file)}
   }
+  if type=="PLOT_POLL_STATE" {plotPoll=obj["poll"] as? [String:Any]}
+  if type=="WELCOME" {plotPoll=obj["poll"] as? [String:Any]}
   if type=="CHAT_MESSAGE",let message=obj["message"] as? [String:Any] {acceptChat(message,live:true)}
   if type=="REACTION",let emoji=obj["emoji"] as? String {chat.reaction(emoji,now:clock.localNow())}
   if type=="CHAT_TYPING",obj["userId"] as? String != credentials?["userId"] as? String {chat.typing(obj["name"] as? String ?? "好友",now:clock.localNow())}
@@ -818,6 +828,16 @@ extension TestClient {
  func setWaiting(_ enabled: Bool) {
   guard isHost,connected else {return};queuedOperations.append(["type":"ROOM_SETTINGS","data":["waitForPeer":enabled]]);flushOperations()
  }
+ func publishPlotPoll(_ question:PlotQuestion) {
+  guard connected,isRoomHost,let room=engine.room else {requestStatus="只有已连接的房主能出题";return}
+  send(["type":"PLOT_POLL_CREATE","data":["question":question.text,"options":question.choices,"positionMs":max(0,adapter.position-engine.timelineOffset)]])
+ }
+ func answerPlotPoll(_ text:String) {
+  guard connected,let poll=plotPoll,let id=poll["id"] as? String,!plotPollSubmitted else {return}
+  let answer=String(text.trimmingCharacters(in:.whitespacesAndNewlines).prefix(180))
+  guard !answer.isEmpty else {return}
+  send(["type":"PLOT_POLL_ANSWER","data":["id":id,"answer":answer]])
+ }
  func sendChat() {
   let text=chatDraft.text.trimmingCharacters(in:.whitespacesAndNewlines)
   guard connected else {requestStatus="连接恢复后再发送消息";return}
@@ -845,6 +865,7 @@ extension TestClient {
   externalSubtitles.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
   mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
+  plotPoll=nil
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
  func setSpeedHold(_ active:Bool) {
