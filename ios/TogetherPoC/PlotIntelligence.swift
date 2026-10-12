@@ -156,10 +156,14 @@ struct PlotFrame {
     // toggle must only control automatic smart routing, not manual selection.
     // With no subtitles, never send invented film details; ask a general
     // question using the actual ChatGPT model.
+    // A person pressing Generate in Smart mode may request an honest,
+    // context-free ChatGPT question when subtitle evidence is missing.
+    // Automatic moments still require evidence before any cloud request.
     let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working &&
-       (context.sufficient || explicitlyCloud) && (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
+       (context.sufficient || explicitlyCloud || (!autoMoment && mode == .smart)) &&
+       (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
     if allowed {
-     if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:explicitlyCloud,limit:limit,interval:180) {
+     if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:explicitlyCloud || !autoMoment,limit:limit,interval:180) {
       let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
       do {
        guard valid(snapshot,token:token) else {cancel();return}
@@ -189,8 +193,10 @@ struct PlotFrame {
      explanation="ChatGPT 尚未完成首次授权，或本机授权已失效；不需要连续调用验收"
     } else if auth.usagePaused {
      explanation="ChatGPT 额度暂停；请检查官方用量设置"
-    } else if !context.sufficient && !explicitlyCloud {
-     explanation="没有足够的已观看字幕，智能模式不自动消耗 ChatGPT 额度"
+    } else if mode == .smart && !automaticAllowed {
+     explanation="尚未开启智能调用 ChatGPT，请在剧情推理室开启开关（同时需要本应用独立授权）"
+    } else if !context.sufficient && autoMoment {
+     explanation="没有足够的已观看字幕，智能模式不会自动消耗 ChatGPT 额度"
     } else {
      explanation="当前云端调用暂不可用，请稍后再试"
     }
