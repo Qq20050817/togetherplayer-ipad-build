@@ -408,8 +408,8 @@ struct FullscreenToolStyle:ButtonStyle {
      PlaybackControls(model:model,compact:true,modalChanged:{controls.setBusy("volume",$0)})
      // AnyLayout preserves the voice view identity when width changes. Recording
      // must not be cancelled because a fitting-layout candidate disappeared.
-     let layout=geometry.size.width>=1100 ? AnyLayout(HStackLayout(spacing:8)) : AnyLayout(VStackLayout(alignment:.leading,spacing:4))
-     layout {tools.frame(width:min(708,geometry.size.width-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
+     let layout=geometry.size.width>=1182 ? AnyLayout(HStackLayout(spacing:8)) : AnyLayout(VStackLayout(alignment:.leading,spacing:4))
+     layout {tools.frame(width:min(810,geometry.size.width-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
      .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
@@ -434,6 +434,7 @@ struct FullscreenToolStyle:ButtonStyle {
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
+   .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
    .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
   }
  }
@@ -444,7 +445,7 @@ struct FullscreenToolStyle:ButtonStyle {
    Button {plotPollOpen=true} label:{Label("剧情推理",systemImage:"theatermasks.fill")}.accessibilityLabel("剧情推理")
    Button {adjustingDanmaku=true} label:{Label("弹幕字号",systemImage:"textformat.size")}.accessibilityLabel("弹幕字号").popover(isPresented:$adjustingDanmaku) {DanmakuSettings(showsSpeed:false).frame(width:280).padding(20)}
    Button {adjustingSpeed=true} label:{Label("弹幕速度",systemImage:"speedometer")}.accessibilityLabel("弹幕速度").popover(isPresented:$adjustingSpeed) {DanmakuSettings(showsFont:false).frame(width:280).padding(20)}
-  }.font(.caption).buttonStyle(FullscreenToolStyle())}.frame(maxWidth:708).frame(height:36)
+  }.font(.caption).buttonStyle(FullscreenToolStyle())}.frame(maxWidth:810).frame(height:36)
  }
  private var voiceDock:some View {
   VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,fullscreen:true,busyChanged:{controls.setBusy("voice",$0)}).frame(maxWidth:340).accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-voice-dock")
