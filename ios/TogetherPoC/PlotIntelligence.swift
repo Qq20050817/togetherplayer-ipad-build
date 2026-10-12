@@ -37,7 +37,7 @@ struct PlotFrame {
   automaticAllowed=preferences.bool(forKey:"plot-cloud-allowed")
   consent=preferences.bool(forKey:"plot-cloud-consent")
   creditsDisabled=preferences.bool(forKey:"plot-cloud-no-credits")
-  limit=min(50,max(1,preferences.object(forKey:"plot-cloud-limit") as? Int ?? 10))
+  limit=min(50,max(1,preferences.object(forKey:"plot-cloud-limit") as? Int ?? 5))
  }
  func start() {
   guard timer==nil else {return}
