@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild -resolvePackageDependencies \
+          python3 tools/resolve_apple_packages.py \
             -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
             -derivedDataPath apple-build-derived 2>&1 | tee apple-build-logs/resolve.log
           python3 tools/patch_prism_swift61.py apple-build-derived/SourcePackages/checkouts/PrismCore
