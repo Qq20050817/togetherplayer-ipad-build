@@ -93,7 +93,7 @@ struct PlotFrame {
     if let cached=state.reusable(at:snapshot.position) {
      complete(cached,reason:"同片段已有可复用问题，未再次请求 ChatGPT",frame:snapshot,token:token);return
     }
-    let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working && context.sufficient && (manualDeep || automaticAllowed)
+    let allowed=consent && creditsDisabled && auth.canSendInference && !auth.working && context.sufficient && (manualDeep || automaticAllowed)
     if allowed,try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:manualDeep,limit:limit,interval:180) {
      let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
      do {
@@ -105,7 +105,7 @@ struct PlotFrame {
        chosen=cloud;explanation=manualDeep ? "你手动请求了深度推理" : "本地题目不足，依据已观看的跨场景线索升级"
       } else {try await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180));explanation="云端题目未通过证据或重复检查，安全回退"}
      } catch {try? await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180));explanation="ChatGPT 不可用，已停止该片段自动重试并回退"}
-    } else {explanation="云端授权验证、同意、额度或调用间隔条件未满足，继续本地方案"}
+    } else {explanation="尚未授权、未同意、额度暂停或调用间隔受限，继续本地方案"}
    }
    guard valid(snapshot,token:token) else {cancel();return}
    let question=chosen ?? PlotFallback.question(context:context,history:history)
