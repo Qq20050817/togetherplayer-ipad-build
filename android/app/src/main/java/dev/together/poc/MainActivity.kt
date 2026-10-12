@@ -54,6 +54,7 @@ class MainActivity: Activity() {
  private var fullscreenDialog: android.app.Dialog?=null;private var fullscreenControls: LinearLayout?=null;private var fullscreenTime: TextView?=null;private var fullscreenAction:TextView?=null;private var actionFeedbackGeneration=0;private var draggingProgress=false;private var screenRoot: LinearLayout?=null
  private val danmakuPending=ArrayDeque<Triple<String,Double,Long>>();private val danmakuLanes=BooleanArray(3);private var danmakuSize=24f;private var danmakuSpeed=1f
  private var fullscreenTouching=false;private var fullscreenFocused=true
+ private lateinit var fastForwardBadge:TextView
  private lateinit var voice:VoiceDanmakuController
  private val voiceViews=mutableListOf<VoiceDanmakuView>()
  private var voiceConnected=false
@@ -121,7 +122,7 @@ class MainActivity: Activity() {
   pendingLocalMovie?.let {state.putString("localPickerUri",it.first.toString());state.putInt("localPickerFlags",it.second)}
   super.onSaveInstanceState(state)
  }
- override fun onStop(){voice.disable();foreground=false;generation++;connected=false;ws?.cancel();ws=null;engine.resetSession();if(subtitlePickerOpen)playback.pause()else playback.stop();status.text="后台暂停；返回同步";super.onStop()}
+ override fun onStop(){stopFastForwardHold();voice.disable();foreground=false;generation++;connected=false;ws?.cancel();ws=null;engine.resetSession();if(subtitlePickerOpen)playback.pause()else playback.stop();status.text="后台暂停；返回同步";super.onStop()}
  private fun buildInterface(){
   danmakuSize=getPreferences(0).getFloat("danmakuSize",24f).coerceIn(14f,44f)
   danmakuSpeed=getPreferences(0).getFloat("danmakuSpeed",1f).coerceIn(0.5f,2f)
@@ -137,6 +138,37 @@ class MainActivity: Activity() {
   root.addView(watch,LinearLayout.LayoutParams(-1,0,1f));root.addView(settings,LinearLayout.LayoutParams(-1,0,1f))
   watchBody=LinearLayout(this);watch.addView(watchBody,LinearLayout.LayoutParams(-1,0,1f));videoColumn=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL};chatColumn=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff090e10.toInt())};watchBody.addView(videoColumn);watchBody.addView(chatColumn)
   videoBox=FrameLayout(this).apply {setBackgroundColor(android.graphics.Color.BLACK)};videoColumn.addView(videoBox);nativeVideoView=PlayerView(this).apply {player=this@MainActivity.player;useController=false;isClickable=false};videoBox.addView(nativeVideoView,FrameLayout.LayoutParams(-1,-1));independentVideoView=org.videolan.libvlc.util.VLCVideoLayout(this).apply {visibility=View.GONE};videoBox.addView(independentVideoView,FrameLayout.LayoutParams(-1,-1));playback.bind(independentVideoView!!)
+  val fastForwardGesture=android.view.GestureDetector(this,object:android.view.GestureDetector.SimpleOnGestureListener() {
+   override fun onDown(e:android.view.MotionEvent)=true
+   override fun onSingleTapUp(e:android.view.MotionEvent):Boolean {
+    if(fullscreenDialog!=null) {
+     if(fullscreenControls?.visibility==View.VISIBLE && !voice.busy){fullscreenControls?.visibility=View.GONE;main.removeCallbacks(hideControls)} else revealControls()
+    }
+    return true
+   }
+   override fun onLongPress(e:android.view.MotionEvent) {
+    if(connected && engine.beginTemporaryFastForward()){
+     fastForwardBadge.visibility=View.VISIBLE
+     main.removeCallbacks(hideControls)
+    }
+   }
+  })
+  val fastForwardTouch=View(this).apply {
+   contentDescription="长按画面临时2倍速"
+   isClickable=true
+   setOnTouchListener {_,event->
+    fastForwardGesture.onTouchEvent(event)
+    if(event.actionMasked==android.view.MotionEvent.ACTION_UP || event.actionMasked==android.view.MotionEvent.ACTION_CANCEL)stopFastForwardHold()
+    true
+   }
+  }
+  videoBox.addView(fastForwardTouch,FrameLayout.LayoutParams(-1,-1))
+  fastForwardBadge=TextView(this).apply {
+   text="2.0×  松手恢复";textSize=14f;setTextColor(-1);gravity=android.view.Gravity.CENTER
+   setPadding(dp(16),dp(7),dp(16),dp(7));background=rounded(0xcc182b3e.toInt(),20)
+   visibility=View.GONE
+  }
+  videoBox.addView(fastForwardBadge,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL).apply {topMargin=dp(64)})
   val titlePanel=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(8),dp(16));background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xc9000000.toInt(),0x00000000))};watchHeading=titlePanel;videoBox.addView(titlePanel,FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP))
   val heading=row(titlePanel).apply {gravity=android.view.Gravity.CENTER_VERTICAL};roomTitle=label(heading,"选择影片，开始一起看").apply {layoutParams=LinearLayout.LayoutParams(0,-2,1f);textSize=15f;setTypeface(typeface,android.graphics.Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END}
   icon(heading,R.drawable.ic_audiotrack,"音轨",36) {selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
@@ -339,7 +371,7 @@ class MainActivity: Activity() {
   tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
   val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2));val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
   content.addView(overlay,LinearLayout.LayoutParams(-1,-2));videoBox.setOnClickListener {if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()}
-  dialog.setContentView(content);dialog.setOnDismissListener {if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
+  dialog.setContentView(content);dialog.setOnDismissListener {stopFastForwardHold();if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
    val original=window.callback
    window.callback=object:android.view.Window.Callback by original {
     override fun dispatchTouchEvent(event:android.view.MotionEvent):Boolean {
@@ -352,6 +384,7 @@ class MainActivity: Activity() {
    }
   };content.requestApplyInsets();dialog.window?.setLayout(-1,-1);dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);revealControls()
  }
+ private fun stopFastForwardHold(){engine.stopTemporaryFastForward();if(::fastForwardBadge.isInitialized)fastForwardBadge.visibility=View.GONE}
  private fun scheduleControlsHide(){main.removeCallbacks(hideControls);if(fullscreenControls?.visibility==View.VISIBLE && !fullscreenTouching && fullscreenFocused && !voice.busy && !draggingProgress)main.postDelayed(hideControls,if(applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE!=0 && intent.getBooleanExtra("uiTestSlow",false))12000 else 10000)}
  private fun revealControls(){fullscreenControls?.visibility=View.VISIBLE;scheduleControlsHide()}
  private fun togglePlayback(){control(if(engine.room?.optString("state")=="playing")"PAUSE" else "PLAY")}
@@ -586,7 +619,7 @@ class MainActivity: Activity() {
  }
 
  private fun showReaction(emoji: String){if(emoji !in listOf("😂","😱","😭","🤯","❤️","👀"))return;val v=TextView(this).apply {text=emoji;textSize=34f};videoBox.addView(v,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL));v.animate().translationY(-dp(80).toFloat()).alpha(0f).setDuration(3000).withEndAction {videoBox.removeView(v)}.start()}
- private fun clearRoom(){variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
+ private fun clearRoom(){stopFastForwardHold();variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
  private fun diagnostic(event: String,details: JSONObject=JSONObject()){if(!connected)return;send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("diagnostic",true).put("event",event).put("details",details).put("clientVersion",clientVersion).put("positionMs",playback.currentPosition).put("version",engine.version).put("playbackRate",playback.playbackParameters.speed).put("bufferedPositionMs",playback.bufferedPosition).put("playbackState",playback.playbackState)))}
  private val tick=object: Runnable {override fun run(){if(stopped)return;updatePlaybackUI();notice.visibility=if(notice.text.isBlank())View.GONE else View.VISIBLE;requestStatus.visibility=if(requestStatus.text.isBlank())View.GONE else View.VISIBLE;presence.visibility=if(presence.text.isBlank())View.GONE else View.VISIBLE;chat.tick(clock.localNow());val typingLabel=if(chat.typingName.isBlank())"" else "${chat.typingName} 正在输入…";if(typing.text.toString()!=typingLabel)typing.text=typingLabel;if(foreground && connected){val variantState=variantCheck();val error=if(variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE)engine.tick() else {playback.pause();null};if(usingVariant())notice.text=when(variantState){MovieVariantPolicy.DurationCheck.WAITING->"等待原版与转码版的影片时长；暂不进入同步。";MovieVariantPolicy.DurationCheck.DIFFERENT->"影片时长不一致，请确认剪辑版本或校准时间差。";else->"同一剪辑的另一画质已确认，影片时长核对通过。"};ticks++;flush();if(ticks%10==0){send(JSONObject().put("type","SYNC"));val ready=variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE && (BaiduMediaReference.parse(engine.room?.optString("mediaUrl") ?: "")==null || hasBaiduMatch()) && RecoveryBufferPolicy.ready(playback.playbackState==Player.STATE_READY || playback.playbackState==Player.STATE_ENDED,(playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0),playback.currentPosition,playback.duration,engine.room?.optBoolean("autoResume")==true && localFileUri.isBlank());send(JSONObject().put("type","PLAYER_STATUS").put("data",JSONObject().put("sourceId",if(hasBaiduMatch())baiduSourceID else "").put("ready",ready).put("buffering",playback.playbackState==Player.STATE_BUFFERING).put("position",(playback.currentPosition-engine.timelineOffset).coerceAtLeast(0.0)).put("duration",if(usingVariant() && isHost)if(variantDuration>0)variantDuration+engine.timelineOffset else 0.0 else playback.duration.coerceAtLeast(0).toDouble())));val target=engine.target();send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("clientVersion",clientVersion).put("serverTimeMs",if(clock.ready)clock.serverNow() else JSONObject.NULL).put("ready",ready).put("timelineOffsetMs",engine.timelineOffset).put("executeAtMs",engine.room?.optDouble("executeAt",0.0) ?: 0.0).put("resyncCount",engine.resyncCount).put("positionMs",playback.currentPosition).put("expectedMs",target?.first).put("errorMs",if(error!=null)target!!.first-playback.currentPosition else JSONObject.NULL).put("rttMs",clock.rtt).put("version",engine.version).put("playing",playback.isPlaying).put("buffering",!ready).put("playbackRate",playback.playbackParameters.speed)));val bufferedSeconds=((playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0)/1000);status.text="$clientVersion ${if(isHost)"HOST" else "GUEST"} room=${credentials?.optString("roomId")} v=${engine.version}\n位置 ${playback.currentPosition/1000}s 误差 ${error?.toInt()}ms RTT ${clock.rtt.toInt()}ms\n视频 ${playback.videoFormat?.sampleMimeType ?: "等待"} 音频 ${playback.audioFormat?.sampleMimeType ?: "等待"}\n已缓存 ${bufferedSeconds}s"};if(ticks%150==0)pingBurst()};main.postDelayed(this,100)}}
  private fun disconnectForTest(){generation++;val g=generation;ws?.cancel();connected=false;engine.resetSession();main.postDelayed({if(!stopped && foreground && generation==g)connect()},3000)}
