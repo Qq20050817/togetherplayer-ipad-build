@@ -1,6 +1,17 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testBlockingPlotQuestionPresentsAutomaticallyInWatchPage() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_PLOT_AUTOPAUSE_UI_TEST"]="1"
+  app.launch()
+  XCTAssertTrue(app.navigationBars["🎭 剧情推理室"].firstMatch.waitForExistence(timeout:15),
+   "A new blocking room question should open without tapping the plot toolbar")
+  XCTAssertTrue(app.staticTexts["刚才的两种解释为何相互矛盾？"].firstMatch.exists)
+  XCTAssertTrue(app.staticTexts["请双方回答后继续播放"].firstMatch.exists)
+ }
  func testPlotAIEntrancesRemainVisibleInWatchAndFullscreen() {
   let app=XCUIApplication()
   app.launchEnvironment["TOGETHER_UI_TEST"]="1"
