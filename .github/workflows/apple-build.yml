@@ -60,9 +60,26 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild -resolvePackageDependencies \
-            -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
-            -derivedDataPath apple-build-derived 2>&1 | tee apple-build-logs/resolve.log
+          # SwiftPM occasionally collides with its own binary-target download cache
+          # ("already exists in file system") on a fresh GitHub macOS runner.
+          # Retry only dependency resolution, clearing only this runner's SwiftPM
+          # artifact cache; never change package versions or project sources.
+          resolved=false
+          for attempt in 1 2 3; do
+            if xcodebuild -resolvePackageDependencies \
+              -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
+              -derivedDataPath apple-build-derived 2>&1 | tee apple-build-logs/resolve-attempt-${attempt}.log; then
+              resolved=true
+              break
+            fi
+            echo "SwiftPM resolve attempt ${attempt} failed; clearing this CI runner's binary artifact cache"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
+            sleep 3
+          done
+          if [ "$resolved" != true ]; then
+            echo "SwiftPM dependency resolution failed after 3 attempts" >&2
+            exit 74
+          fi
           python3 tools/patch_prism_swift61.py apple-build-derived/SourcePackages/checkouts/PrismCore
           xcodebuild \
             -project ios/TogetherPoC.xcodeproj \
