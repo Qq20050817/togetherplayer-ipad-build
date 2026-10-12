@@ -29,6 +29,11 @@ import UniformTypeIdentifiers
     model.plotIntelligence.mode = .fallback
     model.plotIntelligence.automaticAllowed=false;model.plotIntelligence.consent=false;model.plotIntelligence.creditsDisabled=false
    }
+   if ProcessInfo.processInfo.environment["TOGETHER_PLOT_AUTOPAUSE_UI_TEST"]=="1" {
+    DispatchQueue.main.asyncAfter(deadline:.now()+0.4) {
+     model.plotPoll=["id":"qa-blocking-question","question":"刚才的两种解释为何相互矛盾？","options":["有人隐瞒信息","有人记错时间","线索还不够"],"positionMs":42000.0,"blocking":true,"waitingForAnswers":true,"revealed":false,"submitted":[String](),"answers":[String:String]()]
+    }
+   }
    if ProcessInfo.processInfo.environment["TOGETHER_TRACK_PLAYBACK_TEST"]=="1" {try? model.installTrackPlaybackFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
