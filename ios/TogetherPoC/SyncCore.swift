@@ -84,6 +84,7 @@ final class SyncEngine {
  private(set) var room: Room?
  var timelineOffset=0.0 {didSet {if oldValue != timelineOffset {resetCorrection();lastAutoSeekAt=nil}}}
  private var correctionSpeed: Float = 1
+ private var temporaryFastForward=false
  private var excessiveDriftSince: Double?
  private var driftAtWindowStart=0.0
  private var lastAutoSeekAt: Double?
@@ -93,6 +94,7 @@ final class SyncEngine {
  let clock: ClockSync; let player: PlayerAdapter
  init(_ player: PlayerAdapter,_ clock: ClockSync) { self.player=player;self.clock=clock }
  func resetSession() {
+  endTemporaryFastForward()
   player.pause();player.setPlaybackSpeed(1);clock.reset();room=nil;lastAutoSeekAt=nil;wasUnready=false;settleUntil=0;resetCorrection()
  }
  func receive(_ next: Room) {
@@ -100,6 +102,13 @@ final class SyncEngine {
    if next.roomId != room?.roomId || next.version != room?.version {lastAutoSeekAt=nil;resetCorrection()}
    room=next
   }
+ }
+ @discardableResult func beginTemporaryFastForward() -> Bool {
+  guard target()?.1 == "playing",player.ready,!player.buffering else {return false}
+  temporaryFastForward=true;player.setPlaybackSpeed(2);player.play();return true
+ }
+ func endTemporaryFastForward() {
+  if temporaryFastForward {temporaryFastForward=false;player.setPlaybackSpeed(1)}
  }
  private func resetCorrection() { correctionSpeed=1;excessiveDriftSince=nil }
  // Keep a correction speed until the error is well inside the lower band.
@@ -128,8 +137,9 @@ final class SyncEngine {
   let now=clock.localNow()
   if !player.ready || player.buffering {wasUnready=true}
   else if wasUnready {wasUnready=false;settleUntil=now+2000}
-  if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>200 {player.seekTo(position)};return error }
+  if state == "paused" { endTemporaryFastForward();resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>200 {player.seekTo(position)};return error }
   guard player.ready && !player.buffering else {excessiveDriftSince=nil;return nil}
+  if temporaryFastForward {player.setPlaybackSpeed(2);player.play();return error}
   if now<settleUntil {resetCorrection();player.setPlaybackSpeed(1);player.play();return error}
   if abs(error)>=500 {if excessiveDriftSince == nil {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else {excessiveDriftSince=nil}
   var overdue=excessiveDriftSince.map {now-$0>=10_000} ?? false
