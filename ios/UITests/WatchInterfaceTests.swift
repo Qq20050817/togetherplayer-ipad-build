@@ -19,7 +19,9 @@ final class WatchInterfaceTests: XCTestCase {
   let endY:CGFloat=oldPercent>=60 ? 0.75 : 0.25
   surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:startY)).press(forDuration:0.05,thenDragTo:surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:endY)))
   let updatedBrightness=surface.value as? String ?? ""
-  XCTAssertNotEqual(updatedBrightness,oldBrightness,"实际滑动必须改变亮度值")
+  // Simulator hardware brightness is not guaranteed to update. The exposed
+  // gesture target verifies that a real drag reached the movie layer.
+  XCTAssertNotEqual(updatedBrightness,oldBrightness,"实际滑动必须到达亮度手势处理器")
   XCTAssertTrue(updatedBrightness.hasPrefix("亮度"))
   XCTAssertTrue(app.buttons["退出全屏"].exists)
   surface.press(forDuration:0.7)
