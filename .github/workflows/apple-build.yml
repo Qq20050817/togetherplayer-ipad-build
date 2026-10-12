@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-verified-20261013]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   apple-build:
-    runs-on: ${{ github.ref_name == 'feat/plot-polls-local-ai-20261013' && 'macos-26' || 'macos-15' }}
+    runs-on: ${{ github.ref_name == 'feat/plot-polls-local-ai-verified-20261013' && 'macos-26' || 'macos-15' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -138,7 +138,7 @@ jobs:
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi
-          if [ "${GITHUB_REF_NAME}" = "feat/plot-polls-local-ai-20261013" ]; then
+          if [ "${GITHUB_REF_NAME}" = "feat/plot-polls-local-ai-verified-20261013" ]; then
             TEST_SELECTION=(
               -only-testing:TogetherPoCCoreTests
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
