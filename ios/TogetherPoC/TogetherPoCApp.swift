@@ -78,7 +78,7 @@ import UniformTypeIdentifiers
  }
  private func watchCard(height: CGFloat) -> some View {
   VStack(alignment:.leading,spacing:12) {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat).frame(height:height)
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat).modifier(HoldToFastForward(model:model)).frame(height:height)
     .overlay(alignment:.topLeading) {
      VStack(alignment:.leading,spacing:8) {
       Text(model.playbackTitle).font(.headline).lineLimit(1)
@@ -175,6 +175,35 @@ import UniformTypeIdentifiers
     }
    }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
+ }
+}
+@MainActor private struct HoldToFastForward: ViewModifier {
+ @ObservedObject var model: TestClient
+ @GestureState private var pressing=false
+ @State private var active=false
+ private var holdGesture: some Gesture {
+  LongPressGesture(minimumDuration:0.45,maximumDistance:30)
+   .sequenced(before:DragGesture(minimumDistance:0))
+   .updating($pressing) {value,state,_ in
+    if case .second(true,_) = value {state=true}
+   }
+ }
+ func body(content: Content) -> some View {
+  content.simultaneousGesture(holdGesture)
+   .overlay(alignment:.top) {
+    if active {
+     Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
+      .padding(.horizontal,16).padding(.vertical,8)
+      .background(Color(red:0.09,green:0.17,blue:0.24).opacity(0.85)).clipShape(Capsule())
+      .padding(.top,64).allowsHitTesting(false)
+      .accessibilityIdentifier("temporary-2x-indicator")
+    }
+   }
+   .onChange(of:pressing) {holding in
+    if holding {if !active {active=model.engine.beginTemporaryFastForward()}}
+    else {model.engine.endTemporaryFastForward();active=false}
+   }
+   .onDisappear {model.engine.endTemporaryFastForward();active=false}
  }
 }
 struct SubtitleHeightKey:PreferenceKey {
@@ -354,6 +383,7 @@ struct FullscreenToolStyle:ButtonStyle {
   VStack(spacing:0) {
    ZStack {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
+    .modifier(HoldToFastForward(model:model))
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
