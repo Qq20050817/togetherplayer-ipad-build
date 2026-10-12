@@ -104,7 +104,8 @@ struct FullscreenGestureSurface:UIViewRepresentable {
    guard sliding else {return}
    // A half-to-two-thirds-height swipe should cover most of the brightness
    // range even on a large 12.9-inch iPad, with clamping at both ends.
-   let value=min(1,max(0,initial-dy/max(1,view.bounds.height*0.65)))
+   let travel=left ? view.bounds.height*0.65 : view.bounds.height
+   let value=min(1,max(0,initial-dy/max(1,travel)))
    if left {
     UIScreen.main.brightness=value
     let observed=UIScreen.main.brightness
