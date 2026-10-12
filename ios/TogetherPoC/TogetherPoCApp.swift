@@ -189,7 +189,8 @@ import UniformTypeIdentifiers
    }
  }
  func body(content: Content) -> some View {
-  content.simultaneousGesture(holdGesture)
+  // Keep overlay controls outside the hold recognizer's touch scope.
+  content.simultaneousGesture(holdGesture, including: .gesture)
    .overlay(alignment:.top) {
     if active {
      Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
