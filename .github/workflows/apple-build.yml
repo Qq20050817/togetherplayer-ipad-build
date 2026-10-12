@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013 , test/ipad-chatgpt-oauth-20261013]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
@@ -143,6 +143,12 @@ jobs:
               -only-testing:TogetherPoCCoreTests
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+            )
+          fi
+          if [ "${GITHUB_REF_NAME}" = "test/ipad-chatgpt-oauth-20261013" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi
