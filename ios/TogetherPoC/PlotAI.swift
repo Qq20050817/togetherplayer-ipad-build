@@ -29,11 +29,16 @@ struct PlotRoutingPolicy {
  var simple=40
  var complex=70
  var minimumConfidence=0.65
- func wantsCloud(_ value:PlotComplexity,localQuality:Bool)->Bool {
-  guard value.contextSufficient,value.confidence>=minimumConfidence else {return false}
-  // A good local question always wins over spending the user's plan.
-  guard !localQuality else {return false}
-  return value.complexityScore>complex || value.complexityScore>simple
+ func wantsCloud(_ value:PlotComplexity,localQuality:Bool,contextSufficient:Bool=true)->Bool {
+  // Smart mode must not become a template-only mode if the on-device model
+  // is unavailable, returns malformed JSON, or cannot assess complexity.
+  // The caller still checks explicit ChatGPT opt-in, permissions and budget.
+  if !contextSufficient {return !localQuality} // Manual, context-free question only.
+  guard value.contextSufficient,value.confidence>=minimumConfidence else {return !localQuality}
+  // A reliably complex scene deserves deeper reasoning even if the local
+  // question is valid; a usable local result wins for simpler scenes.
+  if value.complexityScore>=complex {return true}
+  return !localQuality
  }
 }
 enum PlotJSON {
