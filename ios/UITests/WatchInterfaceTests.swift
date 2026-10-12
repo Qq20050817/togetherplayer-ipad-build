@@ -335,9 +335,13 @@ final class WatchInterfaceTests: XCTestCase {
   let hidden=expectation(for:NSPredicate(format:"exists == false"),evaluatedWith:exit)
   wait(for:[hidden],timeout:16)
   capture("03b-fullscreen-hidden",app)
-  app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.4)).tap()
-  XCTAssertTrue(exit.waitForExistence(timeout:3))
-  let font=app.buttons["弹幕字号"];XCTAssertTrue(font.exists);font.tap()
+  // Hit the movie touch surface itself; an app-wide tap can land in another
+  // overlay or an offscreen toolbar as the simulator rotates.
+  let gesture=app.otherElements["fullscreen-gesture-surface"].firstMatch
+  XCTAssertTrue(gesture.waitForExistence(timeout:5))
+  gesture.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.4)).tap()
+  XCTAssertTrue(exit.waitForExistence(timeout:5),"轻点影片后必须能重新显示退出全屏按钮")
+  let font=app.buttons["弹幕字号"];XCTAssertTrue(font.waitForExistence(timeout:5));font.tap()
   XCTAssertTrue(app.sliders["弹幕文字大小"].waitForExistence(timeout:3));capture("04-danmaku-settings",app)
   // Dismiss the popover by tapping outside it, then return to portrait layout.
   app.coordinate(withNormalizedOffset:CGVector(dx:0.1,dy:0.1)).tap()
