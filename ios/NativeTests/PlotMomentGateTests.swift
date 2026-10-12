@@ -70,6 +70,14 @@ final class PlotMomentGateTests:XCTestCase {
   XCTAssertFalse(PlotMomentGate.questionIsTimely(old,context:context))
   XCTAssertTrue(PlotMomentGate.questionIsTimely(fresh,context:context))
  }
+ func testFailedAttemptsBackOffWithoutBlockingNextRealTurnForTenMinutes() {
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:100,lastAttempt:-.infinity,lastPublished:-.infinity))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:190,lastAttempt:100,lastPublished:-.infinity))
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:230,lastAttempt:100,lastPublished:-.infinity))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:630,lastAttempt:100,lastPublished:100))
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:700,lastAttempt:100,lastPublished:100))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:50,lastAttempt:230,lastPublished:100))
+ }
  func testRapidDialogueAndPastMomentDoNotInterrupt() {
   let dense=(0..<12).map{cue(Double(2+$0*2),"监控发现证据之后，刚才那个人为什么隐瞒真相？")}
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(dense,position:28),"rapid dialogue should not be interrupted")
