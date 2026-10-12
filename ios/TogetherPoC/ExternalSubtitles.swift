@@ -24,16 +24,30 @@ import AVFoundation
  private let player: AVPlayer
  private var observer: Any?
  private var generation=0
+ private var plotLastTime:Double?
+ private var plotLastWasPlaying=false
+ private var plotJumpObserver:NSObjectProtocol?
+ private var plotWatched:[ClosedRange<Double>]=[]
  var available: Bool {document != nil}
  // Only subtitles strictly at/before the current player time may enter a
  // generative question prompt; never pass the whole movie's subtitle file.
  func observedPlotExcerpt() -> String {
-  let cutoff=player.currentTime().seconds-delay
+  let cutoff=min(player.currentTime().seconds,player.currentTime().seconds-delay)
   guard cutoff.isFinite && cutoff>=0 else {return ""}
   let past:[String]
   if enabled {past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff}.suffix(22).map{$0.text} ?? []}
   else {past=nativeEnabled ? nativeTimeline.completedText(before:cutoff) : []}
   return past.joined(separator:"\n")
+ }
+ func observedPlotEvidence()->[PlotEvidence] {
+  let cutoff=min(player.currentTime().seconds,player.currentTime().seconds-delay)
+  guard cutoff.isFinite,cutoff>=0 else {return []}
+  func watched(_ start:Double,_ end:Double)->Bool {plotWatched.contains{$0.lowerBound<=start+0.2 && $0.upperBound>=end}}
+  if enabled,let document {
+   return document.cues.prefix(while:{$0.start<=cutoff}).filter{$0.end<=cutoff && watched($0.start,$0.end)}.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"external-subtitle")}
+  }
+  guard nativeEnabled,nativeTimeline.events.count>1 else {return []}
+  return zip(nativeTimeline.events,nativeTimeline.events.dropFirst()).filter{!$0.0.text.isEmpty && $0.1.time<=cutoff && watched($0.0.time,$0.1.time)}.map{PlotEvidence.cue(start:$0.0.time,end:$0.1.time,text:$0.0.text,source:"embedded-subtitle")}
  }
 
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
@@ -47,11 +61,18 @@ import AVFoundation
   observer=player.addPeriodicTimeObserver(forInterval:CMTime(seconds:0.15,preferredTimescale:600),queue:.main) {[weak self] _ in
    Task {@MainActor in self?.refresh()}
   }
+  plotJumpObserver=NotificationCenter.default.addObserver(forName:.AVPlayerItemTimeJumped,object:nil,queue:.main){[weak self] note in
+   Task{@MainActor in
+    guard let self,let item=note.object as? AVPlayerItem,item === self.player.currentItem else {return}
+    self.plotLastTime=nil;self.plotLastWasPlaying=false
+   }
+  }
  }
- deinit {if let observer=observer {player.removeTimeObserver(observer)}}
- func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();enabled=false;delay=0}
+ deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
+ func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotLastTime=nil;enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
+  if attachedItem !== item {plotWatched=[];plotLastTime=nil}
   if let old=legibleOutput,let attachedItem=attachedItem {attachedItem.remove(old)}
   nativeTimeline.clear();nativeEnabled=true;attachedItem=item
   let output=AVPlayerItemLegibleOutput()
@@ -98,6 +119,15 @@ import AVFoundation
   }
  }
  private func refresh() {
+  let actual=player.currentTime().seconds
+  if actual.isFinite,actual>=0 {
+   if player.rate>0,plotLastWasPlaying,let last=plotLastTime,actual>last,actual-last<=2.5 {
+    if let range=plotWatched.last,last-range.upperBound<=0.2 {plotWatched[plotWatched.count-1]=range.lowerBound...actual}
+    else {plotWatched.append(last...actual);plotWatched=Array(plotWatched.suffix(500))}
+   }
+   plotLastTime=actual
+   plotLastWasPlaying=player.rate>0
+  }
   let time=player.currentTime().seconds-delay
   let next=enabled ? document?.text(at:time) ?? "" : (nativeEnabled ? nativeTimeline.text(at:time) : "")
   if next != text {text=next}

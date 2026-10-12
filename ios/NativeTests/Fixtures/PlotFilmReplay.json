@@ -1,0 +1,278 @@
+{
+  "note": "Actual film subtitle excerpt replay only, not live AI accuracy. No ending excerpts.",
+  "films": [
+    {
+      "title": "Night of the Living Dead",
+      "url": "https://archive.org/download/NightOfTheLivingDead1968-Restored/Notld1968Restoration-desktop.asr.srt",
+      "bytes": 53733,
+      "sha256": "db29e22be5b089d4d1d1749000910d29c781001920a36f9c439178a5edf19c4e",
+      "encoding": "utf-8",
+      "cueCount": 630,
+      "duration": 5727.48,
+      "sample": [
+        {
+          "start": 4.57,
+          "end": 5.44,
+          "text": "Old."
+        },
+        {
+          "start": 90.19,
+          "end": 92.96000000000001,
+          "text": "Details."
+        },
+        {
+          "start": 140.88,
+          "end": 143.34,
+          "text": "eight o'clock and it's still light on"
+        },
+        {
+          "start": 160.85,
+          "end": 165.73,
+          "text": "a trip like this. Sorry it clearly left."
+        },
+        {
+          "start": 196.38,
+          "end": 197.84,
+          "text": "Coming after."
+        },
+        {
+          "start": 277.63,
+          "end": 280.98,
+          "text": "the caretaker somebody takes them away and"
+        },
+        {
+          "start": 334.8,
+          "end": 341.48,
+          "text": "aware. Not much sense in my going to church. Do you remember one time when we were"
+        },
+        {
+          "start": 374.83,
+          "end": 378.51,
+          "text": "for you. Stop it you're acting like"
+        },
+        {
+          "start": 661.72,
+          "end": 667.72,
+          "text": "Ha. Ha."
+        },
+        {
+          "start": 839.55,
+          "end": 839.66,
+          "text": "be"
+        },
+        {
+          "start": 890.9,
+          "end": 891.34,
+          "text": "Geez."
+        },
+        {
+          "start": 956.21,
+          "end": 963.0,
+          "text": "Thank. Happening. What is happening."
+        },
+        {
+          "start": 1799.71,
+          "end": 1802.13,
+          "text": "got out Oh I just."
+        },
+        {
+          "start": 2092.03,
+          "end": 2097.77,
+          "text": "the eastern third of the. Main within the. Members of the president's cabinet."
+        },
+        {
+          "start": 2331.87,
+          "end": 2338.25,
+          "text": "doors later but you re all right from the OK. OK."
+        },
+        {
+          "start": 2524.23,
+          "end": 2528.52,
+          "text": "might need help you know something like that all right why don't we settle this"
+        }
+      ]
+    },
+    {
+      "title": "The Stranger",
+      "url": "https://archive.org/download/TheStranger720p/TheStranger720p.asr.srt",
+      "bytes": 65900,
+      "sha256": "358b5563e15df66728af6ffd512f17c41621f6dc93018e8ebba5f5bfdac7da59",
+      "encoding": "utf-8",
+      "cueCount": 773,
+      "duration": 5690.63,
+      "sample": [
+        {
+          "start": 84.53999999999999,
+          "end": 89.24,
+          "text": "See the cell door open that's all there is toward them escape in my view it's all"
+        },
+        {
+          "start": 137.9,
+          "end": 143.32999999999998,
+          "text": "I'm part. Of it for the sake of him traveling from my hands they got at least"
+        },
+        {
+          "start": 212.31,
+          "end": 219.29,
+          "text": "You. Get but the gentle easy to get the"
+        },
+        {
+          "start": 282.58,
+          "end": 286.84000000000003,
+          "text": "To say. I have"
+        },
+        {
+          "start": 380.34,
+          "end": 380.55,
+          "text": "Made."
+        },
+        {
+          "start": 440.22,
+          "end": 446.22,
+          "text": "a cave in. This case. Here this bag on"
+        },
+        {
+          "start": 623.17,
+          "end": 630.26,
+          "text": "a few minutes. I"
+        },
+        {
+          "start": 699.25,
+          "end": 705.25,
+          "text": "a big don't know the mind of a city official if you. Have one who she lives in"
+        },
+        {
+          "start": 783.05,
+          "end": 789.3,
+          "text": "My neck and kiss my neck you. Know what I had been hanged."
+        },
+        {
+          "start": 832.8,
+          "end": 836.26,
+          "text": "to look for the notorious friends came to her in the sacred precincts of the"
+        },
+        {
+          "start": 902.92,
+          "end": 909.64,
+          "text": "will they for ages for you lay them to me to you Have you been followed."
+        },
+        {
+          "start": 972.46,
+          "end": 978.29,
+          "text": "will by the friends and to get that little prayed to Him to give you strength."
+        },
+        {
+          "start": 1801.03,
+          "end": 1803.98,
+          "text": "Hand sorry I. Have"
+        },
+        {
+          "start": 1968.2,
+          "end": 1974.41,
+          "text": "There is no clock thing Mr Wilson taught me to dance. Already And I give you"
+        },
+        {
+          "start": 2208.81,
+          "end": 2209.45,
+          "text": "over to head."
+        },
+        {
+          "start": 2470.33,
+          "end": 2484.6,
+          "text": "a five. Figure"
+        }
+      ]
+    },
+    {
+      "title": "Carnival of Souls",
+      "url": "https://archive.org/download/carnival.-of.-souls.-1962/Carnival.Of.Souls.1962.srt",
+      "bytes": 39409,
+      "sha256": "6ece944dd36ca1e715bd343ea648e7b68ede6135f7c9fea0302ace840c321455",
+      "encoding": "cp1252",
+      "cueCount": 544,
+      "duration": 4649.794,
+      "sample": [
+        {
+          "start": 32.913,
+          "end": 34.847,
+          "text": "Ei, Joe, espere um pouco."
+        },
+        {
+          "start": 231.712,
+          "end": 233.873,
+          "text": "Não."
+        },
+        {
+          "start": 265.613,
+          "end": 267.006,
+          "text": "Três horas."
+        },
+        {
+          "start": 339.353,
+          "end": 341.347,
+          "text": "E as outras garotas?"
+        },
+        {
+          "start": 517.515,
+          "end": 519.915,
+          "text": "você será uma grande organista da igreja."
+        },
+        {
+          "start": 549.595,
+          "end": 552.464,
+          "text": "É preciso mais que inteligência para ser um músico."
+        },
+        {
+          "start": 847.723,
+          "end": 849.669,
+          "text": "Ah, é o antigo balneário."
+        },
+        {
+          "start": 887.476,
+          "end": 890.141,
+          "text": "Reservei o quarto desde que recebi sua carta."
+        },
+        {
+          "start": 926.949,
+          "end": 929.611,
+          "text": "Grato. Vai ser bastante confortável."
+        },
+        {
+          "start": 1015.37,
+          "end": 1017.504,
+          "text": "A propósito, já tem lugar para ficar?"
+        },
+        {
+          "start": 1042.964,
+          "end": 1045.865,
+          "text": "Se disserem que sou uma boa organista, seria o suficiente."
+        },
+        {
+          "start": 1104.759,
+          "end": 1108.723,
+          "text": "Nós temos uma organista capaz de comover a alma."
+        },
+        {
+          "start": 1801.189,
+          "end": 1803.719,
+          "text": "Bom dia."
+        },
+        {
+          "start": 1939.994,
+          "end": 1943.194,
+          "text": "É assim mesmo. - Só sou um cara normal."
+        },
+        {
+          "start": 2175.095,
+          "end": 2176.589,
+          "text": "Qual é o problema com ela?"
+        },
+        {
+          "start": 2428.348,
+          "end": 2431.474,
+          "text": "Sou uma pessoa competente. E realista."
+        }
+      ]
+    }
+  ]
+}

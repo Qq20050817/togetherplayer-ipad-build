@@ -1,0 +1,44 @@
+# TogetherPlayer 0.6.3 智能剧情推理试验版
+
+目标平台的真实实现：iPad SwiftUI / AVPlayer + PrismCore；Android Kotlin 原生 View + Media3 / 独立 LibVLC；Go WebSocket + SQLite。不是历史描述中的 Compose 客户端。
+
+## 基线与恢复
+
+本轮从 release/plot-polls-0.6.2 的客户端源码开发。公开客户端 6be628c03884ea81f8c6bdad2b9f9d750d343be1 已通过真机架构编译及87项核心测试；其两个界面测试因点击未进入全屏而失败，测试入口修正为 82e3a8fd86531579b44354bc063bc83dce9bf4dd，完整结果另见验证报告。私有对应修正 91a323d09ea7fd72856dac4e42ec800411b5f03b。服务端采用已通过并发测试和双连接验证的 abdef5b8c0501800c6cfcfbef16e1384d3c15f26。Android 原签名 0.6.2 已交付，构建源码 331ab4130fb2beec706fda9221b0d97387d4c6f7。
+
+独立分支 feat/plot-intelligence-20261013。不合并或覆盖 main、不重启或部署生产服务、不改路由器、数据库和其他自动化。现有 Muse 0.6.2 为此前部署请求的成果，保留不动。客户端可与0.6.2投票协议通信；questionType 为新增可选元数据，旧服务器忽略它并显示通用讨论类型。
+
+## 输入和本地记忆
+
+实际连续播放的区间与字幕完整结束时间共同决定证据资格。未来字幕回调、未结束字幕、跳过区间、负偏移导致的未来时间均不进入剧情记忆。电影身份只保存散列，不保存播放直链/密钥。
+
+本地 actor 将原始引述、带证据ID和时间的推测、已揭晓双方预测保存在 Application Support，排除系统备份，使用系统文件保护。最近10分钟保留详细对白，更早线索以结构化推测与少量明确归属的引述进入输入。模型摘要一律标为推测，不把台词或模型生成内容当作证实事实。回退时按当前进度重新过滤证据、摘要、预测和缓存；用到后续证据的预览不能发布。
+
+每20秒只采集并保存有界字幕数据。模型整理只在用户主动生成问题期间运行，utility 优先级，不在每帧/音频回调推理，不做持续后台云端分析。模型输入编码完整记录后缩减到9500字符内，不截断JSON、不发送整部电影字幕。当前初版长片摘要为谨慎线索整理，而非经过真机电影评估的全剧情理解。
+
+## 模型、质量与额度
+
+智能、本地、ChatGPT、免费题库四种模式。苹果本地模型判断人物关系、时间线、线索关联、动机、矛盾及上下文，输出0–100参考分、可信度、理由、证据ID和上下文充分程度。40/70、可信度0.65为可配置策略初值，不是校准过的精确标准。本地具体问题通过证据、重复、选项和明显结局词检查后优先采用；低可信、上下文不足不会自动升级。所有生成内容需要房主预览，可编辑后发布。
+
+默认每片10次自动云端请求，UI可设1–50，最短间隔180秒；按剧情3分钟段复用缓存，重新打开不会请求，重新生成同片段不重复请求云端。先原子持久化次数再进行网络；失败也计数并停止该片段自动重试。主动深度推理单独计数，仍受最短间隔和失败保护。另显示授权验收调用次数，上限6次。
+
+## ChatGPT 官方路径与验收门
+
+核对已有私有 OAuth 试验提交6770c2669f8faa37f26c58fbc86cc05cfbc4ab0d及公开构建5692b197b48cbb43ba7eb7b5bfc8c5a739fa71b4，成功构建38303103864。该成功只证明编译，不证明用户账号或iPad实际授权成功。
+
+采用官方 SIWC open-source 流程：动态注册、PKCE S256、state/nonce、127.0.0.1回调、签名ID token验证、本机Keychain持久化、OAuth刷新、官方models目录、Responses SSE且store:false/stream:true。无Cookie、无ChatGPT backend-api、无API key、无房间服务器令牌传输。
+
+云端默认关闭。用户需主动授权并同意发送必要已看摘要，确认在官方ChatGPT设置关闭本应用Credits。应用不能读取或修改这一账号设置，不宣称能够从客户端强制服务商计费行为。
+
+正式智能切换还有真实调用门：同一App运行成功两次，彻底重启后成功一次；仅完整response.completed推进本机验收记录。没有实际账号/设备证据前，不能宣称自动ChatGPT已可用。初始授权可能切到官方浏览器，iPad浏览器期间的loopback回调仍须实机验证。授权失效/额度失败安全回退，不影响播放器。
+
+参考文档（2026-10-12核对）：
+- https://developers.openai.com/siwc/token-sharing-open-source/sign-in
+- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
+- https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions
+- https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery
+- https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
+
+## 验证边界
+
+单元测试验证证据边界、回退、限额与持久化、缓存、授权验收门、复杂度合法性、质量检查、无字幕回退。云端模拟器不具备可运行的设备端Apple Intelligence模型，也不拥有用户ChatGPT凭据。真实三部影片输入回放和真实模型判断必须分别记录，不能把规则检查或模拟输出称为实机AI准确性测试。最终结果、准确commit、Actions和安装包校验记录在本目录验证报告。

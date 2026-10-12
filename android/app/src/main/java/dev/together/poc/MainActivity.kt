@@ -313,7 +313,9 @@ class MainActivity: Activity() {
   val submitted=poll.optJSONArray("submitted") ?: org.json.JSONArray()
   val voted=(0 until submitted.length()).any{submitted.optString(it)==myId}
   val revealed=poll.optBoolean("revealed")
-  val question=poll.optString("question")
+  val kind=when(poll.optString("questionType")){"motive"->"人物动机";"contradiction"->"说法矛盾";"timeline"->"时间线";"prediction"->"剧情预测";else->"剧情讨论"}
+  val point=poll.optDouble("positionMs",0.0).coerceAtLeast(0.0).toLong()/1000
+  val question="$kind · ${point/60}:${(point%60).toString().padStart(2,'0')}\n"+poll.optString("question")
   if(revealed){
    val answers=poll.optJSONObject("answers") ?: JSONObject()
    val names=mutableListOf<String>();val keys=answers.keys()

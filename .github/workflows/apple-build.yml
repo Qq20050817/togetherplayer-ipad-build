@@ -86,6 +86,7 @@ jobs:
           if [ "$SUBTITLE_CONTROLS_ONLY" = "true" ]; then
             TEST_SELECTION=(
               -only-testing:TogetherPoCCoreTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent

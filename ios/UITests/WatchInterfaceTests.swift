@@ -1,6 +1,19 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  enterFullscreen(app)
+  let plot=app.buttons["剧情推理"].firstMatch;XCTAssertTrue(plot.waitForExistence(timeout:5));plot.tap()
+  let generate=app.buttons["plot-ai-generate"].firstMatch;XCTAssertTrue(generate.waitForExistence(timeout:5));generate.tap()
+  let preview=app.descendants(matching:.any)["plot-question-preview"].firstMatch
+  XCTAssertTrue(preview.waitForExistence(timeout:10));XCTAssertTrue(app.buttons["plot-publish"].exists)
+  XCTAssertTrue(app.staticTexts["免费备用题库"].exists)
+  capture("21-plot-intelligence-preview",app)
+  app.buttons["完成"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5))
+ }
  // iPadOS 26 can report the old button frame while the first orientation
  // transition is still settling. Confirm the actual fullscreen presentation
  // before querying sliders shared with the ordinary watch screen.

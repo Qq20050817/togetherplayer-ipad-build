@@ -4,11 +4,14 @@ import SwiftUI
 /// synchronized playback and never sends subtitles/film data to the server.
 @MainActor struct PlotPollPanel: View {
  @ObservedObject var model:TestClient
+ @ObservedObject var intelligence:PlotIntelligence
  @Environment(\.dismiss) private var dismiss
- @State private var preview:PlotQuestion?
- @State private var generating=false
  @State private var selected=""
  @State private var custom=""
+ @State private var editQuestion=""
+ @State private var editOptions:[String]=[]
+ @State private var authOpen=false
+ init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence}
  var body:some View {
   NavigationStack {
    ScrollView {
@@ -48,28 +51,69 @@ import SwiftUI
       .foregroundStyle(.secondary)}
      if model.isRoomHost {
       Divider()
-      Button {
-       generating=true
-       Task {
-        preview=await PlotPromptMaker.create(excerpt:model.externalSubtitles.observedPlotExcerpt())
-        generating=false
-       }
-      } label:{Label(generating ? "正在本地生成…" : "根据当前剧情出一道题",systemImage:"sparkles")}
-       .disabled(generating || !model.isConnected)
+      Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases){mode in Text(mode.title).tag(mode)}}
+       .pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
+      Text("当前：\(intelligence.selectedModel)").font(.subheadline)
+      Text(intelligence.reason).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-ai-reason")
+      Text("ChatGPT 自动请求 \(intelligence.automaticRequests)/\(intelligence.limit) · 总请求 \(intelligence.requests)").font(.caption)
+      Toggle("允许智能调用 ChatGPT",isOn:$intelligence.automaticAllowed)
+      Stepper("本片自动调用上限：\(intelligence.limit) 次",value:$intelligence.limit,in:1...50)
+      Text("智能省额度已开启：同片段复用、至少间隔3分钟，失败也计数；不会自动重试。手动深度推理单独计数。")
+       .font(.caption2).foregroundStyle(.secondary)
+      Button("ChatGPT 授权与隐私设置") {authOpen=true}.buttonStyle(.bordered)
+      Button {intelligence.generate()} label:{Label(intelligence.working ? "正在分析…" : "根据已观看剧情生成问题",systemImage:"sparkles")}
+       .disabled(intelligence.working || !model.isConnected)
        .buttonStyle(.borderedProminent)
-      if let draft=preview {
+       .accessibilityIdentifier("plot-ai-generate")
+      if intelligence.working {Button("取消分析") {intelligence.cancel()}.buttonStyle(.bordered)}
+      Button("手动深度推理一次") {intelligence.generate(manualDeep:true)}.disabled(intelligence.working || !model.isConnected)
+      if let draft=intelligence.result,intelligence.previewUsable {
        Text(draft.source).font(.caption).foregroundStyle(.secondary)
-       Text(draft.text).font(.headline)
-       ForEach(draft.choices,id:\.self){choice in Text("○ \(choice)").font(.subheadline)}
-       Button("发布问题给两个人") {model.publishPlotPoll(draft);preview=nil}.disabled(!model.isConnected)
+       TextField("问题预览（可以编辑）",text:$editQuestion,axis:.vertical).textFieldStyle(.roundedBorder).accessibilityIdentifier("plot-question-preview")
+       ForEach(editOptions.indices,id:\.self) {index in TextField("候选选项 \(index+1)",text:$editOptions[index]).textFieldStyle(.roundedBorder)}
+       Button("重新生成（同片段不会重复调用云端）") {intelligence.generate(regenerate:true)}.disabled(intelligence.working)
+       Button("发布问题给两个人") {
+        guard intelligence.previewUsable else {return}
+        let edited=PlotQuestion(text:editQuestion.trimmingCharacters(in:.whitespacesAndNewlines),choices:editOptions.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)},source:draft.source,evidenceIDs:draft.evidenceIDs,kind:draft.kind)
+        model.publishPlotPoll(edited)
+       }.disabled(!model.isConnected || !(5...200).contains(editQuestion.count) || editOptions.contains(where:{$0.isEmpty || $0.count>80}) || Set(editOptions).count != editOptions.count).accessibilityIdentifier("plot-publish")
       }
      }
-     Text("隐私：只把问题、选项和回答发送到房间；字幕留在 iPad。设备端 AI 不可用会自动使用免费模板。")
+     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析且授权验收通过后，才向 OpenAI 发送本题所需的已观看摘要。设备端 AI 不可用会采用免费题库。")
       .font(.caption2).foregroundStyle(.secondary)
     }.padding(20).frame(maxWidth:.infinity,alignment:.leading)
    }
    .navigationTitle("🎭 剧情推理室")
    .toolbar {ToolbarItem(placement:.topBarTrailing){Button("完成"){dismiss()}}}
+   .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:intelligence.auth)}
+   .onChange(of:intelligence.result) {value in if let value {editQuestion=value.text;editOptions=value.choices}}
+   .onDisappear {intelligence.cancel()}
   }.preferredColorScheme(.dark)
+ }
+}
+
+@MainActor struct PlotAuthorizationView:View {
+ @ObservedObject var intelligence:PlotIntelligence
+ @ObservedObject var auth:ChatGPTAuthProbe
+ @Environment(\.dismiss) private var dismiss
+ var body:some View {
+  NavigationStack {Form {
+   Section("云端分析由你控制") {
+    Text("仅发送当前已经观看的必要剧情摘要、相关线索和已揭晓的预测。不会发送影片、完整字幕、账号令牌到房间服务，也不会调用另行收费的 API。")
+    Toggle("同意向 ChatGPT 发送必要剧情摘要",isOn:$intelligence.consent)
+    Link("打开 ChatGPT 用量设置",destination:URL(string:"https://chatgpt.com/settings/usage")!)
+    Text("请先在官方用量设置中禁止本应用使用 Credits。应用无法替你修改这一账号设置；该确认不代表服务器已验证设置。")
+    Toggle("我已关闭本应用的 Credits 使用",isOn:$intelligence.creditsDisabled)
+   }
+   Section("首次授权与真实调用验收") {
+    Text(auth.status);Text(auth.verificationStatus)
+    Button("Continue with ChatGPT") {auth.connect()}.disabled(auth.working)
+    Text("授权后主动测试两次，彻底退出并重新打开 App，再测试一次。全部成功后才允许智能调用。每次测试会消耗一次订阅请求。")
+    Button("执行一次真实调用检查") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || !intelligence.consent || !intelligence.creditsDisabled)
+    Text("授权验证请求：\(auth.diagnosticRequests) 次（最多6次）")
+    if !auth.testText.isEmpty {Text(auth.testText)}
+    Button("清除本机授权",role:.destructive) {auth.disconnect();intelligence.automaticAllowed=false}
+   }
+  }.navigationTitle("ChatGPT 授权与隐私").toolbar {Button("完成"){dismiss()}}}
  }
 }

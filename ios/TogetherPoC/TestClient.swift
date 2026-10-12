@@ -22,6 +22,7 @@ import CoreMedia
  @Published var isConnected=false
  let chat=ChatEngine()
  @Published var plotPoll:[String:Any]?
+ let plotIntelligence=PlotIntelligence()
  let library=MediaLibrary()
  var plotPollSubmitted:Bool {
   guard let myID=credentials?["userId"] as? String else {return false}
@@ -151,6 +152,18 @@ import CoreMedia
  init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil) {
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
+  plotIntelligence.frame={ [weak self] in
+   guard let self,let room=self.engine.room else {return nil}
+   let position=max(0,self.adapter.position/1000)
+   var components=URLComponents(string:room.mediaUrl);components?.query=nil;components?.fragment=nil
+   let key=PlotMemoryStore.key(components?.string ?? room.mediaUrl)
+   var prediction:PlotPrediction?
+   if let poll=self.plotPoll,poll["revealed"] as? Bool==true,let id=poll["id"] as? String,let question=poll["question"] as? String,let end=poll["positionMs"] as? Double {
+    prediction=PlotPrediction(id:id,end:end/1000,question:question,answers:self.plotPollAnswers)
+   }
+   return PlotFrame(key:key,position:position,evidence:self.externalSubtitles.observedPlotEvidence(),prediction:prediction)
+  }
+  plotIntelligence.start()
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
   voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
   voice.roomKey={ [weak self] in self?.engine.room?.roomId ?? "" }
@@ -830,7 +843,7 @@ extension TestClient {
  }
  func publishPlotPoll(_ question:PlotQuestion) {
   guard connected,isRoomHost,let room=engine.room else {requestStatus="只有已连接的房主能出题";return}
-  send(["type":"PLOT_POLL_CREATE","data":["question":question.text,"options":question.choices,"positionMs":max(0,adapter.position-engine.timelineOffset)]])
+  send(["type":"PLOT_POLL_CREATE","data":["question":question.text,"options":question.choices,"questionType":question.kind,"positionMs":max(0,adapter.position-engine.timelineOffset)]])
  }
  func answerPlotPoll(_ text:String) {
   guard connected,let poll=plotPoll,let id=poll["id"] as? String,!plotPollSubmitted else {return}
@@ -858,6 +871,7 @@ extension TestClient {
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
  func leaveRoom() {voice.disable();guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
+  plotIntelligence.cancel()
   voice.disable()
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
   if pendingRoomMedia != nil {finishRoomMedia("已离开房间，换片请求已取消。")}

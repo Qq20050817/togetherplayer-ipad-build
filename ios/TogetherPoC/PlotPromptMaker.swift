@@ -3,10 +3,12 @@ import Foundation
 import FoundationModels
 #endif
 
-struct PlotQuestion {
+struct PlotQuestion:Codable,Equatable {
  let text:String
  let choices:[String]
  let source:String
+ var evidenceIDs:[String]=[]
+ var kind:String="prediction"
 }
 
 @MainActor enum PlotPromptMaker {
@@ -38,6 +40,8 @@ struct PlotQuestion {
   let unique=raw.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)}.filter{!$0.isEmpty && $0.count<=80}.reduce(into:[String]()){result,option in if !result.contains(option){result.append(option)}}
   let choices=Array(unique.prefix(4))
   guard text.count>=5 && text.count<=200 && choices.count>=2 else {return nil}
-  return PlotQuestion(text:text,choices:choices,source:"Apple 设备端 AI")
+  let requested=obj["kind"] as? String ?? "prediction"
+  let kind=["motive","contradiction","timeline","prediction","discussion"].contains(requested) ? requested : "discussion"
+  return PlotQuestion(text:text,choices:choices,source:"Apple 设备端 AI",evidenceIDs:obj["evidenceIDs"] as? [String] ?? [],kind:kind)
  }
 }

@@ -23,6 +23,12 @@ import UniformTypeIdentifiers
   }.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
+   if ProcessInfo.processInfo.environment["TOGETHER_PLOT_UI_TEST"]=="1" {
+    try? LocalPickerUITestFixture.install(into:model)
+    model.isRoomHost=true;model.isConnected=true
+    model.plotIntelligence.mode = .fallback
+    model.plotIntelligence.automaticAllowed=false;model.plotIntelligence.consent=false;model.plotIntelligence.creditsDisabled=false
+   }
    if ProcessInfo.processInfo.environment["TOGETHER_TRACK_PLAYBACK_TEST"]=="1" {try? model.installTrackPlaybackFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
