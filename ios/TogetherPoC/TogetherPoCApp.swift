@@ -454,7 +454,7 @@ struct FullscreenToolStyle:ButtonStyle {
   ScrollView(.horizontal,showsIndicators:false) {HStack(spacing:6) {
    TrackControls(model:model,subtitles:model.externalSubtitles,showsVoice:false,compact:true,modalChanged:{controls.setBusy("tracks",$0)})
    Button {composing=true} label:{Label("发弹幕",systemImage:"text.bubble.fill")}.accessibilityLabel("发弹幕").disabled(!model.isConnected)
-   Button {plotPollOpen=true} label:{Label("AI 剧情推理",systemImage:"sparkles")}.accessibilityLabel("AI 剧情推理")
+   Button {plotPollOpen=true} label:{Label("剧情推理",systemImage:"theatermasks.fill")}.accessibilityLabel("剧情推理")
    Button {adjustingDanmaku=true} label:{Label("弹幕字号",systemImage:"textformat.size")}.accessibilityLabel("弹幕字号").popover(isPresented:$adjustingDanmaku) {DanmakuSettings(showsSpeed:false).frame(width:280).padding(20)}
    Button {adjustingSpeed=true} label:{Label("弹幕速度",systemImage:"speedometer")}.accessibilityLabel("弹幕速度").popover(isPresented:$adjustingSpeed) {DanmakuSettings(showsFont:false).frame(width:280).padding(20)}
   }.font(.caption).buttonStyle(FullscreenToolStyle())}.frame(maxWidth:810).frame(height:36)
