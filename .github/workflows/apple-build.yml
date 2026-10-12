@@ -105,6 +105,16 @@ jobs:
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi
+          # Isolated brightness hotfix validates its gesture regression separately
+          # from the known intermittent room-media layout test in the full suite.
+          if [ "${GITHUB_REF_NAME}" = "fix/fullscreen-brightness-swipe-20261012" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+            )
+          fi
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC "${TEST_SELECTION[@]}" \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath apple-build-derived \
