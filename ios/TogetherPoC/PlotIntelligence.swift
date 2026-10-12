@@ -82,6 +82,10 @@ struct PlotFrame {
    func matchesSelection(_ item:PlotQuestion)->Bool {
     if explicitlyCloud {return item.source=="ChatGPT"}
     if explicitlyLocal {return item.source=="Apple 设备端 AI"}
+    if mode == .fallback {return item.source=="免费备用题库"}
+    // A previous emergency template must not prevent fresh zero-cost AI
+    // inference after Apple finishes downloading the on-device model.
+    if mode == .smart && item.source=="免费备用题库" && PlotLocalAI.available {return false}
     return true
    }
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
