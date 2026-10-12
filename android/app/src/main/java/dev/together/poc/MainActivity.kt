@@ -299,7 +299,8 @@ class MainActivity: Activity() {
     plotPoll=obj.optJSONObject("poll")
     val incoming=plotPoll?.optString("id") ?: ""
     if(incoming.isNotBlank() && incoming!=previous) {
-     Toast.makeText(this,"🎭 新的剧情推理问题已到达 · 可随时从工具栏回答",Toast.LENGTH_LONG).show()
+     val prompt=plotPoll?.optString("question")?.take(36)?.trim().orEmpty()
+     Toast.makeText(this,if(prompt.isEmpty())"🎭 收到新的剧情推理题" else "🎭 $prompt",Toast.LENGTH_LONG).show()
     }
     if(plotPoll!=null)requestStatus.text=if(plotPoll?.optBoolean("waitingForAnswers")==true)
      "请先回答剧情问题，再继续播放" else "收到剧情推理题 · 点观影工具查看"
