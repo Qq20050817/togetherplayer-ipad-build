@@ -153,7 +153,7 @@ struct PlotFrame {
    guard valid(snapshot,token:token) else {cancel();return}
    // A user's explicit model selection is NOT the 'free template' mode.
    // Display the real failure instead of silently substituting a template.
-   if (explicitlyCloud || explicitlyLocal) && chosen == nil {
+   if (explicitlyCloud && chosen?.source != "ChatGPT") || (explicitlyLocal && chosen?.source != "Apple 设备端 AI") {
     selectedModel=explicitlyCloud ? "ChatGPT 未出题" : "苹果本地 AI 未出题"
     reason=explanation;working=false;deadline?.cancel();deadline=nil;return
    }
