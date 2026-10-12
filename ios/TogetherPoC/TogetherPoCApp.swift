@@ -353,7 +353,7 @@ struct FullscreenToolStyle:ButtonStyle {
  var body: some View {
   GeometryReader {geometry in
   VStack(spacing:0) {
-   ZStack {
+   ZStack(alignment:.top) {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
@@ -362,20 +362,28 @@ struct FullscreenToolStyle:ButtonStyle {
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     }
+   VStack {HStack {Spacer();if !controls.visible {FullscreenDeviceStatus()}};Spacer()}.padding(12).allowsHitTesting(false)
+   if !gestureFeedback.isEmpty {Text(gestureFeedback).font(.headline).padding(12).background(.black.opacity(0.65)).clipShape(Capsule()).allowsHitTesting(false)}
+   TimelineView(.periodic(from:.now,by:0.5)) {_ in if model.requestedPlaying && model.engine.room?.playbackRate == 2 {Text("2× 双端倍速").font(.caption.bold()).padding(8).background(.black.opacity(0.65)).clipShape(Capsule()).frame(maxHeight:.infinity,alignment:.top).padding(.top,48).allowsHitTesting(false)}}
+   DanmakuOverlay(chat:chat).padding(.top,controls.visible && !composing ? 60 : 12).allowsHitTesting(false)
+
+   // Keep the touch surface above transient subtitle, status, and header layers.
+   // Reserve the header's physical hit area so its exit button remains reachable.
    if !composing {
     FullscreenGestureSurface(hold:{model.setSpeedHold($0)},tap:{
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)})
+     .padding(.top,controls.visible ? 60 : 0)
+     .frame(maxWidth:.infinity,maxHeight:.infinity)
    }
-   VStack {HStack {Spacer();if !controls.visible {FullscreenDeviceStatus()}};Spacer()}.padding(12).allowsHitTesting(false)
-   if !gestureFeedback.isEmpty {Text(gestureFeedback).font(.headline).padding(12).background(.black.opacity(0.65)).clipShape(Capsule()).allowsHitTesting(false)}
-   TimelineView(.periodic(from:.now,by:0.5)) {_ in if model.requestedPlaying && model.engine.room?.playbackRate == 2 {Text("2× 双端倍速").font(.caption.bold()).padding(8).background(.black.opacity(0.65)).clipShape(Capsule()).frame(maxHeight:.infinity,alignment:.top).padding(.top,48).allowsHitTesting(false)}}
-   DanmakuOverlay(chat:chat).padding(.top,controls.visible && !composing ? 60 : 12).allowsHitTesting(false)
-   if controls.visible && !composing {VStack {
-    HStack {Text(model.roomTitle).lineLimit(1);Spacer();FullscreenDeviceStatus();Button("退出全屏") {dismiss()}}.padding(12).background(Color.black.opacity(0.65))
-    Spacer()
-   }.simultaneousGesture(TapGesture().onEnded {scheduleHide()})}
+   if controls.visible && !composing {
+    HStack {Text(model.roomTitle).lineLimit(1);Spacer();FullscreenDeviceStatus();Button("退出全屏") {dismiss()}}
+     .padding(12)
+     .background(Color.black.opacity(0.65))
+     .frame(maxWidth:.infinity,alignment:.top)
+     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
+   }
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
    if controls.visible && !composing {
     VStack(spacing:4) {
@@ -386,6 +394,7 @@ struct FullscreenToolStyle:ButtonStyle {
      layout {tools.frame(width:min(708,geometry.size.width-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
+     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
    }
    if composing {
     // Keep the movie in its own region above the composer and keyboard.
@@ -397,7 +406,8 @@ struct FullscreenToolStyle:ButtonStyle {
     }.padding(12).background(Color(white:0.08))
    }
   }.background(Color.black).preferredColorScheme(.dark)
-   .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
+   // Do not install an outer tap recognizer over the UIKit movie touch surface.
+   // It can cancel touch-ended delivery, leaving controls hidden after a tap.
    .onAppear {scheduleHide()}.onDisappear {model.setSpeedHold(false);controls.cancel()}
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}

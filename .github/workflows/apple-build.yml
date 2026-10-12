@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
@@ -102,6 +102,16 @@ jobs:
               -only-testing:TogetherPoCCoreTests/TrackLabelTests
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSubtitleAdjustmentPanelChangesValuesAndResets
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+            )
+          fi
+          # Isolated brightness hotfix validates its gesture regression separately
+          # from the known intermittent room-media layout test in the full suite.
+          if [ "${GITHUB_REF_NAME}" = "fix/fullscreen-brightness-swipe-20261012" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi

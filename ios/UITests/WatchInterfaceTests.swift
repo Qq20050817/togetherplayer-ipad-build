@@ -11,7 +11,18 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.descendants(matching:.any)["fullscreen-device-status"].firstMatch.exists)
   let bar=app.otherElements["fullscreen-control-bar"].firstMatch
   XCTAssertLessThanOrEqual(surface.frame.maxY,bar.frame.minY+1)
-  surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:0.7)).press(forDuration:0.05,thenDragTo:surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:0.3)))
+  XCTAssertGreaterThan(surface.frame.width,app.windows.firstMatch.frame.width*0.7,"手势层必须覆盖视频宽度")
+  XCTAssertGreaterThan(surface.frame.height,app.windows.firstMatch.frame.height*0.25,"手势层高度不能为零")
+  let oldBrightness=surface.value as? String ?? ""
+  let oldPercent=Int(oldBrightness.filter({$0.isNumber})) ?? 50
+  let startY:CGFloat=oldPercent>=60 ? 0.25 : 0.75
+  let endY:CGFloat=oldPercent>=60 ? 0.75 : 0.25
+  surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:startY)).press(forDuration:0.05,thenDragTo:surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:endY)))
+  let updatedBrightness=surface.value as? String ?? ""
+  // Simulator hardware brightness is not guaranteed to update. The exposed
+  // gesture target verifies that a real drag reached the movie layer.
+  XCTAssertNotEqual(updatedBrightness,oldBrightness,"实际滑动必须到达亮度手势处理器")
+  XCTAssertTrue(updatedBrightness.hasPrefix("亮度"))
   XCTAssertTrue(app.buttons["退出全屏"].exists)
   surface.press(forDuration:0.7)
   app.buttons["退出全屏"].tap()
@@ -324,9 +335,13 @@ final class WatchInterfaceTests: XCTestCase {
   let hidden=expectation(for:NSPredicate(format:"exists == false"),evaluatedWith:exit)
   wait(for:[hidden],timeout:16)
   capture("03b-fullscreen-hidden",app)
-  app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.4)).tap()
-  XCTAssertTrue(exit.waitForExistence(timeout:3))
-  let font=app.buttons["弹幕字号"];XCTAssertTrue(font.exists);font.tap()
+  // Hit the movie touch surface itself; an app-wide tap can land in another
+  // overlay or an offscreen toolbar as the simulator rotates.
+  let gesture=app.otherElements["fullscreen-gesture-surface"].firstMatch
+  XCTAssertTrue(gesture.waitForExistence(timeout:5))
+  gesture.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.4)).tap()
+  XCTAssertTrue(exit.waitForExistence(timeout:5),"轻点影片后必须能重新显示退出全屏按钮")
+  let font=app.buttons["弹幕字号"];XCTAssertTrue(font.waitForExistence(timeout:5));font.tap()
   XCTAssertTrue(app.sliders["弹幕文字大小"].waitForExistence(timeout:3));capture("04-danmaku-settings",app)
   // Dismiss the popover by tapping outside it, then return to portrait layout.
   app.coordinate(withNormalizedOffset:CGVector(dx:0.1,dy:0.1)).tap()

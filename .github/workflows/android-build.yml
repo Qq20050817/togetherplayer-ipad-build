@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
