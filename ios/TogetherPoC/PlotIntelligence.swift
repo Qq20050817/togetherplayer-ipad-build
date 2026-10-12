@@ -145,7 +145,7 @@ struct PlotFrame {
    }
    var chosen=localGood ? local : nil
    var explanation=localGood ? (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题") :
-     (PlotLocalAI.available ? "本地 AI 回答未通过格式、线索或重复检查" : "苹果系统设备端语言模型暂不可用")
+     (PlotLocalAI.available ? "本地 AI 回答未通过格式、线索或重复检查" : PlotLocalAI.availabilityDetail)
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
    if requested {
