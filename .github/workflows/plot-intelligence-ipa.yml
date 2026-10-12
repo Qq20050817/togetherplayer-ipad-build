@@ -1,7 +1,7 @@
-name: Verify manual plot AI model choice on iPad
+name: Verify event-driven plot questions and package iPad
 on:
   push:
-    branches: [fix/plot-manual-model-respect-20261013]
+    branches: [feat/plot-event-driven-prompt-20261013]
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,13 +24,13 @@ jobs:
       - name: Package candidate with source identity
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-063-delivery/TogetherPlayer-v0.6.3-Model-choice-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-063-delivery/TogetherPlayer-v0.6.3-Model-choice-unsigned.ipa > plot-063-delivery/SHA256SUMS.txt
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-063-delivery/TogetherPlayer-v0.6.3-Event-driven-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-063-delivery/TogetherPlayer-v0.6.3-Event-driven-unsigned.ipa > plot-063-delivery/SHA256SUMS.txt
           echo "Source branch: ${GITHUB_REF_NAME}" > plot-063-delivery/BUILD.txt
           echo "Source SHA: ${GITHUB_SHA}" >> plot-063-delivery/BUILD.txt
-          echo "This is a candidate build; only iPad OAuth first-use and offline AI preview are changed. New poll protocol still requires a compatible server." >> plot-063-delivery/BUILD.txt
+          echo "This is a candidate build; story-driven auto questions require a compatible server and two-room-member playback. AI-trigger behavior needs real iPad testing." >> plot-063-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.3-Model-choice-fix
+          name: TogetherPlayer-iPad-v0.6.3-Event-driven-candidate
           path: plot-063-delivery/
           retention-days: 7
