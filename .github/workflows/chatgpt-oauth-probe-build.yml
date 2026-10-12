@@ -1,0 +1,37 @@
+name: Package standalone ChatGPT OAuth iPad test
+on:
+  push:
+    branches: [test/ipad-chatgpt-oauth-20261013]
+    paths: ['.github/workflows/chatgpt-oauth-probe-build.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oauth-probe:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build unsigned diagnostic app
+        run: |
+          set -euo pipefail
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath auth-probe-derived
+          python3 tools/patch_prism_swift61.py auth-probe-derived/SourcePackages/checkouts/PrismCore
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath auth-probe-derived CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          python3 tools/package_unsigned_ipa.py auth-probe-derived/Build/Products/Release-iphoneos/TogetherPoC.app auth-probe-delivery/TP-ChatGPT-OAuth-Probe-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 auth-probe-delivery/TP-ChatGPT-OAuth-Probe-unsigned.ipa > auth-probe-delivery/SHA256SUMS.txt
+          echo "Independent test bundle: dev.together.poc.authprobe" > auth-probe-delivery/README.txt
+          echo "Unsigned IPA. Sign using your own trusted iPad signing method." >> auth-probe-delivery/README.txt
+          echo "ChatGPT sign-in is NOT established until user consents on physical device and two inference calls succeed." >> auth-probe-delivery/README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-ChatGPT-OAuth-test-iPad
+          path: auth-probe-delivery
+          retention-days: 7
