@@ -77,6 +77,8 @@ import CoreMedia
  private var activeLocalSource=""
  private var localSourceRoomURL=""
  private var localSourceRoomID=""
+ private var speedHoldID:String?
+ private var speedHoldTimer:Timer?
  private var foreground=true
  private var lastTyping=0.0
  private var prerolling=false
@@ -845,8 +847,6 @@ extension TestClient {
   mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
- private var speedHoldID:String?
- private var speedHoldTimer:Timer?
  func setSpeedHold(_ active:Bool) {
   if active {
    guard speedHoldID==nil,requestedPlaying else {return}
