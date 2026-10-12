@@ -157,7 +157,7 @@ struct PlotFrame {
     // With no subtitles, never send invented film details; ask a general
     // question using the actual ChatGPT model.
     let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working &&
-       (context.sufficient || explicitlyCloud) && (explicitlyCloud || automaticAllowed)
+       (context.sufficient || explicitlyCloud) && (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
     if allowed {
      if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:explicitlyCloud,limit:limit,interval:180) {
       let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
