@@ -111,12 +111,12 @@ import SwiftUI
     Text("请先在官方用量设置中禁止本应用使用 Credits。应用无法替你修改这一账号设置；该确认不代表服务器已验证设置。")
     Toggle("我已关闭本应用的 Credits 使用",isOn:$intelligence.creditsDisabled)
    }
-   Section("首次授权与真实调用验收") {
+   Section("ChatGPT 账号授权与可选诊断") {
     Text(auth.status);Text(auth.verificationStatus)
     Button("Continue with ChatGPT") {auth.connect()}.disabled(auth.working)
-    Text("授权后主动测试两次，彻底退出并重新打开 App，再测试一次。全部成功后才允许智能调用。每次测试会消耗一次订阅请求。")
-    Button("执行一次真实调用检查") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || !intelligence.consent || !intelligence.creditsDisabled)
-    Text("授权验证请求：\(auth.diagnosticRequests) 次（最多6次）")
+    Text("首次授权成功即可使用，以后看其他影片或重启 App 会复用安全存储的授权，过期时自动尝试刷新。连续调用及重启测试是可选诊断，不影响正常出题；每次诊断会消耗一次使用额度。")
+    Button("可选：测试一次 ChatGPT 调用") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || !intelligence.consent || !intelligence.creditsDisabled)
+    Text("可选诊断请求：\(auth.diagnosticRequests) 次（最多6次）")
     if !auth.testText.isEmpty {Text(auth.testText)}
     Button("清除本机授权",role:.destructive) {auth.disconnect();intelligence.automaticAllowed=false}
    }
