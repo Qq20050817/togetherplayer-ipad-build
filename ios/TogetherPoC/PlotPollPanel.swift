@@ -85,7 +85,7 @@ import SwiftUI
        }.disabled(!model.isConnected || !(5...200).contains(editQuestion.count) || editOptions.contains(where:{$0.isEmpty || $0.count>80}) || Set(editOptions).count != editOptions.count).accessibilityIdentifier("plot-publish")
       }
      }
-     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析且授权验收通过后，才向 OpenAI 发送本题所需的已观看摘要。设备端 AI 不可用会采用免费题库。")
+     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析并完成首次官方授权后，才向 OpenAI 发送本题所需的已观看摘要。手动选定的模型失败会显示原因，只有智能模式才会自动使用免费备用题库。")
       .font(.caption2).foregroundStyle(.secondary)
     }.padding(20).frame(maxWidth:.infinity,alignment:.leading)
    }
