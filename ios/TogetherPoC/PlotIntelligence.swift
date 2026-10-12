@@ -8,7 +8,7 @@ struct PlotFrame {
  var prediction:PlotPrediction?
 }
 @MainActor final class PlotIntelligence:ObservableObject {
- @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()}}}
+ @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
  @Published var eventDrivenEnabled:Bool {didSet {preferences.set(eventDrivenEnabled,forKey:"plot-event-driven");if !eventDrivenEnabled {momentTask?.cancel();momentTask=nil}}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
@@ -115,10 +115,10 @@ struct PlotFrame {
     if mode == .fallback {return item.source=="免费备用题库"}
     // A previous emergency template must not prevent fresh zero-cost AI
     // inference after Apple finishes downloading the on-device model.
-    if mode == .smart && item.source=="免费备用题库" && PlotLocalAI.available {return false}
+    if mode == .smart {return item.source=="ChatGPT" || item.source=="Apple 设备端 AI"}
     return true
    }
-   if autoMoment && state.reusable(at:snapshot.position) != nil {working=false;deadline?.cancel();deadline=nil;return}
+   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {working=false;deadline?.cancel();deadline=nil;return}
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
@@ -147,7 +147,7 @@ struct PlotFrame {
    var explanation=localGood ? (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题") :
      (PlotLocalAI.available ? "本地 AI 回答未通过格式、线索或重复检查" : "苹果系统设备端语言模型暂不可用")
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
-   let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood))
+   let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
    if requested {
     if let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
      complete(cached,reason:"复用该片段已完成的 ChatGPT 问题，没有再次消耗额度",frame:snapshot,token:token);return
@@ -201,6 +201,13 @@ struct PlotFrame {
    if (explicitlyCloud && chosen?.source != "ChatGPT") || (explicitlyLocal && chosen?.source != "Apple 设备端 AI") {
     selectedModel=explicitlyCloud ? "ChatGPT 未出题" : "苹果本地 AI 未出题"
     reason=explanation;working=false;deadline?.cancel();deadline=nil;return
+   }
+   // Smart mode promises a real model. Show actionable failure information
+   // instead of silently presenting a free template as its own output.
+   if mode == .smart && chosen == nil {
+    selectedModel="智能模式未出题"
+    reason=explanation+"；没有可用的真实 AI 结果，请检查设备端模型及 ChatGPT 授权/开关，或主动切换免费备用题库"
+    working=false;deadline?.cancel();deadline=nil;return
    }
    // An automatic suggestion is NEVER a free template or an uncited question.
    // Avoid popping up an unrelated generic question mid-film.
