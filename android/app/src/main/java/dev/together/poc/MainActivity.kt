@@ -626,8 +626,8 @@ class MainActivity: Activity() {
    val row=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL;gravity=if(mine)android.view.Gravity.END else android.view.Gravity.START;setPadding(0,dp(8),0,dp(8))}
    val avatar=ImageView(this).apply {setImageResource(R.drawable.ic_person);imageTintList=android.content.res.ColorStateList.valueOf(0xffe0e9ef.toInt());background=rounded(if(mine)0xff304452.toInt()else 0xff415465.toInt(),20);setPadding(dp(8),dp(8),dp(8),dp(8));contentDescription=message.name}
    val body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;gravity=if(mine)android.view.Gravity.END else android.view.Gravity.START;setPadding(dp(8),0,dp(8),0)}
-   val time=if(message.timestamp>0)java.text.SimpleDateFormat("HH:mm",java.util.Locale.getDefault()).format(java.util.Date(message.timestamp.toLong()))else ""
-   label(body,"${if(mine)"我" else message.name}  $time").apply {textSize=11f;setTextColor(0xff88939d.toInt());setPadding(0,0,0,dp(6))}
+   val time=ChatTimestamp.label(message.timestamp)
+   label(body,if(time.isBlank()) (if(mine)"我" else message.name) else "${if(mine)"我" else message.name} · $time").apply {textSize=11f;setTextColor(0xff88939d.toInt());setPadding(0,0,0,dp(6))}
    label(body,message.text).apply {textSize=15f;maxWidth=(resources.displayMetrics.widthPixels*if(resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE)0.20 else 0.67).toInt();setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(if(mine)0xff1688ff.toInt()else 0xff20262c.toInt(),16);layoutParams=LinearLayout.LayoutParams(-2,-2)}
    if(!mine)row.addView(avatar,LinearLayout.LayoutParams(dp(36),dp(36)))
    row.addView(body,LinearLayout.LayoutParams(-2,-2))
