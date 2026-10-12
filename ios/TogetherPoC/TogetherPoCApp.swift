@@ -169,14 +169,12 @@ import UniformTypeIdentifiers
   GeometryReader {geometry in
    let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:player.currentItem?.presentationSize ?? .zero)
    ZStack(alignment:.bottom) {
-    // Make the long-press surface the *back* layer, not the frontmost hit target.
-    // Fullscreen and subtitle controls are drawn above the movie.
+    Color.black
     if let model {
-     HoldToFastForward(model:model).frame(maxWidth:.infinity,maxHeight:.infinity).background(Color.black)
+     StableVideo(player:player).equatable().modifier(HoldToFastForward(model:model))
     } else {
-     Color.black
+     StableVideo(player:player).equatable().allowsHitTesting(false)
     }
-    StableVideo(player:player).equatable().allowsHitTesting(false)
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
     }
@@ -184,57 +182,35 @@ import UniformTypeIdentifiers
   }
  }
 }
-// A UIKit recognizer on the movie surface leaves sibling SwiftUI toolbar buttons
-// untouched. It detects both hold-start and finger-up without consuming taps.
-private struct HoldSpeedTouchLayer: UIViewRepresentable {
- var onHold: (Bool) -> Void
- final class Coordinator: NSObject {
-  var onHold: (Bool) -> Void
-  init(_ onHold: @escaping (Bool) -> Void) {self.onHold=onHold}
-  @objc func pressed(_ recognizer: UILongPressGestureRecognizer) {
-   switch recognizer.state {
-   case .began: onHold(true)
-   case .ended, .cancelled, .failed: onHold(false)
-   default: break
-   }
-  }
- }
- func makeCoordinator() -> Coordinator {Coordinator(onHold)}
- func makeUIView(context: Context) -> UIView {
-  let view=UIView(frame:.zero)
-  view.backgroundColor = .clear
-  view.isAccessibilityElement=false
-  let gesture=UILongPressGestureRecognizer(target:context.coordinator,action:#selector(Coordinator.pressed(_:)))
-  gesture.minimumPressDuration=0.45
-  gesture.allowableMovement=30
-  gesture.cancelsTouchesInView=false
-  gesture.delaysTouchesBegan=false
-  view.addGestureRecognizer(gesture)
-  return view
- }
- func updateUIView(_ view:UIView,context:Context) {context.coordinator.onHold=onHold}
-}
-@MainActor private struct HoldToFastForward: View {
- @ObservedObject var model:TestClient
+// Attach the hold gesture to VideoPlayer itself, rather than inserting an
+// independent UIView layer that steals fullscreen toolbar/button taps.
+@MainActor private struct HoldToFastForward: ViewModifier {
+ @ObservedObject var model: TestClient
+ @GestureState private var pressing=false
  @State private var active=false
- var body: some View {
-  HoldSpeedTouchLayer {holding in
-   if holding {
-    if !active {active=model.engine.beginTemporaryFastForward()}
-   } else {
-    if active {model.engine.endTemporaryFastForward();active=false}
+ private var holdGesture: some Gesture {
+  LongPressGesture(minimumDuration:0.45,maximumDistance:30)
+   .sequenced(before:DragGesture(minimumDistance:0))
+   .updating($pressing) {value,state,_ in
+    if case .second(true,_) = value {state=true}
    }
-  }
-  .overlay(alignment:.top) {
-   if active {
-    Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
-     .padding(.horizontal,16).padding(.vertical,8)
-     .background(Color(red:0.09,green:0.17,blue:0.24).opacity(0.85)).clipShape(Capsule())
-     .padding(.top,64).allowsHitTesting(false)
-     .accessibilityIdentifier("temporary-2x-indicator")
+ }
+ func body(content:Content) -> some View {
+  content.simultaneousGesture(holdGesture)
+   .overlay(alignment:.top) {
+    if active {
+     Text("2.0×  松手恢复").font(.subheadline.bold()).foregroundColor(.white)
+      .padding(.horizontal,16).padding(.vertical,8)
+      .background(Color(red:0.09,green:0.17,blue:0.24).opacity(0.85)).clipShape(Capsule())
+      .padding(.top,64).allowsHitTesting(false)
+      .accessibilityIdentifier("temporary-2x-indicator")
+    }
    }
-  }
-  .onDisappear {if active {model.engine.endTemporaryFastForward();active=false}}
+   .onChange(of:pressing) {holding in
+    if holding {if !active {active=model.engine.beginTemporaryFastForward()}}
+    else {if active {model.engine.endTemporaryFastForward();active=false}}
+   }
+   .onDisappear {if active {model.engine.endTemporaryFastForward();active=false}}
  }
 }
 
