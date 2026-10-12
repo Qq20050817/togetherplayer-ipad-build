@@ -121,5 +121,8 @@ import SwiftUI
     Button("清除本机授权",role:.destructive) {auth.disconnect();intelligence.automaticAllowed=false}
    }
   }.navigationTitle("ChatGPT 授权与隐私").toolbar {Button("完成"){dismiss()}}}
+   .sheet(isPresented:Binding(get:{auth.authorizationURL != nil},set:{if !$0 {auth.cancelAuthorization()}})) {
+    if let url=auth.authorizationURL {PlotSignInBrowser(url:url,cancelled:{auth.cancelAuthorization()})}
+   }
  }
 }

@@ -10,6 +10,7 @@ import CryptoKit
  @Published private(set) var connected=false
  @Published private(set) var testText=""
  @Published private(set) var working=false
+ @Published private(set) var authorizationURL:URL?
  private struct Attempt {
   let state:String
   let nonce:String
@@ -63,7 +64,7 @@ import CryptoKit
   authorizationTimeout=Task {[weak self] in
    try? await Task.sleep(nanoseconds:600_000_000_000)
    guard !Task.isCancelled,let self,self.pending != nil else {return}
-   self.listener?.cancel();self.listener=nil;self.pending=nil;self.working=false;self.status="授权等待超时，可重新开始"
+   self.listener?.cancel();self.listener=nil;self.pending=nil;self.authorizationURL=nil;self.working=false;self.status="授权等待超时，可重新开始"
   }
   let params=NWParameters.tcp
   params.requiredLocalEndpoint = .hostPort(host:NWEndpoint.Host("127.0.0.1"),port:.any)
@@ -110,10 +111,8 @@ import CryptoKit
   if clientID=="dynamic_agent_client" {args["agent_name_hint"]="TogetherPlayer"}
   else if let old=ChatGPTLocalKeychain.read() {args["id_token_hint"]=old.idToken}
   guard let url=Self.authURL(for:args) else{status="授权地址无效";working=false;return}
-  status="授权页面已打开。请在苹果浏览器中确认；完成后若停在成功页面，手动返回 TogetherPlayer。"
-  UIApplication.shared.open(url,options:[:]) {[weak self] success in
-   Task{@MainActor in if !success {self?.status="iPad 未能打开官方授权页面";self?.working=false}}
-  }
+  status="请在 App 内的官方授权页面确认；授权成功后自动返回。"
+  authorizationURL=url
  }
  private func receive(_ connection:NWConnection) {
   connection.start(queue:.global(qos:.userInitiated))
@@ -148,7 +147,7 @@ import CryptoKit
    params["state"]==attempt.state else {
    status="授权状态校验失败（防止错误或伪造回调）";working=false;return
   }
-  pending=nil;listener?.cancel();listener=nil;authorizationTimeout?.cancel()
+  pending=nil;listener?.cancel();listener=nil;authorizationTimeout?.cancel();authorizationURL=nil
   if let err=params["error"] {status="ChatGPT 授权未完成：\(err)";working=false;return}
   guard let code=params["code"],!code.isEmpty else {status="回调已到达但没有授权码";working=false;return}
   let issued=params["client_id"] ?? attempt.clientID
@@ -303,7 +302,12 @@ import CryptoKit
  }
  func disconnect() {
   listener?.cancel();listener=nil;pending=nil
-  authorizationTimeout?.cancel();ChatGPTLocalKeychain.delete();connected=false;integrationReady=false;working=false;testText=""
+  authorizationTimeout?.cancel();authorizationURL=nil;ChatGPTLocalKeychain.delete();connected=false;integrationReady=false;working=false;testText=""
   status="已清除本机授权。若需要取消远端授权，请到 ChatGPT 设置中断开 TogetherPlayer。"
+ }
+ func cancelAuthorization() {
+  authorizationURL=nil
+  guard pending != nil || listener != nil else {return}
+  pending=nil;listener?.cancel();listener=nil;authorizationTimeout?.cancel();working=false;status="已取消授权"
  }
 }
