@@ -1,0 +1,44 @@
+name: Validate plot AI five-call default and package iPad
+on:
+  push:
+    branches: [fix/plot-default-five-20261013]
+    paths: ['.github/workflows/plot-default-five-ci.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ipad:
+    runs-on: macos-26
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build iPad app
+        run: |
+          set -euo pipefail
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath plot-build
+          python3 tools/patch_prism_swift61.py plot-build/SourcePackages/checkouts/PrismCore
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO build
+      - name: Verify native quota and routing unit tests
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/plot-sims.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/plot-sims.json"))["devices"]; print(next(x["udid"] for v in d.values() for x in v if "iPad" in x["name"]))')
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
+            -only-testing:TogetherPoCCoreTests/PlotControllerTests/testDefaultsDisableCloudAndLimitIsUserConfigurable \
+            -only-testing:TogetherPoCCoreTests/PlotMemoryTests/testBudgetCountsDispatchesAndPreventsLoops test
+      - name: Package tested candidate
+        run: |
+          set -euo pipefail
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-v0.6.3-5calls-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-delivery/TogetherPlayer-v0.6.3-5calls-unsigned.ipa > plot-delivery/SHA256SUMS.txt
+          echo "Source: ${GITHUB_REPOSITORY}@${GITHUB_SHA}" > plot-delivery/BUILD.txt
+          echo "Default automatic ChatGPT calls per film: 5; user-configurable. Full iPad UI regression and production server deployment are not part of this workflow." >> plot-delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-v0.6.3-iPad-5calls-verified
+          path: plot-delivery/
+          retention-days: 7
