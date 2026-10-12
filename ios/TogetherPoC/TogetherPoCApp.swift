@@ -367,6 +367,8 @@ struct FullscreenToolStyle:ButtonStyle {
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)})
+     .frame(maxWidth:.infinity,maxHeight:.infinity)
+     .contentShape(Rectangle())
    }
    VStack {HStack {Spacer();if !controls.visible {FullscreenDeviceStatus()}};Spacer()}.padding(12).allowsHitTesting(false)
    if !gestureFeedback.isEmpty {Text(gestureFeedback).font(.headline).padding(12).background(.black.opacity(0.65)).clipShape(Capsule()).allowsHitTesting(false)}
