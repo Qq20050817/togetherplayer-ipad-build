@@ -28,6 +28,7 @@ import AVFoundation
  private var plotLastWasPlaying=false
  private var plotJumpObserver:NSObjectProtocol?
  var plotDidSeek:(()->Void)?
+ var plotCaptionChanged:((String)->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  var available: Bool {document != nil}
  // Only subtitles strictly at/before the current player time may enter a
@@ -131,7 +132,7 @@ import AVFoundation
   }
   let time=player.currentTime().seconds-delay
   let next=enabled ? document?.text(at:time) ?? "" : (nativeEnabled ? nativeTimeline.text(at:time) : "")
-  if next != text {text=next}
+  if next != text {text=next;plotCaptionChanged?(next)}
  }
 }
 
