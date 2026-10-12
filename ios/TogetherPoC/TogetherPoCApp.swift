@@ -379,7 +379,6 @@ struct FullscreenToolStyle:ButtonStyle {
     },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)})
      .padding(.top,controls.visible ? 60 : 0)
      .frame(maxWidth:.infinity,maxHeight:.infinity)
-     .contentShape(Rectangle())
    }
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
    if controls.visible && !composing {
