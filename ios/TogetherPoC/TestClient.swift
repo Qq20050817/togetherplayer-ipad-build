@@ -844,7 +844,25 @@ extension TestClient {
   mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
- func handleBackground() {voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ private var speedHoldID:String?
+ private var speedHoldTimer:Timer?
+ func setSpeedHold(_ active:Bool) {
+  if active {
+   guard speedHoldID==nil,requestedPlaying else {return}
+   if localVideoTest {adapter.player.rate=2;speedHoldID="local";return}
+   guard connected else {return}
+   speedHoldID=UUID().uuidString
+   sendSpeedHold()
+   speedHoldTimer=Timer.scheduledTimer(withTimeInterval:0.5,repeats:true){[weak self] _ in Task {@MainActor in self?.sendSpeedHold()}}
+  } else {
+   speedHoldTimer?.invalidate();speedHoldTimer=nil
+   guard let id=speedHoldID else {return};speedHoldID=nil
+   if id=="local" {adapter.player.rate=1}
+   else {send(["type":"SPEED_HOLD","data":["active":false,"holdId":id]])}
+  }
+ }
+ private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
+ func handleBackground() {setSpeedHold(false);voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}

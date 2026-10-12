@@ -12,6 +12,14 @@ class SyncCoreTest {
   override fun isBuffering()=buffering;override fun isReady()=ready
   override fun setPlaybackSpeed(speed:Float){rate=speed}
  }
+ @Test fun roomDoubleSpeedAppliesOnlyAtSharedExecutionTimeAndRestores() {
+  var now=1000.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
+  val player=FakePlayer();val engine=SyncEngine(player,clock)
+  engine.receive(JSONObject("""{"roomId":"r","version":2,"executeAt":1150,"state":"playing","position":1150,"updatedAt":1150,"playbackRate":2,"before":{"state":"playing","position":1000,"updatedAt":1000,"playbackRate":1}}"""))
+  player.pos=1000;engine.tick();assertEquals(1f,player.rate)
+  now=1250.0;player.pos=1350;engine.tick();assertEquals(2f,player.rate)
+  engine.receive(JSONObject(engine.room.toString()).put("version",3).put("executeAt",now).put("position",1350).put("updatedAt",now).put("playbackRate",1));engine.tick();assertEquals(1f,player.rate)
+ }
  @Test fun finiteMovieEndDoesNotTriggerRepeatedOutOfRangeSeeks() {
   var now=90000.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
   val player=FakePlayer();player.durationMs=60095;player.pos=60095;player.playing=true

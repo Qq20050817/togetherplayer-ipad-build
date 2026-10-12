@@ -40,7 +40,7 @@ final class AVPlayerAdapter: PlayerAdapter {
  func play() { if !playRequested || player.timeControlStatus == .paused { player.defaultRate=speed;player.play() };playRequested=true }
  func pause() { if playRequested || player.rate != 0 {player.pause()};playRequested=false }
  func setPlaybackSpeed(_ value: Float) {
-  speed = value
+  speed = value;player.defaultRate=value
   if player.timeControlStatus == .playing && player.rate != value { player.rate = value }
  }
  func seekTo(_ milliseconds: Double) {
@@ -126,11 +126,13 @@ final class SyncEngine {
   guard let (position,state)=target() else {excessiveDriftSince=nil;return nil}
   let error=position-player.position
   let now=clock.localNow()
+  let timeline=clock.serverNow() < (room?.executeAt ?? 0) ? room?.before.playbackRate : room?.playbackRate
+  let baseRate:Float=timeline == 2 ? 2 : 1
   if !player.ready || player.buffering {wasUnready=true}
   else if wasUnready {wasUnready=false;settleUntil=now+2000}
   if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>200 {player.seekTo(position)};return error }
   guard player.ready && !player.buffering else {excessiveDriftSince=nil;return nil}
-  if now<settleUntil {resetCorrection();player.setPlaybackSpeed(1);player.play();return error}
+  if now<settleUntil {resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if abs(error)>=500 {if excessiveDriftSince == nil {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else {excessiveDriftSince=nil}
   var overdue=excessiveDriftSince.map {now-$0>=10_000} ?? false
   if overdue && driftAtWindowStart-abs(error)>=100 {
@@ -138,8 +140,8 @@ final class SyncEngine {
   }
   let canSeek=lastAutoSeekAt.map {now-$0>=3000} ?? true
   if (abs(error)>1500 || overdue) && canSeek {
-   player.seekTo(position);player.setPlaybackSpeed(1);resetCorrection();lastAutoSeekAt=now;resyncCount += 1
-  } else {player.setPlaybackSpeed(speed(for:error))}
+   player.seekTo(position);player.setPlaybackSpeed(baseRate);resetCorrection();lastAutoSeekAt=now;resyncCount += 1
+  } else {player.setPlaybackSpeed(baseRate*speed(for:error))}
   player.play();return error
  }
 }

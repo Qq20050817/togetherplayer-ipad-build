@@ -77,18 +77,21 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   val (position,state) = target() ?: return null
   val error=position-player.getPosition()
   val now=clock.localNow()
+  val r=room
+  val timeline=if(r!=null && clock.serverNow()<r.optDouble("executeAt")) r.optJSONObject("before") else r
+  val baseRate=if(timeline?.optDouble("playbackRate")==2.0) 2f else 1f
   if(!player.isReady() || player.isBuffering())wasUnready=true
   else if(wasUnready){wasUnready=false;settleUntil=now+2000}
   if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>200) player.seekTo(position.toLong()); return error }
   if (!player.isReady() || player.isBuffering()) {excessiveDriftSince=null;return null}
-  if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(1f);player.play();return error}
+  if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if(abs(error)>=500) {if(excessiveDriftSince==null) {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else excessiveDriftSince=null
   var overdue=excessiveDriftSince?.let {now-it>=10000} ?: false
   if(overdue && driftAtWindowStart-abs(error)>=100) {excessiveDriftSince=now;driftAtWindowStart=abs(error);overdue=false}
   val canSeek=lastAutoSeekAt?.let {now-it>=3000} ?: true
   if((abs(error)>1500 || overdue) && canSeek) {
-   player.seekTo(position.toLong());player.setPlaybackSpeed(1f);resetCorrection();lastAutoSeekAt=now;resyncCount++
-  } else player.setPlaybackSpeed(speed(error))
+   player.seekTo(position.toLong());player.setPlaybackSpeed(baseRate);resetCorrection();lastAutoSeekAt=now;resyncCount++
+  } else player.setPlaybackSpeed(baseRate*speed(error))
   player.play(); return error
  }
 }

@@ -349,6 +349,7 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var composing=false
  @State private var adjustingDanmaku=false
  @State private var adjustingSpeed=false
+ @State private var gestureFeedback=""
  var body: some View {
   GeometryReader {geometry in
   VStack(spacing:0) {
@@ -361,9 +362,18 @@ struct FullscreenToolStyle:ButtonStyle {
      if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
      else {withAnimation {controls.visible=true};scheduleHide()}
     }
+   if !composing {
+    FullscreenGestureSurface(hold:{model.setSpeedHold($0)},tap:{
+     if controls.visible {controls.cancel();withAnimation {controls.visible=false}}
+     else {withAnimation {controls.visible=true};scheduleHide()}
+    },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)})
+   }
+   VStack {HStack {Spacer();if !controls.visible {FullscreenDeviceStatus()}};Spacer()}.padding(12).allowsHitTesting(false)
+   if !gestureFeedback.isEmpty {Text(gestureFeedback).font(.headline).padding(12).background(.black.opacity(0.65)).clipShape(Capsule()).allowsHitTesting(false)}
+   TimelineView(.periodic(from:.now,by:0.5)) {_ in if model.requestedPlaying && model.engine.room?.playbackRate == 2 {Text("2× 双端倍速").font(.caption.bold()).padding(8).background(.black.opacity(0.65)).clipShape(Capsule()).frame(maxHeight:.infinity,alignment:.top).padding(.top,48).allowsHitTesting(false)}}
    DanmakuOverlay(chat:chat).padding(.top,controls.visible && !composing ? 60 : 12).allowsHitTesting(false)
    if controls.visible && !composing {VStack {
-    HStack {Text(model.roomTitle).lineLimit(1);Spacer();Button("退出全屏") {dismiss()}}.padding(12).background(Color.black.opacity(0.65))
+    HStack {Text(model.roomTitle).lineLimit(1);Spacer();FullscreenDeviceStatus();Button("退出全屏") {dismiss()}}.padding(12).background(Color.black.opacity(0.65))
     Spacer()
    }.simultaneousGesture(TapGesture().onEnded {scheduleHide()})}
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
@@ -388,7 +398,7 @@ struct FullscreenToolStyle:ButtonStyle {
    }
   }.background(Color.black).preferredColorScheme(.dark)
    .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
-   .onAppear {scheduleHide()}.onDisappear {controls.cancel()}
+   .onAppear {scheduleHide()}.onDisappear {model.setSpeedHold(false);controls.cancel()}
    .onChange(of:composing) {controls.setBusy("composer",$0)}
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}

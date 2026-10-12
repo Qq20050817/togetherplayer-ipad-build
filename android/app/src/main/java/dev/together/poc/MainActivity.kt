@@ -121,7 +121,7 @@ class MainActivity: Activity() {
   pendingLocalMovie?.let {state.putString("localPickerUri",it.first.toString());state.putInt("localPickerFlags",it.second)}
   super.onSaveInstanceState(state)
  }
- override fun onStop(){voice.disable();foreground=false;generation++;connected=false;ws?.cancel();ws=null;engine.resetSession();if(subtitlePickerOpen)playback.pause()else playback.stop();status.text="后台暂停；返回同步";super.onStop()}
+ override fun onStop(){setSpeedHold(false);voice.disable();foreground=false;generation++;connected=false;ws?.cancel();ws=null;engine.resetSession();if(subtitlePickerOpen)playback.pause()else playback.stop();status.text="后台暂停；返回同步";super.onStop()}
  private fun buildInterface(){
   danmakuSize=getPreferences(0).getFloat("danmakuSize",24f).coerceIn(14f,44f)
   danmakuSpeed=getPreferences(0).getFloat("danmakuSpeed",1f).coerceIn(0.5f,2f)
@@ -321,6 +321,12 @@ class MainActivity: Activity() {
    overrides[i]?.let {b.addOverride(it)};playback.trackSelectionParameters=b.build()
   }.create().apply {setOnDismissListener {revealControls()};show()}
  }
+ private var speedHoldID:String?=null
+ private val speedHoldHeartbeat=object:Runnable {override fun run(){val id=speedHoldID ?: return;if(!connected){setSpeedHold(false);return};send(JSONObject().put("type","SPEED_HOLD").put("data",JSONObject().put("active",true).put("holdId",id)));main.postDelayed(this,500)}}
+ private fun setSpeedHold(active:Boolean){
+  if(active){if(speedHoldID!=null || !connected || engine.room?.optString("state")!="playing")return;speedHoldID=java.util.UUID.randomUUID().toString();speedHoldHeartbeat.run()}
+  else {main.removeCallbacks(speedHoldHeartbeat);val id=speedHoldID ?: return;speedHoldID=null;send(JSONObject().put("type","SPEED_HOLD").put("data",JSONObject().put("active",false).put("holdId",id)))}
+ }
  private fun showFullscreen(){
   if(fullscreenDialog!=null)return
   watchHeading.visibility=View.GONE
@@ -339,7 +345,12 @@ class MainActivity: Activity() {
   tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
   val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2));val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
   content.addView(overlay,LinearLayout.LayoutParams(-1,-2));videoBox.setOnClickListener {if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()}
-  dialog.setContentView(content);dialog.setOnDismissListener {if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
+  val gestureSurface=FullscreenGestureView(this,dialog,{setSpeedHold(it)},{if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()})
+  videoBox.addView(gestureSurface,FrameLayout.LayoutParams(-1,-1))
+  val deviceStatus=TextView(this).apply {textSize=11f;setTextColor(-1);setPadding(dp(8),dp(4),dp(8),dp(4));setBackgroundColor(0x66000000);contentDescription="当前时间和电池电量"}
+  videoBox.addView(deviceStatus,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.TOP or android.view.Gravity.END).apply{setMargins(0,dp(8),dp(8),0)})
+  val refreshDevice=object:Runnable {override fun run(){val battery=registerReceiver(null,android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));val level=battery?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1) ?: -1;val scale=battery?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100) ?: 100;val percent=if(level>=0 && scale>0)"${level*100/scale}%"else "—";deviceStatus.text="${java.text.SimpleDateFormat("HH:mm",java.util.Locale.getDefault()).format(java.util.Date())}  电量 $percent";main.postDelayed(this,15000)}};refreshDevice.run()
+  dialog.setContentView(content);dialog.setOnDismissListener {setSpeedHold(false);main.removeCallbacks(refreshDevice);videoBox.removeView(gestureSurface);videoBox.removeView(deviceStatus);if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
    val original=window.callback
    window.callback=object:android.view.Window.Callback by original {
     override fun dispatchTouchEvent(event:android.view.MotionEvent):Boolean {
