@@ -357,6 +357,8 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var adjustingSpeed=false
  @State private var gestureFeedback=""
  @State private var plotPollOpen=false
+ @State private var plotHintVisible=false
+ @State private var plotHintSequence=0
  @State private var screenBrightness=Double(UIScreen.main.brightness)
  var body: some View {
   GeometryReader {geometry in
@@ -384,6 +386,20 @@ struct FullscreenToolStyle:ButtonStyle {
     },feedback:{gestureFeedback=$0},interacting:{controls.setBusy("gesture",$0)},brightnessObserved:{screenBrightness=Double($0)})
      .padding(.top,controls.visible ? 60 : 0)
      .frame(maxWidth:.infinity,maxHeight:.infinity)
+   }
+   // A tiny nonblocking hint for both participants. The question is created
+   // automatically and remains accessible from the regular plot tool.
+   if plotHintVisible && !plotPollOpen && !composing {
+    HStack(spacing:10) {
+     Label("发现值得讨论的剧情问题",systemImage:"theatermasks.fill").lineLimit(1)
+     Button("查看") {plotHintVisible=false;plotPollOpen=true}
+      .accessibilityIdentifier("plot-auto-open")
+     Button("稍后") {plotHintVisible=false}
+    }.font(.caption).padding(.horizontal,12).padding(.vertical,10)
+     .background(Color.black.opacity(0.82)).clipShape(Capsule())
+     .padding(.top,controls.visible ? 66 : 16).padding(.trailing,16)
+     .frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topTrailing)
+     .accessibilityIdentifier("plot-auto-hint")
    }
    if controls.visible && !composing {
     HStack {
@@ -441,6 +457,17 @@ struct FullscreenToolStyle:ButtonStyle {
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
    .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
+   .onChange(of:model.plotPoll?["id"] as? String) {id in
+    guard id != nil,!plotPollOpen else {return}
+    // Presentation only: generated/published by the host at a dialogue gap,
+    // no automatic pause, navigation, or full-screen modal.
+    plotHintVisible=true;plotHintSequence+=1
+    let sequence=plotHintSequence
+    Task {
+     try? await Task.sleep(nanoseconds:12_000_000_000)
+     if plotHintSequence==sequence {plotHintVisible=false}
+    }
+   }
    .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
   }
  }
