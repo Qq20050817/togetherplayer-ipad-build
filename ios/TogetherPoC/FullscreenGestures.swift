@@ -12,7 +12,7 @@ struct FullscreenGestureSurface:UIViewRepresentable {
  func makeCoordinator()->Coordinator {Coordinator(self)}
  func makeUIView(context:Context)->UIView {
   let view=UIView();view.backgroundColor = .clear
-  view.accessibilityIdentifier="fullscreen-gesture-surface";view.isAccessibilityElement=true;view.accessibilityLabel="全屏播放手势"
+  view.accessibilityIdentifier="fullscreen-gesture-surface";view.isAccessibilityElement=true;view.accessibilityLabel="全屏播放手势";view.accessibilityValue="亮度 \(Int((UIScreen.main.brightness*100).rounded()))%"
   let c=context.coordinator;c.surface=view
   let volume=MPVolumeView(frame:CGRect(x:0,y:0,width:1,height:1));volume.alpha=0.01;volume.showsRouteButton=false;volume.isUserInteractionEnabled=false
   view.addSubview(volume);c.volumeView=volume
@@ -43,13 +43,13 @@ struct FullscreenGestureSurface:UIViewRepresentable {
     let translation=r.translation(in:view)
     guard abs(translation.y)>abs(translation.x) else {r.isEnabled=false;r.isEnabled=true;return}
     finish();parent.interacting(true)
-    left=r.location(in:view).x<view.bounds.width/2
+    left=(r.location(in:view).x-translation.x)<view.bounds.width/2
     initial=left ? UIScreen.main.brightness : CGFloat(AVAudioSession.sharedInstance().outputVolume)
    }
    if r.state == .began || r.state == .changed {
     let value=min(1,max(0,initial-r.translation(in:view).y/max(1,view.bounds.height)))
-    if left {UIScreen.main.brightness=value}
-    else if let slider=volumeView?.subviews.compactMap({$0 as? UISlider}).first {slider.setValue(Float(value),animated:false);slider.sendActions(for:.valueChanged)}
+    if left {UIScreen.main.brightness=value;view.accessibilityValue="亮度 \(Int((UIScreen.main.brightness*100).rounded()))%"}
+    else if let slider=volumeView?.subviews.compactMap({$0 as? UISlider}).first {slider.setValue(Float(value),animated:false);slider.sendActions(for:.valueChanged);view.accessibilityValue="音量 \(Int((slider.value*100).rounded()))%"}
     parent.feedback("\(left ? "亮度" : "音量") \(Int(value*100))%")
    } else if r.state == .ended || r.state == .cancelled || r.state == .failed {parent.interacting(false);parent.feedback("")}
   }
