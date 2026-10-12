@@ -102,18 +102,21 @@ struct FullscreenGestureSurface:UIViewRepresentable {
     parent.interacting(true)
    }
    guard sliding else {return}
-   let value=min(1,max(0,initial-dy/max(1,view.bounds.height)))
+   // A half-to-two-thirds-height swipe should cover most of the brightness
+   // range even on a large 12.9-inch iPad, with clamping at both ends.
+   let value=min(1,max(0,initial-dy/max(1,view.bounds.height*0.65)))
    if left {
     UIScreen.main.brightness=value
     let observed=UIScreen.main.brightness
     parent.brightnessObserved(observed)
     view.accessibilityValue="亮度 \(Int((value*100).rounded()))%"
+    parent.feedback("亮度目标 \(Int((value*100).rounded()))% · 屏幕读数 \(Int((observed*100).rounded()))%")
    } else if let slider=volumeView?.subviews.compactMap({$0 as? UISlider}).first {
     slider.setValue(Float(value),animated:false)
     slider.sendActions(for:.valueChanged)
     view.accessibilityValue="音量 \(Int((slider.value*100).rounded()))%"
+    parent.feedback("音量 \(Int((slider.value*100).rounded()))%")
    }
-   parent.feedback("\(left ? "亮度" : "音量") \(Int(value*100))%")
   }
   func end() {
    let tapped=tracking && !sliding && !holding && !ignored
