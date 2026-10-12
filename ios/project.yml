@@ -7,7 +7,7 @@ settings:
  base:
   SWIFT_VERSION: "5.0"
   MARKETING_VERSION: "0.6.2"
-  CURRENT_PROJECT_VERSION: "62"
+  CURRENT_PROJECT_VERSION: "63"
   TARGETED_DEVICE_FAMILY: "1,2"
 packages:
  PrismCore:
@@ -26,12 +26,12 @@ targets:
    - package: MPVKit
   settings:
    base:
-    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.authprobe
     GENERATE_INFOPLIST_FILE: YES
   info:
    path: Info.plist
    properties:
-    CFBundleDisplayName: TogetherPlayer
+    CFBundleDisplayName: TP授权测试
     UIFileSharingEnabled: true
     LSSupportsOpeningDocumentsInPlace: true
     UILaunchScreen: {}
