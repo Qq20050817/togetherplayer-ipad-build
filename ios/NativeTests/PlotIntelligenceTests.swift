@@ -105,6 +105,7 @@ final class PlotMemoryTests:XCTestCase {
   let values=(0..<100).map{evidence(Double($0*3),String(repeating:"台词",count:200))}
   let context=PlotContext(cutoff:400,recent:values,earlier:[],predictions:[])
   XCTAssertLessThanOrEqual(context.boundedInput.count,9500)
+  XCTAssertLessThanOrEqual(context.localInput.count,3000)
   XCTAssertNotNil(try? JSONDecoder().decode(PlotContext.self,from:Data(context.boundedInput.utf8)))
  }
 }
