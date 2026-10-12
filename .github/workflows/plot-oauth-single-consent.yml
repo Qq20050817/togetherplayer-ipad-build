@@ -1,0 +1,45 @@
+name: Verify one-time ChatGPT OAuth on iPad
+on:
+  push:
+    branches: [fix/plot-oauth-single-consent-20261013]
+    paths: ['.github/workflows/plot-oauth-single-consent.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build native iPad client
+        run: |
+          set -euo pipefail
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath oauth-build
+          python3 tools/patch_prism_swift61.py oauth-build/SourcePackages/checkouts/PrismCore
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath oauth-build CODE_SIGNING_ALLOWED=NO build
+      - name: Test one-time grant and quota gate
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/sims.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/sims.json"))["devices"]; print(next(x["udid"] for v in d.values() for x in v if "iPad" in x["name"]))')
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath oauth-build CODE_SIGNING_ALLOWED=NO \
+            -only-testing:TogetherPoCCoreTests/PlotAuthorizationGateTests \
+            -only-testing:TogetherPoCCoreTests/PlotMemoryTests/testBudgetCountsDispatchesAndPreventsLoops test
+      - name: Package signed-on-device candidate
+        run: |
+          set -euo pipefail
+          python3 tools/package_unsigned_ipa.py oauth-build/Build/Products/Release-iphoneos/TogetherPoC.app oauth-delivery/TogetherPlayer-v0.6.3-one-time-oauth-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 oauth-delivery/TogetherPlayer-v0.6.3-one-time-oauth-unsigned.ipa > oauth-delivery/SHA256SUMS.txt
+          echo "Source: ${GITHUB_REPOSITORY}@${GITHUB_SHA}" > oauth-delivery/BUILD.txt
+          echo "One valid OAuth authorization permits ongoing requests; repeated/restart testing is optional." >> oauth-delivery/BUILD.txt
+          echo "Offline plot features do not require OAuth. Cloud requests still require explicit user consent and spending protection." >> oauth-delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-v0.6.3-one-time-ChatGPT-OAuth
+          path: oauth-delivery/
+          retention-days: 7
