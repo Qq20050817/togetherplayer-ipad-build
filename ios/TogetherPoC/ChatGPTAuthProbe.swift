@@ -28,22 +28,23 @@ import CryptoKit
  private let launchID=UUID().uuidString
  @Published private(set) var integrationReady=false
  @Published private(set) var usagePaused=false
- @Published private(set) var verificationStatus="需验证首次授权、连续两次调用和重启后调用"
+ @Published private(set) var verificationStatus="首次授权后即可使用；连续调用和重启检查为可选诊断"
  private var inferenceActive=false
  private var apiSession=URLSession(configuration:.ephemeral)
  private var sessionEpoch=0
  private var diagnosticTask:Task<Void,Never>?
  private func invalidateUsage() {
-  integrationReady=false;UserDefaults.standard.set(false,forKey:verificationKey+"-restart")
-  verificationStatus="授权失效，需要重新授权并验收"
+  integrationReady=false;connected=false;UserDefaults.standard.set(false,forKey:verificationKey+"-restart")
+  verificationStatus="授权已失效，请重新连接 ChatGPT"
  }
  private var authorizationTimeout:Task<Void,Never>?
  private var verificationKey:String {guard let c=ChatGPTLocalKeychain.read() else {return "plot-auth-unconnected"};return "plot-auth-check-"+PlotMemoryStore.key(c.clientID+c.subject)}
  init() {
   connected=ChatGPTLocalKeychain.read()?.scopes.split(separator:" ").contains("chatgpt.tokens.use.direct")==true
   status=connected ? "已保存授权，可直接测试 ChatGPT，不用再跳转" : "尚未授权，需要首次登录"
-  integrationReady=connected && UserDefaults.standard.bool(forKey:verificationKey+"-restart")
-  if integrationReady {verificationStatus="本机连续调用和重启后调用已验证"}
+  // Successful OAuth authorization, not optional QA diagnostics, gates use.
+  integrationReady=connected
+  if integrationReady {verificationStatus="已授权，可直接出题；连续调用及重启检查是可选诊断"}
   diagnosticRequests=UserDefaults.standard.integer(forKey:verificationKey+"-diagnostics")
   usagePaused=UserDefaults.standard.bool(forKey:verificationKey+"-usage-paused")
  }
@@ -208,13 +209,13 @@ import CryptoKit
    throw NSError(domain:"ChatGPTAuth",code:3,userInfo:[NSLocalizedDescriptionKey:"iPad Keychain 无法保存授权"])
   }
   UserDefaults.standard.set(issued,forKey:"plot-chatgpt-client-id")
-  connected=true;integrationReady=false
+  connected=true;integrationReady=true
   UserDefaults.standard.removeObject(forKey:verificationKey+"-acceptance")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-diagnostics");diagnosticRequests=0
   UserDefaults.standard.removeObject(forKey:verificationKey+"-run")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-calls")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-restart")
-  status="身份和权限已验证；还需连续两次与重启后的真实调用检查"
+  status="身份和调用权限已验证，可直接出题；无需重复登录或强制测试"
  }
  private func credentials() async throws -> ChatGPTLocalCredentials {
   guard var current=ChatGPTLocalKeychain.read(),current.scopes.split(separator:" ").contains("chatgpt.tokens.use.direct") else {
@@ -237,7 +238,7 @@ import CryptoKit
   return current
  }
  func performInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
-  guard connected,integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"尚未完成本机真实授权验收或额度暂停"])}
+  guard connected,integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"ChatGPT 授权已失效或额度暂停，请检查账号状态"])}
   return try await requestInference(instructions:instructions,input:input,canSend:canSend)
  }
  private func requestInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
@@ -305,9 +306,9 @@ import CryptoKit
     check.success(run:launchID)
     UserDefaults.standard.set(try? JSONEncoder().encode(check),forKey:key+"-acceptance")
     UserDefaults.standard.set(check.ready,forKey:key+"-restart")
-    integrationReady=check.ready
+    integrationReady=connected
     usagePaused=false;UserDefaults.standard.set(false,forKey:key+"-usage-paused")
-    verificationStatus=check.ready ? "本机连续调用和重启后调用已验证" : check.calls>=2 ? "两次连续调用成功；请彻底退出并重开 App 后再测试一次" : "第一次调用成功，请再测试一次"
+    verificationStatus=check.ready ? "连续调用与重启检查通过；已授权可正常使用" : "本次调用成功；常规出题无需完成额外测试"
     status="真实调用成功；"+verificationStatus
    } catch {if sessionEpoch==epoch {status="真实调用尚未成功：\(error.localizedDescription)"}}
    if sessionEpoch==epoch {working=false}
