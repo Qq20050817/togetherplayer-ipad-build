@@ -171,7 +171,7 @@ import CoreMedia
   // Only an actual two-person, host-controlled film session may issue an
   // automatic question. A pending unanswered poll cannot be overwritten.
   plotIntelligence.mayPublishAutomatically={ [weak self] in
-   guard let self,self.isConnected,self.isRoomHost,self.members.count>=2,
+   guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,self.members.count>=2,
     self.adapter.player.rate>0 else{return false}
    return self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true
   }
@@ -180,7 +180,7 @@ import CoreMedia
    return !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
   }
   plotIntelligence.publishAutomatically={ [weak self] question in
-   guard let self,self.isConnected,self.isRoomHost else{return}
+   guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
    self.publishPlotPoll(question)
   }
   plotIntelligence.start()
