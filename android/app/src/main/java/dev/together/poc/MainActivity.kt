@@ -38,6 +38,7 @@ class MainActivity: Activity() {
  private lateinit var waitToggle: Switch;private var settingWait=false;private lateinit var chatBubbles: LinearLayout;private lateinit var chatText: TextView;private lateinit var chatScroll: ScrollView
  private lateinit var watchHeading: LinearLayout;private lateinit var optionsRow: LinearLayout;private lateinit var optionsToggle: Button
  private lateinit var draft: EditText;private lateinit var typing: TextView;private lateinit var videoBox: FrameLayout;private lateinit var watchTab: Button;private lateinit var approveButton: Button
+ private var plotPoll: JSONObject?=null
  private var credentials: JSONObject?=null;private var ws: WebSocket?=null;private var connected=false;private var stopped=false;private var foreground=false
  private var registering=false;private var generation=0;private var attempt=0;private var sequence=0L;private var pending: JSONObject?=null;private var loadedURL="";private var ticks=0;private var isHost=false
  private var pendingLocalMovie:Pair<android.net.Uri,Int>?=null
@@ -141,7 +142,7 @@ class MainActivity: Activity() {
   val heading=row(titlePanel).apply {gravity=android.view.Gravity.CENTER_VERTICAL};roomTitle=label(heading,"选择影片，开始一起看").apply {layoutParams=LinearLayout.LayoutParams(0,-2,1f);textSize=15f;setTypeface(typeface,android.graphics.Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END}
   icon(heading,R.drawable.ic_audiotrack,"音轨",36) {selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
   icon(heading,R.drawable.ic_subtitles,"字幕",36) {subtitleMenu()}
-  icon(heading,R.drawable.ic_more_horiz,"更多",36) {android.app.AlertDialog.Builder(this).setTitle("观影工具").setItems(arrayOf("播放列表","发送表情","房间成员","片源与校准")){_,i->when(i){0->showLibrary();1->emojiPicker();2->membersDialog();3->openSettings()}}.show()}
+  icon(heading,R.drawable.ic_more_horiz,"更多",36) {android.app.AlertDialog.Builder(this).setTitle("观影工具").setItems(arrayOf("播放列表","发送表情","房间成员","片源与校准","剧情推理")){_,i->when(i){0->showLibrary();1->emojiPicker();2->membersDialog();3->openSettings();4->showPlotPoll()}}.show()}
   mediaBadge=label(titlePanel).apply {textSize=10f;setTextColor(0xffc8d1da.toInt());setPadding(dp(8),dp(4),dp(8),dp(4));background=rounded(0x90313842.toInt(),6);visibility=View.GONE;layoutParams=LinearLayout.LayoutParams(-2,-2)}
   captions=TextView(this).apply {textSize=20f;gravity=android.view.Gravity.CENTER;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);setBackgroundColor(0x66000000);visibility=View.GONE;setPadding(dp(8),dp(4),dp(8),dp(4))};videoBox.addView(captions,FrameLayout.LayoutParams(-1,-2,android.view.Gravity.BOTTOM).apply {bottomMargin=dp(18)})
   val videoSeekRow=row(videoColumn).apply {gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(dp(8),0,dp(8),0)}
@@ -291,7 +292,8 @@ class MainActivity: Activity() {
   }
   if(type=="PRESENCE")obj.optJSONArray("members")?.let {applyMembers(it)}
   when(type){
-   "WELCOME"->{obj.optJSONArray("messages")?.let {list->repeat(list.length()){acceptChat(list.getJSONObject(it))}};sendProfile();outbox.values.forEach {send(it)};applyPendingLocalMovie()}
+   "WELCOME"->{plotPoll=obj.optJSONObject("poll");obj.optJSONArray("messages")?.let {list->repeat(list.length()){acceptChat(list.getJSONObject(it))}};sendProfile();outbox.values.forEach {send(it)};applyPendingLocalMovie()}
+   "PLOT_POLL_STATE"->{plotPoll=obj.optJSONObject("poll");if(plotPoll!=null)requestStatus.text="收到剧情推理题 · 点观影工具查看"}
    "CHAT_MESSAGE"->obj.optJSONObject("message")?.let {acceptChat(it,true)}
    "CHAT_TYPING"->if(obj.optString("userId")!=credentials?.optString("userId"))chat.typing(obj.optString("name"),clock.localNow())
    "REACTION"->showReaction(obj.optString("emoji"))
@@ -300,6 +302,43 @@ class MainActivity: Activity() {
   }
   if(obj.optString("ackUserId")==credentials?.optString("userId") && obj.optLong("ackSequence",-1)==flightSequence){inFlight=null;retry=0;flush()}
   if(type=="ERROR"){if(obj.optString("error")=="STALE_VERSION" && inFlight!=null && retry<1){retry++;queued.addFirst(inFlight!!);inFlight=null;flush()}else {inFlight=null;queued.clear();requestStatus.text=errorText(obj.optString("error"))}}
+ }
+ private fun showPlotPoll() {
+  if(!connected){Toast.makeText(this,"请先加入观影房间",Toast.LENGTH_SHORT).show();return}
+  val poll=plotPoll
+  if(poll==null){android.app.AlertDialog.Builder(this).setTitle("🎭 剧情推理室").setMessage("还没有问题。由 iPad 房主根据当前已看剧情出题，双方再分别回答。").setPositiveButton("知道了",null).show();return}
+  val id=poll.optString("id")
+  val myId=credentials?.optString("userId") ?: ""
+  val submitted=poll.optJSONArray("submitted") ?: org.json.JSONArray()
+  val voted=(0 until submitted.length()).any{submitted.optString(it)==myId}
+  val revealed=poll.optBoolean("revealed")
+  val question=poll.optString("question")
+  if(revealed){
+   val answers=poll.optJSONObject("answers") ?: JSONObject()
+   val names=mutableListOf<String>();val keys=answers.keys()
+   while(keys.hasNext()){val key=keys.next();names.add("${if(key==myId)"我" else "好友"}：${answers.optString(key)}")}
+   android.app.AlertDialog.Builder(this).setTitle("🎭 剧情推理 · 观点对照").setMessage(question+"\n\n"+names.joinToString("\n")).setPositiveButton("完成",null).show();return
+  }
+  if(voted){android.app.AlertDialog.Builder(this).setTitle("🎭 剧情推理").setMessage(question+"\n\n你已提交回答，等待对方完成。").setPositiveButton("完成",null).show();return}
+  val options=poll.optJSONArray("options") ?: org.json.JSONArray()
+  val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val choices=android.widget.RadioGroup(this).apply{orientation=android.widget.RadioGroup.VERTICAL}
+  for(i in 0 until options.length()){val value=options.optString(i);choices.addView(android.widget.RadioButton(this).apply{text=value;tag=value})}
+  body.addView(choices)
+  val custom=EditText(this).apply{hint="自己填写答案（可选）";maxLines=3}
+  body.addView(custom)
+  val dialog=android.app.AlertDialog.Builder(this).setTitle("🎭 "+question).setView(body).setNegativeButton("取消",null)
+   .setPositiveButton("提交",null).create()
+  dialog.setOnShowListener {
+   dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+    val selected=choices.findViewById<android.widget.RadioButton>(choices.checkedRadioButtonId)?.tag as? String ?: ""
+    val answer=custom.text.toString().trim().ifBlank{selected}
+    if(answer.isBlank()){Toast.makeText(this,"请选择或填写答案",Toast.LENGTH_SHORT).show();return@setOnClickListener}
+    send(JSONObject().put("type","PLOT_POLL_ANSWER").put("data",JSONObject().put("id",id).put("answer",answer.take(180))))
+    dialog.dismiss()
+   }
+  }
+  dialog.show()
  }
  private fun selectTrack(type: Int){
   if(playback.compatibleActive){
@@ -342,7 +381,7 @@ class MainActivity: Activity() {
   tool("音轨"){selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
   tool("字幕"){subtitleMenu()};tool("导入字幕"){importSubtitle()}
   tool("字幕调整"){if(external!=null)subtitleTiming()else android.widget.Toast.makeText(this,"请先导入外挂字幕，再调整时间偏移",android.widget.Toast.LENGTH_SHORT).show()}
-  tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
+  tool("剧情推理"){showPlotPoll()};tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
   val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2));val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
   content.addView(overlay,LinearLayout.LayoutParams(-1,-2));videoBox.setOnClickListener {if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()}
   val gestureSurface=FullscreenGestureView(this,dialog,{setSpeedHold(it)},{if(overlay.visibility==View.VISIBLE && !voice.busy){overlay.visibility=View.GONE;main.removeCallbacks(hideControls)}else revealControls()})
@@ -599,7 +638,7 @@ class MainActivity: Activity() {
  }
 
  private fun showReaction(emoji: String){if(emoji !in listOf("😂","😱","😭","🤯","❤️","👀"))return;val v=TextView(this).apply {text=emoji;textSize=34f};videoBox.addView(v,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL));v.animate().translationY(-dp(80).toFloat()).alpha(0f).setDuration(3000).withEndAction {videoBox.removeView(v)}.start()}
- private fun clearRoom(){variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
+ private fun clearRoom(){plotPoll=null;variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
  private fun diagnostic(event: String,details: JSONObject=JSONObject()){if(!connected)return;send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("diagnostic",true).put("event",event).put("details",details).put("clientVersion",clientVersion).put("positionMs",playback.currentPosition).put("version",engine.version).put("playbackRate",playback.playbackParameters.speed).put("bufferedPositionMs",playback.bufferedPosition).put("playbackState",playback.playbackState)))}
  private val tick=object: Runnable {override fun run(){if(stopped)return;updatePlaybackUI();notice.visibility=if(notice.text.isBlank())View.GONE else View.VISIBLE;requestStatus.visibility=if(requestStatus.text.isBlank())View.GONE else View.VISIBLE;presence.visibility=if(presence.text.isBlank())View.GONE else View.VISIBLE;chat.tick(clock.localNow());val typingLabel=if(chat.typingName.isBlank())"" else "${chat.typingName} 正在输入…";if(typing.text.toString()!=typingLabel)typing.text=typingLabel;if(foreground && connected){val variantState=variantCheck();val error=if(variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE)engine.tick() else {playback.pause();null};if(usingVariant())notice.text=when(variantState){MovieVariantPolicy.DurationCheck.WAITING->"等待原版与转码版的影片时长；暂不进入同步。";MovieVariantPolicy.DurationCheck.DIFFERENT->"影片时长不一致，请确认剪辑版本或校准时间差。";else->"同一剪辑的另一画质已确认，影片时长核对通过。"};ticks++;flush();if(ticks%10==0){send(JSONObject().put("type","SYNC"));val ready=variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE && (BaiduMediaReference.parse(engine.room?.optString("mediaUrl") ?: "")==null || hasBaiduMatch()) && RecoveryBufferPolicy.ready(playback.playbackState==Player.STATE_READY || playback.playbackState==Player.STATE_ENDED,(playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0),playback.currentPosition,playback.duration,engine.room?.optBoolean("autoResume")==true && localFileUri.isBlank());send(JSONObject().put("type","PLAYER_STATUS").put("data",JSONObject().put("sourceId",if(hasBaiduMatch())baiduSourceID else "").put("ready",ready).put("buffering",playback.playbackState==Player.STATE_BUFFERING).put("position",(playback.currentPosition-engine.timelineOffset).coerceAtLeast(0.0)).put("duration",if(usingVariant() && isHost)if(variantDuration>0)variantDuration+engine.timelineOffset else 0.0 else playback.duration.coerceAtLeast(0).toDouble())));val target=engine.target();send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("clientVersion",clientVersion).put("serverTimeMs",if(clock.ready)clock.serverNow() else JSONObject.NULL).put("ready",ready).put("timelineOffsetMs",engine.timelineOffset).put("executeAtMs",engine.room?.optDouble("executeAt",0.0) ?: 0.0).put("resyncCount",engine.resyncCount).put("positionMs",playback.currentPosition).put("expectedMs",target?.first).put("errorMs",if(error!=null)target!!.first-playback.currentPosition else JSONObject.NULL).put("rttMs",clock.rtt).put("version",engine.version).put("playing",playback.isPlaying).put("buffering",!ready).put("playbackRate",playback.playbackParameters.speed)));val bufferedSeconds=((playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0)/1000);status.text="$clientVersion ${if(isHost)"HOST" else "GUEST"} room=${credentials?.optString("roomId")} v=${engine.version}\n位置 ${playback.currentPosition/1000}s 误差 ${error?.toInt()}ms RTT ${clock.rtt.toInt()}ms\n视频 ${playback.videoFormat?.sampleMimeType ?: "等待"} 音频 ${playback.audioFormat?.sampleMimeType ?: "等待"}\n已缓存 ${bufferedSeconds}s"};if(ticks%150==0)pingBurst()};main.postDelayed(this,100)}}
  private fun disconnectForTest(){generation++;val g=generation;ws?.cancel();connected=false;engine.resetSession();main.postDelayed({if(!stopped && foreground && generation==g)connect()},3000)}
