@@ -138,7 +138,12 @@ actor PlotMemoryStore {
  }
  func ingest(_ evidence:[PlotEvidence],cutoff:Double,key:String,prediction:PlotPrediction?=nil) throws -> PlotMemoryState {
   var state=load(key);state.ingest(evidence,cutoff:cutoff)
-  if let prediction,prediction.end<=cutoff,!state.predictions.contains(where:{$0.id==prediction.id}) {state.predictions.append(prediction);state.predictions=Array(state.predictions.suffix(100))}
+  if let prediction,prediction.end<=cutoff {
+   if let index=state.predictions.firstIndex(where:{$0.id==prediction.id}) {
+    if prediction.end>=state.predictions[index].end {state.predictions[index]=prediction}
+   } else {state.predictions.append(prediction)}
+   state.predictions=Array(state.predictions.suffix(100))
+  }
   try save(state,key:key);return state
  }
  func reserve(key:String,segment:Int,manual:Bool,limit:Int,interval:Double,now:Double=Date().timeIntervalSince1970) throws -> Bool {

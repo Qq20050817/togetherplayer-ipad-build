@@ -9,7 +9,7 @@ struct PlotFrame {
 }
 @MainActor final class PlotIntelligence:ObservableObject {
  @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");if working {cancel()}}}
- @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed")}}
+ @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
  @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
  @Published var limit:Int {didSet {limit=min(50,max(1,limit));preferences.set(limit,forKey:"plot-cloud-limit")}}
@@ -29,6 +29,7 @@ struct PlotFrame {
  private var timer:Timer?
  private var generation=0
  private var lastKey=""
+ private var generationCutoff=0.0
  var frame:(()->PlotFrame?)?
  init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard) {
   self.memory=memory;self.preferences=preferences
@@ -51,10 +52,15 @@ struct PlotFrame {
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic}
  }
  func cancel() {generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
+ func playbackJumped() {
+  guard let current=frame?() else {cancel();result=nil;return}
+  if current.key != lastKey || (working && current.position<generationCutoff) {cancel()}
+  if current.key != lastKey || current.position<previewCutoff {result=nil}
+ }
  var previewUsable:Bool {guard let current=frame?() else {return false};return current.key==lastKey && current.position>=previewCutoff}
  func generate(manualDeep:Bool=false,regenerate:Bool=false) {
   guard !working,let snapshot=frame?() else {reason="请先加载影片并连接房间";return}
-  cancel();lastKey=snapshot.key;let token=generation
+  cancel();lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
   working=true;result=nil;reason="正在分析已观看的剧情…"
   operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate)}
   deadline=Task {[weak self] in

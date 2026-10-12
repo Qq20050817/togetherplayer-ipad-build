@@ -158,12 +158,13 @@ import CoreMedia
    var components=URLComponents(string:room.mediaUrl);components?.query=nil;components?.fragment=nil
    let key=PlotMemoryStore.key(components?.string ?? room.mediaUrl)
    var prediction:PlotPrediction?
-   if let poll=self.plotPoll,poll["revealed"] as? Bool==true,let id=poll["id"] as? String,let question=poll["question"] as? String,let end=poll["positionMs"] as? Double {
-    prediction=PlotPrediction(id:id,end:end/1000,question:question,answers:self.plotPollAnswers)
+   if let poll=self.plotPoll,poll["revealed"] as? Bool==true,let id=poll["id"] as? String,let question=poll["question"] as? String,let end=poll["revealPositionMs"] as? Double {
+    prediction=PlotPrediction(id:id,end:max(0,(end+self.engine.timelineOffset)/1000),question:question,answers:self.plotPollAnswers)
    }
    return PlotFrame(key:key,position:position,evidence:self.externalSubtitles.observedPlotEvidence(),prediction:prediction)
   }
   plotIntelligence.start()
+  externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped() }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
   voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
   voice.roomKey={ [weak self] in self?.engine.room?.roomId ?? "" }

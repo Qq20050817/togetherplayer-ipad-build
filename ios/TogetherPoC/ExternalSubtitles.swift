@@ -27,6 +27,7 @@ import AVFoundation
  private var plotLastTime:Double?
  private var plotLastWasPlaying=false
  private var plotJumpObserver:NSObjectProtocol?
+ var plotDidSeek:(()->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  var available: Bool {document != nil}
  // Only subtitles strictly at/before the current player time may enter a
@@ -64,7 +65,7 @@ import AVFoundation
   plotJumpObserver=NotificationCenter.default.addObserver(forName:.AVPlayerItemTimeJumped,object:nil,queue:.main){[weak self] note in
    Task{@MainActor in
     guard let self,let item=note.object as? AVPlayerItem,item === self.player.currentItem else {return}
-    self.plotLastTime=nil;self.plotLastWasPlaying=false
+    self.plotLastTime=nil;self.plotLastWasPlaying=false;self.plotDidSeek?()
    }
   }
  }
