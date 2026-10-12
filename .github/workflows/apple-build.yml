@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
