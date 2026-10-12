@@ -240,9 +240,9 @@ final class WatchInterfaceTests: XCTestCase {
   if !app.buttons["set-room-media"].exists {section.tap()}
   let button=app.buttons["set-room-media"]
   XCTAssertTrue(button.waitForExistence(timeout:5))
-  let start=button.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
-  start.press(forDuration:0.1,thenDragTo:start.withOffset(CGVector(dx:0,dy:-180)),withVelocity:.slow,thenHoldForDuration:0.5)
-  XCTAssertTrue(button.isHittable);XCTAssertTrue(button.isEnabled);button.tap()
+  // XCTest auto-scrolls the lower control into view before tapping.
+  // A synthetic drag from offscreen coordinates leaves an unstable viewport.
+  XCTAssertTrue(button.isEnabled);button.tap()
   let feedback=app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","片源链接无效或包含账户凭据")).firstMatch
   XCTAssertTrue(feedback.waitForExistence(timeout:5));XCTAssertTrue(feedback.isHittable)
   capture("09-room-media-feedback",app)
