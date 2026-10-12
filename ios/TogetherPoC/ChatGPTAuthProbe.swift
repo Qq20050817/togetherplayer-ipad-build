@@ -100,7 +100,7 @@ import CryptoKit
     var all=previous
     if let data{all.append(data)}
     if all.count>8192 || error != nil {connection.cancel();return}
-    if !all.contains(Data("\r\n\r\n".utf8)) {
+    if all.range(of:Data("\r\n\r\n".utf8)) == nil {
      read(all);return
     }
     guard let text=String(data:all,encoding:.utf8),
