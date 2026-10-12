@@ -33,6 +33,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
             -only-testing:TogetherPoCCoreTests \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff \
             test
