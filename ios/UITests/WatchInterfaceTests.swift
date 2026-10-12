@@ -9,7 +9,7 @@ final class WatchInterfaceTests: XCTestCase {
   let generate=app.buttons["plot-ai-generate"].firstMatch;XCTAssertTrue(generate.waitForExistence(timeout:5));generate.tap()
   let preview=app.descendants(matching:.any)["plot-question-preview"].firstMatch
   XCTAssertTrue(preview.waitForExistence(timeout:10));XCTAssertTrue(app.buttons["plot-publish"].exists)
-  XCTAssertTrue(app.staticTexts["免费备用题库"].exists)
+  XCTAssertTrue(app.staticTexts["免费备用题库"].firstMatch.exists)
   capture("21-plot-intelligence-preview",app)
   app.buttons["完成"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5))

@@ -22,6 +22,8 @@ import CoreMedia
  @Published var isConnected=false
  let chat=ChatEngine()
  @Published var plotPoll:[String:Any]?
+ @Published var supportsBlockingPolls=false
+ var plotPollWaiting:Bool {plotPoll?["waitingForAnswers"] as? Bool == true}
  let plotIntelligence=PlotIntelligence()
  let library=MediaLibrary()
  var plotPollSubmitted:Bool {
@@ -516,6 +518,7 @@ import CoreMedia
    for message in outbox.values {send(message)}
    if let file=pendingLocalFile {pendingLocalFile=nil;useLocalFile(file)}
   }
+  if type=="WELCOME" {supportsBlockingPolls=(obj["plotPollCapabilities"] as? [String:Any])?["blocking"] as? Bool == true}
   if type=="PLOT_POLL_STATE" {plotPoll=obj["poll"] as? [String:Any]}
   if obj.keys.contains("poll") {plotPoll=obj["poll"] as? [String:Any]}
   if type=="CHAT_MESSAGE",let message=obj["message"] as? [String:Any] {acceptChat(message,live:true)}
@@ -562,6 +565,7 @@ import CoreMedia
   status="本机视频验证：可测试 PLAY / PAUSE / SEEK；尚未加入同步房间"
  }
  func control(_ type: String,position: Double=0) {
+  if plotPollWaiting && type != "PAUSE" {requestStatus="请双方先回答剧情问题，再继续播放";feedback.showPlaybackAction(requestStatus);return}
   let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
   feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
   if localVideoTest {
@@ -652,7 +656,7 @@ extension TestClient {
   localFileSecurityScoped=false;localFileURL=nil;localFileName=""
  }
  private func errorText(_ code: String) -> String {
-  let messages=["STALE_VERSION":"房间状态刚发生变化，请再试一次","HOST_REQUIRED":"只有房主可以执行此操作","HOST_OFFLINE":"房主已离线","SEEK_AFTER_END":"跳转位置超出影片时长","ROOM_FULL":"房间已满","INVALID_SOURCE":"片源链接无效或包含账户凭据","SOURCE_NOT_READY":"等待两端匹配同一百度影片并准备好后再播放","RATE_LIMIT":"操作过于频繁，请稍后再试","EXPIRED":"房间已过期","INVALID_MESSAGE":"消息为空或过长"]
+  let messages=["PLOT_ANSWER_REQUIRED":"请双方先回答剧情问题，再继续播放","STALE_VERSION":"房间状态刚发生变化，请再试一次","HOST_REQUIRED":"只有房主可以执行此操作","HOST_OFFLINE":"房主已离线","SEEK_AFTER_END":"跳转位置超出影片时长","ROOM_FULL":"房间已满","INVALID_SOURCE":"片源链接无效或包含账户凭据","SOURCE_NOT_READY":"等待两端匹配同一百度影片并准备好后再播放","RATE_LIMIT":"操作过于频繁，请稍后再试","EXPIRED":"房间已过期","INVALID_MESSAGE":"消息为空或过长"]
   return messages[code] ?? code
  }
  private func flushOperations() {
@@ -844,8 +848,10 @@ extension TestClient {
  }
  func publishPlotPoll(_ question:PlotQuestion) {
   guard connected,isRoomHost,let room=engine.room else {requestStatus="只有已连接的房主能出题";return}
-  send(["type":"PLOT_POLL_CREATE","data":["question":question.text,"options":question.choices,"questionType":question.kind,"positionMs":max(0,adapter.position-engine.timelineOffset)]])
+  if question.blocking && !supportsBlockingPolls {requestStatus="当前服务器尚未支持答题后继续播放";return}
+  send(["type":"PLOT_POLL_CREATE","data":["question":question.text,"options":question.choices,"questionType":question.kind,"blocking":question.blocking,"positionMs":max(0,adapter.position-engine.timelineOffset)]])
  }
+ func cancelPlotPoll() {guard connected,isRoomHost else {return};send(["type":"PLOT_POLL_CANCEL"])}
  func answerPlotPoll(_ text:String) {
   guard connected,let poll=plotPoll,let id=poll["id"] as? String,!plotPollSubmitted else {return}
   let answer=String(text.trimmingCharacters(in:.whitespacesAndNewlines).prefix(180))
@@ -872,6 +878,7 @@ extension TestClient {
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
  func leaveRoom() {voice.disable();guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
+  supportsBlockingPolls=false
   plotIntelligence.cancel()
   voice.disable()
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
@@ -884,6 +891,7 @@ extension TestClient {
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
  func setSpeedHold(_ active:Bool) {
+  if active && plotPollWaiting {feedback.showPlaybackAction("请先回答剧情问题");return}
   if active {
    guard speedHoldID==nil,requestedPlaying else {return}
    if localVideoTest {adapter.player.rate=2;speedHoldID="local";return}

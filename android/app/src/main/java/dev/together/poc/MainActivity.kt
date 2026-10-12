@@ -294,7 +294,7 @@ class MainActivity: Activity() {
   if(type=="PRESENCE")obj.optJSONArray("members")?.let {applyMembers(it)}
   when(type){
    "WELCOME"->{plotPoll=obj.optJSONObject("poll");obj.optJSONArray("messages")?.let {list->repeat(list.length()){acceptChat(list.getJSONObject(it))}};sendProfile();outbox.values.forEach {send(it)};applyPendingLocalMovie()}
-   "PLOT_POLL_STATE"->{plotPoll=obj.optJSONObject("poll");if(plotPoll!=null)requestStatus.text="收到剧情推理题 · 点观影工具查看"}
+   "PLOT_POLL_STATE"->{plotPoll=obj.optJSONObject("poll");if(plotPoll!=null)requestStatus.text=if(plotPoll?.optBoolean("waitingForAnswers")==true)"请先回答剧情问题，再继续播放" else "收到剧情推理题 · 点观影工具查看"}
    "CHAT_MESSAGE"->obj.optJSONObject("message")?.let {acceptChat(it,true)}
    "CHAT_TYPING"->if(obj.optString("userId")!=credentials?.optString("userId"))chat.typing(obj.optString("name"),clock.localNow())
    "REACTION"->showReaction(obj.optString("emoji"))
@@ -315,7 +315,8 @@ class MainActivity: Activity() {
   val revealed=poll.optBoolean("revealed")
   val kind=when(poll.optString("questionType")){"motive"->"人物动机";"contradiction"->"说法矛盾";"timeline"->"时间线";"prediction"->"剧情预测";else->"剧情讨论"}
   val point=poll.optDouble("positionMs",0.0).coerceAtLeast(0.0).toLong()/1000
-  val question="$kind · ${point/60}:${(point%60).toString().padStart(2,'0')}\n"+poll.optString("question")
+  val waiting=poll.optBoolean("waitingForAnswers")
+  val question=(if(waiting)"答题后继续播放\n" else "")+"$kind · ${point/60}:${(point%60).toString().padStart(2,'0')}\n"+poll.optString("question")
   if(revealed){
    val answers=poll.optJSONObject("answers") ?: JSONObject()
    val names=mutableListOf<String>();val keys=answers.keys()
@@ -456,7 +457,7 @@ class MainActivity: Activity() {
   val v=TextView(this).apply {this.text=text;textSize=danmakuSize;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);setSingleLine(true);setPadding(dp(6),dp(4),dp(6),dp(4));tag="danmaku";isClickable=false};v.measure(View.MeasureSpec.UNSPECIFIED,View.MeasureSpec.UNSPECIFIED);val h=v.measuredHeight;videoBox.addView(v,FrameLayout.LayoutParams(v.measuredWidth,h).apply {topMargin=dp(if(fullscreenDialog!=null)16 else 72)+lane*h});v.translationX=videoBox.width.toFloat();v.animate().translationX(-v.measuredWidth.toFloat()).setDuration(DanmakuSpeed.duration(entry.third,danmakuSpeed)).setInterpolator(android.view.animation.LinearInterpolator()).withEndAction {videoBox.removeView(v);danmakuLanes[lane]=false;drainDanmaku()}.start();drainDanmaku()
  }
  private fun removeDanmaku(){for(i in videoBox.childCount-1 downTo 0){val v=videoBox.getChildAt(i);if(v.tag=="danmaku"){v.animate().cancel();videoBox.removeView(v)}};danmakuLanes.fill(false)}
- private fun errorText(code: String)=when(code){"STALE_VERSION"->"房间状态变化，请重试";"HOST_REQUIRED"->"只有房主可以操作";"HOST_OFFLINE"->"房主离线";"SEEK_AFTER_END"->"超出影片时长";"SOURCE_NOT_READY"->"等待两端匹配同一百度影片并准备好";"INVALID_SOURCE"->"片源无效或含凭据";"RATE_LIMIT"->"操作过于频繁";else->code}
+ private fun errorText(code: String)=when(code){"PLOT_ANSWER_REQUIRED"->"请双方先回答剧情问题，再继续播放";"STALE_VERSION"->"房间状态变化，请重试";"HOST_REQUIRED"->"只有房主可以操作";"HOST_OFFLINE"->"房主离线";"SEEK_AFTER_END"->"超出影片时长";"SOURCE_NOT_READY"->"等待两端匹配同一百度影片并准备好";"INVALID_SOURCE"->"片源无效或含凭据";"RATE_LIMIT"->"操作过于频繁";else->code}
  private fun applyMembers(list: org.json.JSONArray){val labels=ArrayList<String>();val durations=ArrayList<Double>();repeat(list.length()){val p=list.getJSONObject(it);labels.add("${if(p.optBoolean("online"))"🟢" else "⚪"} ${p.optString("name")} ${if(p.optBoolean("buffering"))"缓冲中" else ""}");if(p.optString("userId")==credentials?.optString("userId"))engine.timelineOffset=p.optDouble("timelineOffset",0.0);if(p.optDouble("duration",0.0)>0)durations.add(p.optDouble("duration")-p.optDouble("timelineOffset",0.0))};memberSummary=labels.joinToString("\n");onlineMembers=(0 until list.length()).count {list.getJSONObject(it).optBoolean("online")};presence.text="${onlineMembers}人一起看";presence.setTextColor(0xff44d68b.toInt());if(durations.size==2 && abs(durations[0]-durations[1])>5000)notice.text="影片时长不同，请确认剪辑一致"}
  private fun usingVariant()=variantRoomID.isNotBlank() && variantRoomID==engine.room?.optString("roomId") && variantMediaURL==engine.room?.optString("mediaUrl")
  private fun variantCheck():MovieVariantPolicy.DurationCheck {
@@ -613,7 +614,7 @@ class MainActivity: Activity() {
   val generation=++actionFeedbackGeneration
   main.postDelayed({if(generation==actionFeedbackGeneration){fullscreenAction?.text="";if(requestStatus.text.toString()==text)requestStatus.text=""}},5000)
  }
- private fun control(type: String,position: Double=0.0){val action=when(type){"PLAY"->"播放";"PAUSE"->"暂停";"SEEK"->"跳转";else->"操作"};playbackAction(if(isHost)"正在同步${action}…"else "正在请求房主${action}…");if(!connected || !clock.ready){playbackAction("正在连接或校准");return};if(!position.isFinite())return;val op=JSONObject().put("type",type).put("position",position.coerceAtLeast(0.0));if(isHost)enqueue(op)else {send(JSONObject().put("type","CONTROL_REQUEST").put("sequence",++sequence).put("data",op));requestStatus.text="已请求房主批准"}}
+ private fun control(type: String,position: Double=0.0){if(type!="PAUSE" && plotPoll?.optBoolean("waitingForAnswers")==true){playbackAction("请先回答剧情问题");requestStatus.text="请双方先回答剧情问题，再继续播放";return};val action=when(type){"PLAY"->"播放";"PAUSE"->"暂停";"SEEK"->"跳转";else->"操作"};playbackAction(if(isHost)"正在同步${action}…"else "正在请求房主${action}…");if(!connected || !clock.ready){playbackAction("正在连接或校准");return};if(!position.isFinite())return;val op=JSONObject().put("type",type).put("position",position.coerceAtLeast(0.0));if(isHost)enqueue(op)else {send(JSONObject().put("type","CONTROL_REQUEST").put("sequence",++sequence).put("data",op));requestStatus.text="已请求房主批准"}}
  private fun saveProfile(){val n=offset.text.toString().toDoubleOrNull();if(n==null || !n.isFinite() || abs(n)>600 || nickname.text.toString().codePointCount(0,nickname.text.length)>32){requestStatus.text="昵称最多32字，偏移正负600秒";return};getPreferences(0).edit().putString("nickname",nickname.text.toString()).putString("offset",offset.text.toString()).apply();sendProfile()}
  private fun sendProfile(){val n=offset.text.toString().toDoubleOrNull()?.takeIf {it.isFinite() && abs(it)<=600} ?: 0.0;send(JSONObject().put("type","PROFILE_UPDATE").put("data",JSONObject().put("name",nickname.text.toString()).put("timelineOffset",n*1000)))}
  private fun addVoicePanel(parent:LinearLayout):VoiceDanmakuView {val view=VoiceDanmakuView(this,voice,{connected});voiceViews.add(view);parent.addView(view);return view}

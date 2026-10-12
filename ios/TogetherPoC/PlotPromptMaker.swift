@@ -9,6 +9,7 @@ struct PlotQuestion:Codable,Equatable {
  let source:String
  var evidenceIDs:[String]=[]
  var kind:String="prediction"
+ var blocking=false
 }
 
 @MainActor enum PlotPromptMaker {

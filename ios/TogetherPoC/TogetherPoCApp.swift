@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_PLOT_UI_TEST"]=="1" {
     try? LocalPickerUITestFixture.install(into:model)
-    model.isRoomHost=true;model.isConnected=true
+    model.isRoomHost=true;model.isConnected=true;model.supportsBlockingPolls=true
     model.plotIntelligence.mode = .fallback
     model.plotIntelligence.automaticAllowed=false;model.plotIntelligence.consent=false;model.plotIntelligence.creditsDisabled=false
    }

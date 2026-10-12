@@ -81,8 +81,8 @@ final class PlotMemoryTests:XCTestCase {
   XCTAssertTrue(PlotQuality.check(q,context:context,history:[]))
   XCTAssertFalse(PlotQuality.check(q,context:context,history:[q.text]))
   q.evidenceIDs=["future"];XCTAssertFalse(PlotQuality.check(q,context:context,history:[]))
-  q.evidenceIDs=[values[0].id];q.choices=["一","一"];XCTAssertFalse(PlotQuality.check(q,context:context,history:[]))
-  q.choices=["一","二"];q=PlotQuestion(text:"真正的凶手是这个人吗？",choices:q.choices,source:"AI",evidenceIDs:q.evidenceIDs)
+  q=PlotQuestion(text:q.text,choices:["一","一"],source:"AI",evidenceIDs:[values[0].id]);XCTAssertFalse(PlotQuality.check(q,context:context,history:[]))
+  q=PlotQuestion(text:"真正的凶手是这个人吗？",choices:["一","二"],source:"AI",evidenceIDs:q.evidenceIDs)
   XCTAssertFalse(PlotQuality.check(q,context:context,history:[]))
  }
  func testLowConfidenceNeverUpgradesAndGoodLocalQuestionWins() {
@@ -109,6 +109,13 @@ final class PlotMemoryTests:XCTestCase {
  }
 }
 @MainActor final class PlotControllerTests:XCTestCase {
+ func testUnansweredBlockingPollRejectsPlaybackLocally() {
+  let model=TestClient(automaticallyConnect:false)
+  model.plotPoll=["waitingForAnswers":true]
+  model.control("PLAY")
+  XCTAssertTrue(model.requestStatus.contains("先回答"))
+  XCTAssertFalse(model.supportsBlockingPolls,"older servers must not falsely advertise this mode")
+ }
  func testUnverifiedChatGPTModeFallsBackWithoutSpendingRequests() async throws {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
   let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
