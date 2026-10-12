@@ -78,7 +78,7 @@ import UniformTypeIdentifiers
  }
  private func watchCard(height: CGFloat) -> some View {
   VStack(alignment:.leading,spacing:12) {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat).modifier(HoldToFastForward(model:model)).frame(height:height)
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,model:model).frame(height:height)
     .overlay(alignment:.topLeading) {
      VStack(alignment:.leading,spacing:8) {
       Text(model.playbackTitle).font(.headline).lineLimit(1)
@@ -160,6 +160,7 @@ import UniformTypeIdentifiers
 
 @MainActor struct PlaybackCanvas: View {
  let player: AVPlayer
+ @ObservedObject var model: TestClient
  @ObservedObject var subtitles: ExternalSubtitles
  @ObservedObject var chat: ChatEngine
  var bottomInset: Double=0
@@ -170,6 +171,7 @@ import UniformTypeIdentifiers
    ZStack(alignment:.bottom) {
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
+    Color.clear.contentShape(Rectangle()).modifier(HoldToFastForward(model:model))
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
     }
@@ -383,8 +385,7 @@ struct FullscreenToolStyle:ButtonStyle {
   GeometryReader {geometry in
   VStack(spacing:0) {
    ZStack {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
-    .modifier(HoldToFastForward(model:model))
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,model:model,bottomInset:0)
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
