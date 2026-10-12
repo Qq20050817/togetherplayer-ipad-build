@@ -85,13 +85,21 @@ final class PlotMemoryTests:XCTestCase {
   q=PlotQuestion(text:"真正的凶手是这个人吗？",choices:["一","二"],source:"AI",evidenceIDs:q.evidenceIDs)
   XCTAssertFalse(PlotQuality.check(q,context:context,history:[]))
  }
- func testLowConfidenceNeverUpgradesAndGoodLocalQuestionWins() {
+ func testSmartRoutingUsesRealCloudIfLocalFailsAndForComplexClues() {
   let policy=PlotRoutingPolicy()
   var score=PlotComplexity(complexityScore:95,confidence:0.4,reasons:["线索不明确"],relevantClues:["a"],contextSufficient:true,recommendedModel:"chatgpt")
-  XCTAssertFalse(policy.wantsCloud(score,localQuality:false))
-  score.confidence=0.9;XCTAssertTrue(policy.wantsCloud(score,localQuality:false));XCTAssertFalse(policy.wantsCloud(score,localQuality:true))
-  score.contextSufficient=false;XCTAssertFalse(policy.wantsCloud(score,localQuality:false))
-  score.contextSufficient=true;score.complexityScore=30;XCTAssertFalse(policy.wantsCloud(score,localQuality:false))
+  // Local assessment failure must never lock Smart mode into template-only use.
+  XCTAssertTrue(policy.wantsCloud(score,localQuality:false))
+  XCTAssertFalse(policy.wantsCloud(score,localQuality:true))
+  score.confidence=0.9
+  XCTAssertTrue(policy.wantsCloud(score,localQuality:false))
+  XCTAssertTrue(policy.wantsCloud(score,localQuality:true),"high-confidence complex scenes can use ChatGPT")
+  score.contextSufficient=false
+  XCTAssertTrue(policy.wantsCloud(score,localQuality:false))
+  score.contextSufficient=true;score.complexityScore=30
+  XCTAssertTrue(policy.wantsCloud(score,localQuality:false))
+  XCTAssertFalse(policy.wantsCloud(score,localQuality:true),"a good local question saves cloud usage")
+  XCTAssertTrue(policy.wantsCloud(score,localQuality:false,contextSufficient:false),"manual smart request can ask a general question")
  }
  func testComplexityOutputCannotInventCluesOrOverrideInsufficientContext() {
   let a=evidence(1,"已经看到的台词")
@@ -160,7 +168,26 @@ final class PlotMemoryTests:XCTestCase {
   XCTAssertEqual(controller.selectedModel,"苹果本地 AI 未出题")
   XCTAssertTrue(controller.reason.contains("暂不可用"))
  }
- func testDefaultsDisableCloudAndLimitIsUserConfigurable() {
+ func testSmartModeNeverMasqueradesAsFreeTemplateWithoutAvailableModels() async throws {
+  guard !PlotLocalAI.available else {return}
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let store=PlotMemoryStore(directory:nil)
+  let controller=PlotIntelligence(memory:store,preferences:preferences)
+  controller.mode = .fallback
+  controller.frame={PlotFrame(key:"smart-no-model",position:80,evidence:[])}
+  controller.generate()
+  for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
+  XCTAssertEqual(controller.result?.source,"免费备用题库")
+  controller.mode = .smart
+  XCTAssertNil(controller.result,"switching models must clear stale free preview")
+  controller.generate()
+  for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
+  XCTAssertNil(controller.result)
+  XCTAssertEqual(controller.selectedModel,"智能模式未出题")
+  XCTAssertTrue(controller.reason.contains("ChatGPT") || controller.reason.contains("设备端模型"))
+  XCTAssertEqual(controller.requests,0)
+ }
+  func testDefaultsDisableCloudAndLimitIsUserConfigurable() {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
   let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
   XCTAssertFalse(controller.automaticAllowed);XCTAssertFalse(controller.consent);XCTAssertFalse(controller.creditsDisabled)
