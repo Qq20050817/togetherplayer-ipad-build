@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: seamless-plot-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   ipad:
     runs-on: macos-26
