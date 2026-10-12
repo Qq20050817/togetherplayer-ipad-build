@@ -294,7 +294,16 @@ class MainActivity: Activity() {
   if(type=="PRESENCE")obj.optJSONArray("members")?.let {applyMembers(it)}
   when(type){
    "WELCOME"->{plotPoll=obj.optJSONObject("poll");obj.optJSONArray("messages")?.let {list->repeat(list.length()){acceptChat(list.getJSONObject(it))}};sendProfile();outbox.values.forEach {send(it)};applyPendingLocalMovie()}
-   "PLOT_POLL_STATE"->{plotPoll=obj.optJSONObject("poll");if(plotPoll!=null)requestStatus.text=if(plotPoll?.optBoolean("waitingForAnswers")==true)"请先回答剧情问题，再继续播放" else "收到剧情推理题 · 点观影工具查看"}
+   "PLOT_POLL_STATE"->{
+    val previous=plotPoll?.optString("id") ?: ""
+    plotPoll=obj.optJSONObject("poll")
+    val incoming=plotPoll?.optString("id") ?: ""
+    if(incoming.isNotBlank() && incoming!=previous) {
+     Toast.makeText(this,"🎭 新的剧情推理问题已到达 · 可随时从工具栏回答",Toast.LENGTH_LONG).show()
+    }
+    if(plotPoll!=null)requestStatus.text=if(plotPoll?.optBoolean("waitingForAnswers")==true)
+     "请先回答剧情问题，再继续播放" else "收到剧情推理题 · 点观影工具查看"
+   }
    "CHAT_MESSAGE"->obj.optJSONObject("message")?.let {acceptChat(it,true)}
    "CHAT_TYPING"->if(obj.optString("userId")!=credentials?.optString("userId"))chat.typing(obj.optString("name"),clock.localNow())
    "REACTION"->showReaction(obj.optString("emoji"))
