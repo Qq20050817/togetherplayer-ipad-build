@@ -1,0 +1,61 @@
+name: Verify always-visible plot AI entry on iPad
+on:
+  push:
+    branches: [fix/ipad-plot-ai-entry-visible-20261013]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/plot-ai-visible-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ipad:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Build unsigned iPad release
+        run: |
+          set -euo pipefail
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath plot-ai-derived
+          python3 tools/patch_prism_swift61.py plot-ai-derived/SourcePackages/checkouts/PrismCore
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath plot-ai-derived CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA with source identity
+        run: |
+          set -euo pipefail
+          python3 tools/package_unsigned_ipa.py plot-ai-derived/Build/Products/Release-iphoneos/TogetherPoC.app plot-ai-delivery/TogetherPlayer-v0.6.3-AI-visible-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-ai-delivery/TogetherPlayer-v0.6.3-AI-visible-unsigned.ipa > plot-ai-delivery/SHA256SUMS.txt
+          echo "Branch: ${GITHUB_REF_NAME}" > plot-ai-delivery/BUILD.txt
+          echo "Commit: ${GITHUB_SHA}" >> plot-ai-delivery/BUILD.txt
+          echo "Client-only visibility repair; no server deployed." >> plot-ai-delivery/BUILD.txt
+      - name: Upload installable candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-iPad-v0.6.3-AI-visible
+          path: plot-ai-delivery/
+          retention-days: 7
+      - name: Smoke test AI entry on simulator
+        id: ui
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/plot-ai-sims.json
+          DEVICE_ID=$(python3 -c 'import json;d=json.load(open("/tmp/plot-ai-sims.json"))["devices"];print(next(x["udid"] for vals in d.values() for x in vals if "iPad" in x["name"]))')
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -derivedDataPath plot-ai-derived \
+            -resultBundlePath plot-ai-ui.xcresult \
+            CODE_SIGNING_ALLOWED=NO test
+      - name: Upload UI test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Plot-AI-entry-UI-test-results
+          path: plot-ai-ui.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
