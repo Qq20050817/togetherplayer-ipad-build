@@ -33,6 +33,6 @@ class FullscreenGestureView(context:Context,private val dialog:Dialog,private va
   };return true
  }
  override fun performClick():Boolean {super.performClick();tap();return true}
- private fun finish(){main.removeCallbacks(startHold);if(holding)hold(false);holding=false;tracking=false;hint.visibility=View.GONE;parent?.requestDisallowInterceptTouchEvent(false)}
+ private fun finish(){cancelled=true;main.removeCallbacks(startHold);if(holding)hold(false);holding=false;tracking=false;hint.visibility=View.GONE;parent?.requestDisallowInterceptTouchEvent(false)}
  override fun onDetachedFromWindow(){finish();super.onDetachedFromWindow()}
 }
