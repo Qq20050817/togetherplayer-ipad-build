@@ -9,6 +9,7 @@ struct PlotFrame {
 }
 @MainActor final class PlotIntelligence:ObservableObject {
  @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");if working {cancel()}}}
+ @Published var eventDrivenEnabled:Bool {didSet {preferences.set(eventDrivenEnabled,forKey:"plot-event-driven");if !eventDrivenEnabled {momentTask?.cancel();momentTask=nil}}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
  @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
@@ -21,6 +22,7 @@ struct PlotFrame {
  @Published private(set) var automaticRequests=0
  @Published private(set) var assessment=PlotComplexity.uncertain
  @Published private(set) var previewCutoff=0.0
+ @Published private(set) var autoSuggestion:PlotQuestion?
  let auth=ChatGPTAuthProbe()
  private let memory:PlotMemoryStore
  private let preferences:UserDefaults
@@ -30,10 +32,17 @@ struct PlotFrame {
  private var generation=0
  private var lastKey=""
  private var generationCutoff=0.0
+ private var momentTask:Task<Void,Never>?
+ private var mostRecentAutoKey=""
+ private var mostRecentAutoPosition = -Double.infinity
+ var mayPublishAutomatically:(()->Bool)?
+ var publishAutomatically:((PlotQuestion)->Void)?
+ var isSubtitleCurrentlyShown:(()->Bool)?
  var frame:(()->PlotFrame?)?
  init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard) {
   self.memory=memory;self.preferences=preferences
   mode=PlotMode(rawValue:preferences.string(forKey:"plot-mode") ?? "") ?? .smart
+  eventDrivenEnabled=preferences.object(forKey:"plot-event-driven") as? Bool ?? true
   automaticAllowed=preferences.bool(forKey:"plot-cloud-allowed")
   consent=preferences.bool(forKey:"plot-cloud-consent")
   creditsDisabled=preferences.bool(forKey:"plot-cloud-no-credits")
@@ -46,30 +55,51 @@ struct PlotFrame {
  }
  func collect() async {
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
-  if lastKey != snapshot.key {cancel();result=nil;lastKey=snapshot.key}
+  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic}
  }
  func cancel() {generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
+ func subtitleChanged(_ text:String) {
+  momentTask?.cancel();momentTask=nil
+  // Event-driven: only after a caption ends, not at each new subtitle or an
+  // arbitrary movie timestamp. The debounce is a quiet-window safety check,
+  // not a repeating timer that manufactures questions.
+  guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,autoSuggestion == nil,mayPublishAutomatically?()==true,
+   let snapshot=frame?(),PlotMomentGate.likelyQuestionMoment(snapshot.evidence,position:snapshot.position) else{return}
+  guard snapshot.key != mostRecentAutoKey || snapshot.position-mostRecentAutoPosition>180 else{return}
+  let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
+  momentTask=Task {[weak self] in
+   try? await Task.sleep(nanoseconds:3_500_000_000)
+   guard !Task.isCancelled,let self,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
+    self.isSubtitleCurrentlyShown?()==false,let current=self.frame?(),current.key==key,
+    current.evidence.last?.id==last,
+    PlotMomentGate.likelyQuestionMoment(current.evidence,position:current.position) else{return}
+   self.mostRecentAutoKey=key;self.mostRecentAutoPosition=current.position
+   self.generate(autoMoment:true)
+  }
+ }
+ func acknowledgeAutoSuggestion() {autoSuggestion=nil}
  func playbackJumped() {
+  momentTask?.cancel();momentTask=nil;autoSuggestion=nil
   guard let current=frame?() else {cancel();result=nil;return}
   if current.key != lastKey || (working && current.position<generationCutoff) {cancel()}
   if current.key != lastKey || current.position<previewCutoff {result=nil}
  }
  var previewUsable:Bool {guard let current=frame?() else {return false};return current.key==lastKey && current.position>=previewCutoff}
- func generate(manualDeep:Bool=false,regenerate:Bool=false) {
+ func generate(manualDeep:Bool=false,regenerate:Bool=false,autoMoment:Bool=false) {
   guard !working,let snapshot=frame?() else {reason="请先加载影片；本机出题无需房间在线";return}
   cancel();lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
   working=true;result=nil;reason="正在分析已观看的剧情…"
-  operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate)}
+  operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment)}
   deadline=Task {[weak self] in
    try? await Task.sleep(nanoseconds:60_000_000_000)
    guard !Task.isCancelled,let self,self.generation==token,self.working else {return}
    self.cancel();self.reason="分析超时，可以重试；影片继续播放"
   }
  }
- private func run(_ snapshot:PlotFrame,token:Int,manualDeep:Bool,regenerate:Bool) async {
+ private func run(_ snapshot:PlotFrame,token:Int,manualDeep:Bool,regenerate:Bool,autoMoment:Bool) async {
   do {
    let state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
    requests=state.budget.total;automaticRequests=state.budget.automatic
@@ -88,10 +118,12 @@ struct PlotFrame {
     if mode == .smart && item.source=="免费备用题库" && PlotLocalAI.available {return false}
     return true
    }
+   if autoMoment && state.reusable(at:snapshot.position) != nil {working=false;deadline?.cancel();deadline=nil;return}
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
    let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
+   if autoMoment && (!context.sufficient || !PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position)) {working=false;deadline?.cancel();deadline=nil;return}
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
    var local:PlotQuestion?
@@ -170,6 +202,11 @@ struct PlotFrame {
     selectedModel=explicitlyCloud ? "ChatGPT 未出题" : "苹果本地 AI 未出题"
     reason=explanation;working=false;deadline?.cancel();deadline=nil;return
    }
+   // An automatic suggestion is NEVER a free template or an uncited question.
+   // Avoid popping up an unrelated generic question mid-film.
+   if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true) {
+    working=false;deadline?.cancel();deadline=nil;return
+   }
    let question=chosen ?? PlotFallback.question(context:context,history:history)
    guard chosen != nil || PlotQuality.check(question,context:context,history:history,allowGeneric:true) else {
     cancel();reason="生成的问题没有通过安全或重复检查，请稍后重试";return
@@ -179,6 +216,14 @@ struct PlotFrame {
    try await memory.finish(key:snapshot.key,question:question,cutoff:snapshot.position,clues:clues,context:context)
    let why=score.confidence>=policy.minimumConfidence ? String(score.reasons.prefix(2).joined(separator:"；").prefix(100))+"。" : ""
    complete(question,reason:why+(chosen==nil ? "没有足够的可靠 AI 结果，因此明确使用免费备用题库。" : "")+explanation,frame:snapshot,token:token)
+   if autoMoment && result != nil {
+    // Automatic polls are nonblocking; no client should pause playback.
+    let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:false)
+    if mayPublishAutomatically?()==true && isSubtitleCurrentlyShown?()==false {
+     autoSuggestion=safe
+     publishAutomatically?(safe)
+    }
+   }
   } catch {
    guard generation==token else {return}
    cancel();reason="本地剧情记忆保存失败；没有消耗新的云端请求，请稍后再试"
@@ -194,5 +239,5 @@ struct PlotFrame {
   let decision=PlotDecision(timestamp:Date().timeIntervalSince1970,position:snapshot.position,mode:mode.rawValue,selectedModel:question.source,reason:reason,complexityScore:assessment.complexityScore,confidence:assessment.confidence,requests:requests,quality:question.evidenceIDs.isEmpty ? "generic_fallback" : "evidence_checked",misjudgmentReview:"notReviewed")
   Task(priority:.utility) {try? await memory.record(key:snapshot.key,decision:decision)}
  }
- deinit {timer?.invalidate();operation?.cancel();deadline?.cancel()}
+ deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel()}
 }
