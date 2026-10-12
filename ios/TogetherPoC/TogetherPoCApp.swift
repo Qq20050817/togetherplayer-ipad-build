@@ -69,6 +69,10 @@ import UniformTypeIdentifiers
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
    .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
+   .onChange(of:model.plotPoll?["id"] as? String) {id in
+    guard id != nil,!fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
+    plotPollOpen=true
+   }
  }
  private var header: some View {
   ViewThatFits(in:.horizontal) {
@@ -471,14 +475,20 @@ struct FullscreenToolStyle:ButtonStyle {
     screenBrightness=Double(UIScreen.main.brightness)
    }
    .onDisappear {model.setSpeedHold(false);controls.cancel()}
-   .onChange(of:composing) {controls.setBusy("composer",$0)}
+   .onChange(of:composing) {value in
+    controls.setBusy("composer",value)
+    if !value && model.plotPollWaiting && !model.plotPollSubmitted {plotHintVisible=false;plotPollOpen=true}
+   }
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
    .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil,!plotPollOpen else {return}
-    // Presentation only: generated/published by the host at a dialogue gap,
-    // no automatic pause, navigation, or full-screen modal.
+    if model.plotPollWaiting && !model.plotPollSubmitted && !composing {
+     // The server pauses both viewers; open the question without extra taps.
+     plotHintVisible=false;plotPollOpen=true;return
+    }
+    // Nonblocking manually created polls retain the small optional hint.
     plotHintVisible=true;plotHintSequence+=1
     let sequence=plotHintSequence
     Task {
