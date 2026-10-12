@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-verified-20261013]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
