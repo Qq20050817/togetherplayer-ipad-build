@@ -1,0 +1,23 @@
+name: Smoke test plot story-turn gate (Swift)
+on:
+  push:
+    branches: [feat/plot-story-turn-awareness-20261013]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: plot-turn-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  swift-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Swift toolchain
+        run: swift --version
+      - name: Compile and test production gate
+        run: |
+          set -euo pipefail
+          swiftc -O -o /tmp/plot-story-turn-smoke ios/TogetherPoC/PlotMomentGate.swift tools/plot_story_turn_gate_smoke.swift
+          /tmp/plot-story-turn-smoke
