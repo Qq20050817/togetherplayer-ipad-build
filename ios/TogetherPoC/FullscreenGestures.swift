@@ -48,7 +48,7 @@ struct FullscreenGestureSurface:UIViewRepresentable {
    }
    if r.state == .began || r.state == .changed {
     let value=min(1,max(0,initial-r.translation(in:view).y/max(1,view.bounds.height)))
-    if left {UIScreen.main.brightness=value;view.accessibilityValue="亮度 \(Int((UIScreen.main.brightness*100).rounded()))%"}
+    if left {UIScreen.main.brightness=value;view.accessibilityValue="亮度 \(Int((value*100).rounded()))%"}
     else if let slider=volumeView?.subviews.compactMap({$0 as? UISlider}).first {slider.setValue(Float(value),animated:false);slider.sendActions(for:.valueChanged);view.accessibilityValue="音量 \(Int((slider.value*100).rounded()))%"}
     parent.feedback("\(left ? "亮度" : "音量") \(Int(value*100))%")
    } else if r.state == .ended || r.state == .cancelled || r.state == .failed {parent.interacting(false);parent.feedback("")}
