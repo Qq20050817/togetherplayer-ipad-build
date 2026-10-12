@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor struct PlotPollPanel: View {
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
+ @ObservedObject var auth:ChatGPTAuthProbe
  @Environment(\.dismiss) private var dismiss
  @State private var selected=""
  @State private var custom=""
@@ -12,7 +13,7 @@ import SwiftUI
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
  @State private var pauseForPoll=false
- init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence}
+ init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth}
  var body:some View {
   NavigationStack {
    ScrollView {
@@ -69,8 +70,10 @@ import SwiftUI
       }
       Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases){mode in Text(mode.title).tag(mode)}}
        .pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
-      Text("苹果本地 AI：\(PlotLocalAI.available ? "系统模型可用" : "系统模型暂不可用") · 已采集字幕线索：\(model.externalSubtitles.observedPlotEvidence().count) 条")
+      Text("苹果本地 AI：\(PlotLocalAI.available ? "系统模型可用" : "系统模型暂不可用（检查 Apple Intelligence 开关、下载和语言）") · 已采集字幕线索：\(model.externalSubtitles.observedPlotEvidence().count) 条")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
+      Text("ChatGPT：\(auth.integrationReady ? "已授权" : "未完成本应用授权") · 智能云端调用：\(intelligence.automaticAllowed ? "允许" : "关闭") · 剧情隐私同意：\(intelligence.consent ? "已开启" : "未开启") · Credits 保护确认：\(intelligence.creditsDisabled ? "已确认" : "未确认")")
+       .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
       Text("当前：\(intelligence.selectedModel)").font(.subheadline)
       Text(intelligence.reason).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-ai-reason")
       Text("ChatGPT 自动请求 \(intelligence.automaticRequests)/\(intelligence.limit) · 总请求 \(intelligence.requests)").font(.caption)
@@ -97,7 +100,7 @@ import SwiftUI
        }.disabled(!model.isConnected || !(5...200).contains(editQuestion.count) || editOptions.contains(where:{$0.isEmpty || $0.count>80}) || Set(editOptions).count != editOptions.count).accessibilityIdentifier("plot-publish")
       }
      }
-     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析且 ChatGPT 授权有效时，才向 OpenAI 发送本题所需的已观看摘要。设备端 AI 不可用会采用免费题库。")
+     Text("隐私：房间仅接收问题、选项和回答。剧情记忆保存在本机；只有你同意云端分析且 ChatGPT 授权有效时，才向 OpenAI 发送必要已观看摘要。智能模式只使用真实 AI；两种 AI 均不可用会显示原因，不会暗中使用免费题库。")
       .font(.caption2).foregroundStyle(.secondary)
     }.padding(20).frame(maxWidth:.infinity,alignment:.leading)
    }
