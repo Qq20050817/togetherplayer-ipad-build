@@ -130,6 +130,11 @@ enum PlotFallback {
   ("如果只依据已经看到的内容，什么信息最能帮助判断？",["更清楚的人物关系","已发生事件的顺序","已有线索之间的联系","暂时没有方向"])
  ]
  static func question(context:PlotContext,history:[String])->PlotQuestion {
+  if let cue=context.recent.last {
+   let text="对于刚才‘\(String(cue.text.prefix(28)))’，你现在更倾向哪种理解？"
+   let specific=PlotQuestion(text:text,choices:["可能是如实说明","可能有所保留","也可能有误会","还不能确定"],source:"免费备用题库",evidenceIDs:[cue.id],kind:"discussion")
+   if PlotQuality.check(specific,context:context,history:history,allowGeneric:true) {return specific}
+  }
   let item=questions.first{!PlotQuality.repeated($0.0,history:history)} ?? questions[Int(context.cutoff/180)%questions.count]
   return PlotQuestion(text:item.0,choices:item.1,source:"免费备用题库",kind:"discussion")
  }

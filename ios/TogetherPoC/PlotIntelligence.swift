@@ -109,6 +109,9 @@ struct PlotFrame {
    }
    guard valid(snapshot,token:token) else {cancel();return}
    let question=chosen ?? PlotFallback.question(context:context,history:history)
+   guard PlotQuality.check(question,context:context,history:history,allowGeneric:chosen==nil) else {
+    cancel();reason="暂时没有通过检查的新问题，可以继续观看后再生成";return
+   }
    // Summaries are optional and generated only during a manual request. No
    // perpetual inference or background cloud requests while watching.
    let clues=(mode == .smart || mode == .local) && PlotLocalAI.available ? await PlotLocalAI.summarize(context) : []
