@@ -60,6 +60,8 @@ import SwiftUI
       if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}}
       Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases){mode in Text(mode.title).tag(mode)}}
        .pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
+      Text("苹果本地 AI：\(PlotLocalAI.available ? "系统模型可用" : "系统模型暂不可用") · 已采集字幕线索：\(model.externalSubtitles.observedPlotEvidence().count) 条")
+       .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
       Text("当前：\(intelligence.selectedModel)").font(.subheadline)
       Text(intelligence.reason).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-ai-reason")
       Text("ChatGPT 自动请求 \(intelligence.automaticRequests)/\(intelligence.limit) · 总请求 \(intelligence.requests)").font(.caption)
