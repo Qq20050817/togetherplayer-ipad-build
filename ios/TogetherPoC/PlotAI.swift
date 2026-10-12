@@ -91,6 +91,20 @@ extension PlotContext {
   #endif
   return false
  }
+ static var availabilityDetail:String {
+  #if canImport(FoundationModels)
+  if #available(iOS 26.0,*) {
+   switch SystemLanguageModel.default.availability {
+   case .available:return "系统模型可用"
+   case .unavailable(.deviceNotEligible):return "当前设备不支持 Apple 设备端模型"
+   case .unavailable(.appleIntelligenceNotEnabled):return "尚未开启 Apple Intelligence"
+   case .unavailable(.modelNotReady):return "Apple 设备端模型尚未下载完成或暂未就绪"
+   @unknown default:return "Apple 设备端模型暂不可用（请检查系统语言与地区）"
+   }
+  }
+  #endif
+  return "需要 iPadOS 26 及支持 Apple Intelligence 的设备"
+ }
  static func respond(instructions:String,input:String) async throws -> String {
   try Task.checkCancellation()
   #if canImport(FoundationModels)
