@@ -11,7 +11,16 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.descendants(matching:.any)["fullscreen-device-status"].firstMatch.exists)
   let bar=app.otherElements["fullscreen-control-bar"].firstMatch
   XCTAssertLessThanOrEqual(surface.frame.maxY,bar.frame.minY+1)
-  surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:0.7)).press(forDuration:0.05,thenDragTo:surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:0.3)))
+  XCTAssertGreaterThan(surface.frame.width,app.windows.firstMatch.frame.width*0.7,"手势层必须覆盖视频宽度")
+  XCTAssertGreaterThan(surface.frame.height,app.windows.firstMatch.frame.height*0.25,"手势层高度不能为零")
+  let oldBrightness=surface.value as? String ?? ""
+  let oldPercent=Int(oldBrightness.filter({$0.isNumber})) ?? 50
+  let startY:CGFloat=oldPercent>=60 ? 0.25 : 0.75
+  let endY:CGFloat=oldPercent>=60 ? 0.75 : 0.25
+  surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:startY)).press(forDuration:0.05,thenDragTo:surface.coordinate(withNormalizedOffset:CGVector(dx:0.2,dy:endY)))
+  let updatedBrightness=surface.value as? String ?? ""
+  XCTAssertNotEqual(updatedBrightness,oldBrightness,"实际滑动必须改变亮度值")
+  XCTAssertTrue(updatedBrightness.hasPrefix("亮度"))
   XCTAssertTrue(app.buttons["退出全屏"].exists)
   surface.press(forDuration:0.7)
   app.buttons["退出全屏"].tap()
