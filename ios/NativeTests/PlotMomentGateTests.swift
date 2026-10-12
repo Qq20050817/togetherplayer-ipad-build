@@ -30,7 +30,52 @@ final class PlotMomentGateTests:XCTestCase {
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(suspicious,position:120))
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment([],position:3600))
  }
- func testFutureDialogueAndFreshSceneDoNotTrigger() {
+ func testRevelationWithOldAlibiAndNewRecordingTriggersWithoutQuestionMark() {
+  let clues=[
+   cue(4,"他说那天晚上一直留在家里，完全没有离开过"),
+   cue(8,"我们原本也以为这件事只是个误会"),
+   cue(12,"警方今天查到了那晚的另一份证据"),
+   cue(16,"监控录像清楚拍下一个人离开了房间"),
+   cue(20,"然而这与他之前说过的话根本不一致"),
+   cue(24,"现在终于发现这段证词有明显的矛盾")
+  ]
+  let signal=PlotMomentGate.assess(clues,position:28)
+  XCTAssertTrue(signal.isCandidate)
+  XCTAssertGreaterThanOrEqual(signal.informationChange,2)
+  XCTAssertGreaterThanOrEqual(signal.contradiction,1)
+  XCTAssertTrue(PlotMomentGate.likelyQuestionMoment(clues,position:28))
+ }
+ func testSmallTalkAndQuestionsWithoutNewPlotEvidenceNeverInterrupt() {
+  let routine=[
+   cue(4,"今天早餐你想喝牛奶还是喝果汁？"),
+   cue(8,"为什么买这件衣服，而不选择另外一件呢？"),
+   cue(12,"可是这个牌子的东西最近有点贵。"),
+   cue(16,"你说的价格我也不知道怎么回事。"),
+   cue(20,"我想先回家再商量要买什么。"),
+   cue(24,"但是我们还需要买点水果带回去。")
+  ]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(routine,position:28))
+  let isolated=[
+   cue(4,"大家在客厅等了很久"),cue(8,"他刚才出门买了点东西"),
+   cue(12,"今天有人到访"),cue(16,"我们刚刚发现一封信"),
+   cue(20,"其他人都点了点头"),cue(24,"所以大家继续聊天")
+  ]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(isolated,position:28))
+ }
+ func testImportantQuestionMustCiteFreshSubtitleEvidence() {
+  let values=(0..<12).map{cue(Double(4+$0*4),"关于那天的真相我们仍有一些疑问和没有解释的地方")}
+  let context=PlotContext(cutoff:60,recent:values,earlier:[],predictions:[])
+  let old=PlotQuestion(text:"这两种线索如何解释？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[0].id])
+  let fresh=PlotQuestion(text:"新发现的线索意味着什么？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
+  XCTAssertFalse(PlotMomentGate.questionIsTimely(old,context:context))
+  XCTAssertTrue(PlotMomentGate.questionIsTimely(fresh,context:context))
+ }
+ func testRapidDialogueAndPastMomentDoNotInterrupt() {
+  let dense=(0..<12).map{cue(Double(2+$0*2),"监控发现证据之后，刚才那个人为什么隐瞒真相？")}
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(dense,position:28),"rapid dialogue should not be interrupted")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(suspicious,position:45),"old moments expire")
+ }
+  func testFutureDialogueAndFreshSceneDoNotTrigger() {
   let future=suspicious.map{PlotEvidence.cue(start:$0.start+100,end:$0.end+100,text:$0.text,source:$0.source)}
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(future,position:24))
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(suspicious,position:24.7))
