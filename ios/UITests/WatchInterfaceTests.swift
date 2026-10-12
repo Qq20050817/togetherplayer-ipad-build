@@ -1,11 +1,27 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ // iPadOS 26 can report the old button frame while the first orientation
+ // transition is still settling. Confirm the actual fullscreen presentation
+ // before querying sliders shared with the ordinary watch screen.
+ private func enterFullscreen(_ app:XCUIApplication) {
+  let full=app.buttons["全屏观影"].firstMatch
+  let movie=app.otherElements["fullscreen-movie"].firstMatch
+  XCTAssertTrue(full.waitForExistence(timeout:20))
+  let hittable=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isHittable == true"),object:full)
+  XCTAssertEqual(XCTWaiter.wait(for:[hittable],timeout:10),.completed)
+  for _ in 0..<2 {
+   full.tap()
+   if movie.waitForExistence(timeout:5) {return}
+  }
+  XCTFail("点击全屏后必须真正进入全屏画面：\(app.debugDescription)")
+ }
+
  func testFullscreenGestureSurfaceAndDeviceStatus() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_VOICE_GESTURE_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   XCTAssertFalse(app.otherElements["fullscreen-gesture-surface"].exists)
-  let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()
+  enterFullscreen(app)
   let surface=app.otherElements["fullscreen-gesture-surface"].firstMatch
   XCTAssertTrue(surface.waitForExistence(timeout:5))
   XCTAssertTrue(app.descendants(matching:.any)["fullscreen-device-status"].firstMatch.exists)
@@ -116,7 +132,7 @@ final class WatchInterfaceTests: XCTestCase {
  func testFullscreenProgressAndRealMovieAdjustment() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_TRACK_PLAYBACK_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
-  let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:20));full.tap()
+  enterFullscreen(app)
   let progress=app.sliders["movie-progress"].firstMatch
   let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:progress)
   XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
