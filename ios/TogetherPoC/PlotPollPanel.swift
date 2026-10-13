@@ -73,6 +73,10 @@ import SwiftUI
        .font(.caption2).foregroundStyle(.secondary)
       Text("画面识别：\(visuals.status)")
        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
+      Toggle("PGS 图像字幕 OCR 仅供 AI 使用",isOn:$subtitles.convertPGSForAI)
+       .accessibilityIdentifier("plot-pgs-ai-only-srt")
+      Text("默认开启：OCR 文字生成本机 AI 专用 SRT，不修改电影文件、不切换观看字幕轨道。真正的原版 PGS 位图显示还取决于播放器底层支持。")
+       .font(.caption2).foregroundStyle(.secondary)
       if !subtitles.nativeIndexStatus.isEmpty {
        Text("内置字幕：\(subtitles.nativeIndexStatus)")
         .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-native-subtitle-index")
