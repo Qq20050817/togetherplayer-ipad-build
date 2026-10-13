@@ -115,7 +115,10 @@ import AVFoundation
   if enabled {past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff}.suffix(22).map{$0.text} ?? []}
   else if nativeEnabled {
    if let nativeIndexedDocument {
-    past=Array(nativeIndexedDocument.cues.filter{$0.end<=cutoff && $0.start<=cutoff}.suffix(22).map(\.text))
+    past=Array(nativeIndexedDocument.cues.filter{cue in
+     cue.end<=cutoff && cue.start<=cutoff &&
+     plotWatched.contains{$0.lowerBound<=cue.start+0.2 && $0.upperBound>=cue.end}
+    }.suffix(22).map(\.text))
    } else {past=nativeTimeline.completedText(before:cutoff)}
   } else {past=[]}
   return past.joined(separator:"\n")
@@ -296,7 +299,7 @@ import AVFoundation
   let time=player.currentTime().seconds-delay
   let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
-   (nativeEnabled ? (live.isEmpty ? nativeIndexedDocument?.text(at:time) ?? "" : live) : "")
+   (nativeEnabled ? (nativeIndexedDocument?.text(at:time) ?? live) : "")
   if next != text {text=next;plotCaptionChanged?(next)}
  }
 }
