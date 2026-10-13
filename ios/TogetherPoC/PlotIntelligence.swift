@@ -13,7 +13,13 @@ struct PlotFrame {
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
  @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
- @Published var limit:Int {didSet {limit=min(50,max(1,limit));preferences.set(limit,forKey:"plot-cloud-limit")}}
+ @Published var limit:Int {didSet {
+  let bounded=min(50,max(1,limit))
+  // @Published assignments invoke its wrapped setter again. Never write the
+  // same value back inside the observer: that recurses until the process dies.
+  if limit != bounded {limit=bounded;return}
+  preferences.set(bounded,forKey:"plot-cloud-limit")
+ }}
  @Published private(set) var working=false
  @Published private(set) var result:PlotQuestion?
  @Published private(set) var reason="手动生成，不影响播放"

@@ -1,7 +1,7 @@
 name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [fix/plot-story-turn-ci-20261013]
+    branches: [fix/plot-story-turn-ci-complete-20261013]
   workflow_dispatch:
 permissions:
   contents: read
@@ -58,11 +58,27 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.3-StoryTurn-Validated-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-delivery/TogetherPlayer-0.6.3-StoryTurn-unsigned.ipa > plot-delivery/SHA256SUMS.txt
+          shasum -a 256 plot-delivery/TogetherPlayer-0.6.3-StoryTurn-Validated-unsigned.ipa > plot-delivery/SHA256SUMS.txt
           printf "Source branch: %s\nSource SHA: %s\nCI: iPad build and regression tests succeeded\n" "$GITHUB_REF_NAME" "$GITHUB_SHA" > plot-delivery/BUILD.txt
           printf "Requires in-person Apple AI and official ChatGPT OAuth validation before release. No server deployed.\n" >> plot-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
           name: TogetherPlayer-iPad-v0.6.3-StoryTurn-Validated-candidate
           path: plot-delivery/
+          retention-days: 7
+
+      - name: Collect test diagnostics
+        if: always()
+        run: |
+          mkdir -p plot-diagnostics
+          for result in plot-build/Logs/Test/*.xcresult; do
+            [ -d "$result" ] || continue
+            xcrun xcresulttool get test-results summary --path "$result" > "plot-diagnostics/$(basename "$result").json" || true
+          done
+          cp -R "$HOME/Library/Logs/DiagnosticReports" plot-diagnostics/crashes 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plot-story-turn-test-diagnostics
+          path: plot-diagnostics/
           retention-days: 7
