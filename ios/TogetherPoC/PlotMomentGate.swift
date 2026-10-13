@@ -139,4 +139,3 @@ enum PlotGrounding {
   return false
  }
 }
-}
