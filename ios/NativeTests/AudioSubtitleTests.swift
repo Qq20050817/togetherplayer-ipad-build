@@ -82,6 +82,10 @@ final class AudioSubtitleTests:XCTestCase {
   let cues=try XCTUnwrap(String(data:cueData,encoding:.utf8))
   XCTAssertTrue(cues.contains("WEBVTT"))
   XCTAssertTrue(cues.contains("Embedded subtitle test"),"The original subtitle content must reach the player, not just a menu label")
+  // Read the selected original MKV subtitle track before playback.
+  let indexed=await NativeSubtitleIndexReader.fetch(master:playlist,track:0)
+  XCTAssertTrue(indexed?.cues.contains(where:{$0.text.contains("Embedded subtitle test")}) == true,
+   "The AI planner must recover the embedded MKV text as timed subtitles")
   let captionItem=AVPlayerItem(asset:asset)
   let captionPlayer=AVPlayer()
   let captions=ExternalSubtitles(player:captionPlayer)
