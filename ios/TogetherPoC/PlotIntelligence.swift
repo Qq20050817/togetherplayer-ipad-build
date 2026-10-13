@@ -191,7 +191,7 @@ struct PlotFrame {
     if mode == .smart {return item.source=="ChatGPT" || item.source=="Apple 设备端 AI"}
     return true
    }
-   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {autoTriggerStatus="该剧情片段已经生成过问题，为避免重复打断已跳过";working=false;deadline?.cancel();deadline=nil;return}
+   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached),PlotGrounding.verified(cached,context:context) {autoTriggerStatus="该剧情片段已经生成过问题，为避免重复打断已跳过";working=false;deadline?.cancel();deadline=nil;return}
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
@@ -212,14 +212,14 @@ struct PlotFrame {
    }
    guard valid(snapshot,token:token) else {cancel();return}
    var localGeneric = !context.sufficient
-   var localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:localGeneric && $0.evidenceIDs.isEmpty)} ?? false
+   var localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:localGeneric && $0.evidenceIDs.isEmpty) && (!autoMoment || PlotGrounding.verified($0,context:context))} ?? false
    if !localGood && context.sufficient && (mode == .local || mode == .smart) && PlotLocalAI.available {
     // Try one genuine zero-cost model question, without claiming to know
     // a movie scene that the strict subtitle-evidence validator rejected.
     local=await PlotLocalAI.genericQuestion(at:snapshot.position)
     guard valid(snapshot,token:token) else {cancel();return}
     localGeneric=true
-    localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:$0.evidenceIDs.isEmpty)} ?? false
+    localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:$0.evidenceIDs.isEmpty) && (!autoMoment || PlotGrounding.verified($0,context:context))} ?? false
    }
    var chosen=localGood ? local : nil
    var explanation=localGood ? (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题") :
@@ -227,7 +227,7 @@ struct PlotFrame {
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
    if requested {
-    if let cached=state.reusable(at:snapshot.position),cached.source=="ChatGPT" {
+    if let cached=state.reusable(at:snapshot.position),cached.source=="ChatGPT",(!autoMoment || PlotGrounding.verified(cached,context:context)) {
      complete(cached,reason:"复用该片段已完成的 ChatGPT 问题，没有再次消耗额度",frame:snapshot,token:token);return
     }
     // Explicit model choice is itself a manual request. The automatic-call
@@ -249,8 +249,8 @@ struct PlotFrame {
        let input=context.sufficient ? context.boundedInput : "当前影片播放到约\(Int(snapshot.position/60))分钟，暂无足够的已观看字幕；请生成一道不依赖任何虚构细节的通用讨论问题。"
        let text=try await auth.performInference(instructions:instruction,input:input,canSend:{self.valid(snapshot,token:token)})
        guard valid(snapshot,token:token) else {return}
-       if let cloud=PlotPromptMaker.parse(text),PlotQuality.check(cloud,context:context,history:history,allowGeneric:!context.sufficient && cloud.evidenceIDs.isEmpty) {
-        chosen=PlotQuestion(text:cloud.text,choices:cloud.choices,source:"ChatGPT",evidenceIDs:cloud.evidenceIDs,kind:cloud.kind)
+       if let cloud=PlotPromptMaker.parse(text),PlotQuality.check(cloud,context:context,history:history,allowGeneric:!context.sufficient && cloud.evidenceIDs.isEmpty),(!autoMoment || PlotGrounding.verified(cloud,context:context)) {
+        chosen=PlotQuestion(text:cloud.text,choices:cloud.choices,source:"ChatGPT",evidenceIDs:cloud.evidenceIDs,anchorQuote:cloud.anchorQuote,kind:cloud.kind)
         explanation=context.sufficient ? "ChatGPT 已根据已观看的字幕生成问题" : "ChatGPT 已生成通用讨论题，未读取或编造影片剧情"
        } else {
         try? await memory.fail(key:snapshot.key,segment:Int(snapshot.position/180))
@@ -297,7 +297,7 @@ struct PlotFrame {
    }
    // An automatic suggestion is NEVER a free template or an uncited question.
    // Avoid popping up an unrelated generic question mid-film.
-   if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true || !PlotMomentGate.questionIsTimely(chosen!,context:context)) {
+   if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true || !PlotMomentGate.questionIsTimely(chosen!,context:context) || !PlotGrounding.verified(chosen!,context:context)) {
     autoTriggerStatus=chosen == nil ? "剧情候选有效，但真实 AI 未生成合格问题：\(explanation)" : "AI 问题缺乏当前剧情证据，已避免打断"
     working=false;deadline?.cancel();deadline=nil;return
    }
@@ -313,7 +313,7 @@ struct PlotFrame {
    if autoMoment && result != nil {
     // Automatic story questions always pause the shared playback. The server
     // coordinates both answers, readiness, and safe resumption.
-    let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:true)
+    let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,anchorQuote:question.anchorQuote,kind:question.kind,blocking:true)
     if mayPublishAutomatically?()==true && isSubtitleCurrentlyShown?()==false,
      let now=frame?(),now.key==snapshot.key,now.position>=snapshot.position,
      now.position-snapshot.position<=45 {
