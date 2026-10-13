@@ -264,7 +264,9 @@ struct PlotFrame {
    if mode == .smart || mode == .local {
     // Even without subtitles, use the REAL on-device model for an honest
     // context-free question; never claim it analyzed unobserved movie content.
-    local=prepared ?? (context.sufficient ? await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment) : await PlotLocalAI.genericQuestion(at:snapshot.position))
+    if let prepared {local=prepared}
+    else if context.sufficient {local=await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment)}
+    else {local=await PlotLocalAI.genericQuestion(at:snapshot.position)}
    }
    guard valid(snapshot,token:token) else {cancel();return}
    var localGeneric = !context.sufficient
