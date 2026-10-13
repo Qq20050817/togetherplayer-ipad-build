@@ -161,6 +161,16 @@ final class PlotMemoryTests:XCTestCase {
   subtitles.beginPlotFilm("film-B")
   XCTAssertFalse(subtitles.available,"a genuinely different film must not inherit subtitles")
  }
+ func testAutoPromptExplainsUnavailableRoomAndFreeModel() {
+  let model=TestClient(automaticallyConnect:false)
+  model.plotIntelligence.eventDrivenEnabled=true
+  model.plotIntelligence.mode = .smart
+  model.plotIntelligence.subtitleChanged("")
+  XCTAssertTrue(model.plotIntelligence.autoTriggerStatus.contains("房间"),"no room must not silently skip")
+  model.plotIntelligence.mode = .fallback
+  model.plotIntelligence.subtitleChanged("")
+  XCTAssertTrue(model.plotIntelligence.autoTriggerStatus.contains("手动"),"free questions require explicit manual request")
+ }
  func testUnansweredBlockingPollRejectsPlaybackLocally() {
   let model=TestClient(automaticallyConnect:false)
   model.plotPoll=["waitingForAnswers":true]
