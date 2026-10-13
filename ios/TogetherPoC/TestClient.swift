@@ -278,8 +278,9 @@ import CoreMedia
   // watched subtitle evidence and imported subtitle state.
   let identity=engine.room?.mediaUrl ?? url.absoluteString
   var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
-  externalSubtitles.beginPlotFilm(PlotMemoryStore.key(components?.string ?? identity))
-  plotIntelligence.preserveCurrentFilmEvidence()
+  let plotKey=PlotMemoryStore.key(components?.string ?? identity)
+  if externalSubtitles.isCurrentPlotFilm(plotKey) {plotIntelligence.preserveCurrentFilmEvidence()}
+  externalSubtitles.beginPlotFilm(plotKey)
   currentOriginalURL=url
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
