@@ -85,6 +85,7 @@ final class AudioSubtitleTests:XCTestCase {
   let captionItem=AVPlayerItem(asset:asset)
   let captionPlayer=AVPlayer()
   let captions=ExternalSubtitles(player:captionPlayer)
+  captions.beginPlotFilm("native-reconnect-fixture")
   captions.attachNativeOutput(to:captionItem)
   captionPlayer.replaceCurrentItem(with:captionItem)
   for _ in 0..<150 {
@@ -121,6 +122,11 @@ final class AudioSubtitleTests:XCTestCase {
    try await Task.sleep(nanoseconds:20_000_000)
   }
   XCTAssertTrue(captions.text.contains("Embedded subtitle test"),"Backward seek must restore the original embedded cue while paused")
+  // The same film's legible decoder can reattach during reconnect or
+  // stream recovery. Previously this erased the timeline and blanked subtitles.
+  captions.attachNativeOutput(to:captionItem)
+  XCTAssertTrue(captions.text.contains("Embedded subtitle test"),
+   "Reattaching native output for the same film must retain already received cues")
   remux.stop()
  }
  func testEmptyOptionSubtypeUsesUnambiguousTrackFormats() {
