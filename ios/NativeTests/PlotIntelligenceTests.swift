@@ -224,7 +224,11 @@ final class PlotMemoryTests:XCTestCase {
   for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
   XCTAssertNil(controller.result)
   XCTAssertEqual(controller.selectedModel,"苹果本地 AI 未出题")
-  XCTAssertTrue(controller.reason.contains("暂不可用"))
+  // Device/OS/model readiness produce different truthful diagnostics on CI.
+  // Require the real availability reason and never accept a template as AI.
+  XCTAssertTrue(controller.reason.contains(PlotLocalAI.availabilityDetail),
+   "Explicit local mode must surface the current device-model availability reason")
+  XCTAssertFalse(controller.reason.contains("免费备用题库"))
  }
  func testSmartModeNeverMasqueradesAsFreeTemplateWithoutAvailableModels() async throws {
   guard !PlotLocalAI.available else {return}
@@ -281,5 +285,22 @@ final class PlotMemoryTests:XCTestCase {
   for _ in 0..<30 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
   XCTAssertEqual(controller.result?.source,"免费备用题库");XCTAssertEqual(controller.requests,0)
   controller.cancel();XCTAssertFalse(controller.working)
+ }
+}
+
+
+final class PlotVisualFrameClockTests:XCTestCase {
+ func testSamplesCurrentFrameAndNeverLooksAhead() throws {
+  let near=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:CMTime(seconds:30.02,preferredTimescale:600),playhead:30))
+  XCTAssertEqual(near.seconds,30,accuracy:0.002)
+  let behind=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:CMTime(seconds:29.99,preferredTimescale:600),playhead:30))
+  XCTAssertEqual(behind.seconds,29.99,accuracy:0.002)
+  XCTAssertGreaterThan(behind.seconds,29.75,"Video output must not query an old quarter-second offset")
+ }
+ func testInvalidHostClockFallsBackSafelyToKnownPlayhead() throws {
+  let time=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:.invalid,playhead:22))
+  XCTAssertEqual(time.seconds,22,accuracy:0.002)
+  XCTAssertNil(PlotVisualFrameClock.itemTime(host:.invalid,playhead:.nan))
+  XCTAssertNil(PlotVisualFrameClock.itemTime(host:.invalid,playhead:-1))
  }
 }

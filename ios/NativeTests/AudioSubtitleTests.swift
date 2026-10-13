@@ -34,16 +34,27 @@ final class AudioSubtitleTests:XCTestCase {
   let timeline:[String:Any]=["state":"paused","position":0,"updatedAt":0,"playbackRate":1]
   model.receive(["type":"WELCOME","room":["roomId":"embedded-tracks-test","hostId":"fixture-host","mediaUrl":"https://example.org/movie.mp4","version":1,"executeAt":0,"state":"paused","position":0,"updatedAt":0,"playbackRate":1,"before":timeline]],t4:0)
   model.beginLocalFileSelection();model.useLocalFile(url)
+  // Wait for this film's player item, then choose before its async track query settles.
+  // Choosing while the prior film is still preparing would correctly be reset.
+  for _ in 0..<100 {
+   if (model.adapter.player.currentItem?.asset as? AVURLAsset)?.url == playlist {break}
+   try await Task.sleep(nanoseconds:100_000_000)
+  }
+  XCTAssertEqual((model.adapter.player.currentItem?.asset as? AVURLAsset)?.url,playlist)
+  model.chooseSubtitle(0)
   for _ in 0..<100 {
    if model.audioLabels.count==1 && model.subtitleLabels.count==1 {break}
    try await Task.sleep(nanoseconds:100_000_000)
   }
   XCTAssertEqual(model.audioLabels.count,1,"Actual app must discover the audible selection group")
   XCTAssertEqual(model.subtitleLabels.count,1,"Actual app must discover the embedded subtitle group")
-  model.chooseSubtitle(0)
+  XCTAssertEqual(model.selectedSubtitleIndex,0,"An early choice must survive asynchronous group discovery")
   let item=try XCTUnwrap(model.adapter.player.currentItem)
   let loadedGroup=try await item.asset.loadMediaSelectionGroup(for:.legible)
   let group=try XCTUnwrap(loadedGroup)
+  XCTAssertTrue(item.currentMediaSelection.selectedMediaOption(in:group) === group.options.first,
+   "Early subtitle selection must reach AVPlayer before a second menu tap")
+  model.chooseSubtitle(0)
   XCTAssertTrue(item.currentMediaSelection.selectedMediaOption(in:group) === group.options.first)
   model.adapter.player.play()
   for _ in 0..<150 {

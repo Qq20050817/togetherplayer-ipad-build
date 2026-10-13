@@ -3,6 +3,18 @@ import Combine
 import AVFoundation
 import Vision
 import CoreVideo
+import QuartzCore
+
+// Convert the current decoder host clock to item time. A historical time
+// (such as playhead minus 250 ms) can be too old for the live output queue.
+enum PlotVisualFrameClock {
+ static func itemTime(host:CMTime,playhead:Double)->CMTime? {
+  guard playhead.isFinite,playhead>=0 else{return nil}
+  let hostSeconds=host.seconds
+  let seconds=hostSeconds.isFinite && hostSeconds>=0 ? min(playhead,hostSeconds) : playhead
+  return CMTime(seconds:seconds,preferredTimescale:600)
+ }
+}
 
 // Conservative broad visual vocabulary. A Vision classification is only a
 // hypothesis about pixels, never a claim about a character or movie plot.
@@ -52,6 +64,8 @@ enum PlotSceneTagger {
  private var lastTick:Double?
  private var lastSample = -Double.infinity
  private var busy=false
+ private var missingFrameCount=0
+ private var outputRestartCount=0
  private var visual:[PlotEvidence]=[]
  var onNewEvidence:(()->Void)?
  var onEnabledChanged:((Bool)->Void)?
@@ -66,6 +80,7 @@ enum PlotSceneTagger {
   guard !key.isEmpty else{return}
   if filmKey != key {
    generation+=1;filmKey=key;visual=[];analyzedFrames=0
+   missingFrameCount=0;outputRestartCount=0
    lastTick=nil;lastSample = -.infinity
   }
  }
@@ -74,7 +89,7 @@ enum PlotSceneTagger {
   return visual.filter{$0.end<=cutoff}
  }
  func attach(to item:AVPlayerItem) {
-  if attachedItem !== item {detach();attachedItem=item;lastTick=nil;lastSample = -.infinity}
+  if attachedItem !== item {detach();attachedItem=item;lastTick=nil;lastSample = -.infinity;missingFrameCount=0;outputRestartCount=0}
   resetAttachment()
  }
  func setForeground(_ value:Bool) {
@@ -83,7 +98,7 @@ enum PlotSceneTagger {
   else {resetAttachment()}
  }
  func clear() {
-  detach();filmKey="";visual=[];analyzedFrames=0
+  detach();filmKey="";visual=[];analyzedFrames=0;missingFrameCount=0;outputRestartCount=0
   status=enabled ? "等待播放画面" : "画面理解试验未开启"
  }
  private func detach() {
@@ -124,13 +139,25 @@ enum PlotSceneTagger {
   // forward over two ticks before a frame becomes eligible for analysis.
   guard let previous=lastTick,position-previous>=0.2,position-previous<=6 else{return}
   guard position-lastSample>=18 else{return}
-  // Never request an image from beyond the playhead.
-  let time=CMTime(seconds:max(0,position-0.25),preferredTimescale:600)
+  // Apple recommends querying the decoder's current host-aligned item time.
+  // The output only holds recent decoded frames, so a 250 ms old request
+  // can report nil even while a movie is playing normally.
+  guard let time=PlotVisualFrameClock.itemTime(host:output.itemTime(forHostTime:CACurrentMediaTime()),playhead:position) else{return}
   guard output.hasNewPixelBuffer(forItemTime:time),
         let pixel=output.copyPixelBuffer(forItemTime:time,itemTimeForDisplay:nil) else {
-   status="此片源暂未提供可分析画面，仍可用字幕推理"
+   missingFrameCount+=1
+   if missingFrameCount>=4 && outputRestartCount==0 {
+    outputRestartCount=1
+    status="尚未收到画面帧，正在重新接入播放器画面输出"
+    resetAttachment()
+   } else if missingFrameCount<8 {
+    status="等待已解码画面帧（已尝试\(missingFrameCount)次），电影继续播放"
+   } else {
+    status="画面输出持续不可用；可能是片源或解码兼容问题，字幕推理仍可使用"
+   }
    return
   }
+  missingFrameCount=0
   lastSample=position;busy=true
   let identity=filmKey
   let token=generation
