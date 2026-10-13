@@ -132,12 +132,26 @@ final class PlotMomentGateTests:XCTestCase {
   XCTAssertFalse(PlotMomentGate.questionIsTimely(old,context:context))
   XCTAssertTrue(PlotMomentGate.questionIsTimely(fresh,context:context))
  }
- func testFailedAttemptsBackOffWithoutBlockingNextRealTurnForTenMinutes() {
+ func testAdaptiveSparseRevelationCanQualifyWithoutFourLongSubtitleLines() {
+  let sparse=[
+   cue(4,"昨天他说自己一直在家"),
+   cue(8,"警方发现新的监控录像"),
+   cue(12,"可是这和他之前说的明显矛盾")
+  ]
+  XCTAssertTrue(PlotMomentGate.likelyQuestionMoment(sparse,position:16),
+   "Three related, finished revelations are enough to ask a real model")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(sparse,position:12.3),
+   "Never interrupt mid-cue")
+  let ordinary=[cue(4,"今天去买牛奶"),cue(8,"顺路买了一份面包"),cue(12,"我们随后就回家了")]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(ordinary,position:16),
+   "Short ordinary conversation must never become a forced question")
+ }
+ func testFailedAttemptsAndSuccessfulQuestionsHaveSeparateCooldowns() {
   XCTAssertTrue(PlotMomentGate.canAttempt(position:100,lastAttempt:-.infinity,lastPublished:-.infinity))
-  XCTAssertFalse(PlotMomentGate.canAttempt(position:190,lastAttempt:100,lastPublished:-.infinity))
-  XCTAssertTrue(PlotMomentGate.canAttempt(position:230,lastAttempt:100,lastPublished:-.infinity))
-  XCTAssertFalse(PlotMomentGate.canAttempt(position:630,lastAttempt:100,lastPublished:100))
-  XCTAssertTrue(PlotMomentGate.canAttempt(position:700,lastAttempt:100,lastPublished:100))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:189,lastAttempt:100,lastPublished:-.infinity))
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:190,lastAttempt:100,lastPublished:-.infinity))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:350,lastAttempt:100,lastPublished:100))
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:400,lastAttempt:100,lastPublished:100))
   XCTAssertFalse(PlotMomentGate.canAttempt(position:50,lastAttempt:230,lastPublished:100))
  }
  func testRapidDialogueAndPastMomentDoNotInterrupt() {

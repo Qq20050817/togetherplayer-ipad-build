@@ -39,6 +39,18 @@ final class SubtitleAdjustmentTests:XCTestCase {
   XCTAssertEqual(timeline.text(at:4),"new");XCTAssertEqual(timeline.events.count,2)
   XCTAssertEqual(timeline.text(at:.nan),"")
  }
+ func testSimultaneousNativeEndAndNextStartNeverBlankNewCue() {
+  var timeline=NativeSubtitleTimeline()
+  timeline.receive(text:"下一句正在显示",time:5)
+  timeline.receive(text:"",time:5)
+  XCTAssertEqual(timeline.text(at:5.5),"下一句正在显示")
+  timeline.receive(text:"",time:6)
+  XCTAssertEqual(timeline.text(at:6.1),"","Real later end events still close the cue")
+  timeline.clear()
+  timeline.receive(text:"",time:5)
+  timeline.receive(text:"下一句正在显示",time:5)
+  XCTAssertEqual(timeline.text(at:5.5),"下一句正在显示")
+ }
  @MainActor func testFontAndVerticalPositionPersistAndReset() {
   let suite="SubtitleAdjustmentTests-"+UUID().uuidString
   let defaults=UserDefaults(suiteName:suite)!;defer {defaults.removePersistentDomain(forName:suite)}

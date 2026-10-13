@@ -31,6 +31,12 @@ import AVFoundation
  var plotCaptionChanged:((String)->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  private var plotFilmKey=""
+ private var lastNativeSelectionAuditAt=0.0
+ private var lastNativeCallbackAt=Date().timeIntervalSince1970
+ private var lastNativeRecoveryAt=0.0
+ private var nativeOutputRecoveryCount=0
+ // Called on the player's existing clock: no extra polling timer or decoder.
+ var nativeSelectionHealthCheck:(()->Void)?
  func isCurrentPlotFilm(_ key:String)->Bool {!key.isEmpty && plotFilmKey==key}
  // Reconnecting can replace AVPlayerItem without changing the film.
  // Keep watched intervals for that film; never transfer them to another film.
@@ -38,6 +44,7 @@ import AVFoundation
   guard !key.isEmpty,plotFilmKey != key else {return}
   if !plotFilmKey.isEmpty {clear()}
   plotFilmKey=key;plotLastTime=nil;plotLastWasPlaying=false
+  nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0
  }
  var available: Bool {document != nil}
  // Only subtitles strictly at/before the current player time may enter a
@@ -80,12 +87,18 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;enabled=false;delay=0}
+ func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
   if let old=legibleOutput,let attachedItem=attachedItem {attachedItem.remove(old)}
-  nativeTimeline.clear();nativeEnabled=true;attachedItem=item
+  // When a reconnect installs another AVPlayerItem for the SAME film,
+  // the new legible output may not replay already delivered cues immediately.
+  // beginPlotFilm()/explicit track selection already clear old-film/track data.
+  // Preserve the timeline across same-film item replacements.
+  if plotFilmKey.isEmpty {nativeTimeline.clear()}
+  nativeEnabled=true;attachedItem=item
+  lastNativeCallbackAt=Date().timeIntervalSince1970
   let output=AVPlayerItemLegibleOutput()
   // The delegate queues future events; they are never drawn before their
   // shifted timestamp. 120 seconds matches the adjustment panel's bounds.
@@ -98,6 +111,7 @@ import AVFoundation
  func nativeSelectionChanged(enabled:Bool=true) {nativeEnabled=enabled;nativeTimeline.clear();refresh()}
  fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
   guard output === legibleOutput else {return}
+  lastNativeCallbackAt=Date().timeIntervalSince1970
   nativeTimeline.receive(text:text,time:time);refresh()
  }
  fileprivate func flushNative(_ output:AVPlayerItemLegibleOutput) {
@@ -138,6 +152,25 @@ import AVFoundation
    }
    plotLastTime=actual
    plotLastWasPlaying=player.rate>0
+  }
+  // AVFoundation can silently reset the selected legible option when HLS
+  // variants or decoder state change. Verify the requested native track
+  // without clearing on-screen cues or touching external subtitle documents.
+  let now=Date().timeIntervalSince1970
+  if !enabled,nativeEnabled,player.rate>0,let item=attachedItem,
+   player.currentItem === item,item.status == .readyToPlay,
+   now-lastNativeSelectionAuditAt>=4 {
+   lastNativeSelectionAuditAt=now
+   nativeSelectionHealthCheck?()
+   // If even empty/end cue callbacks stop arriving for a long period, the
+   // legible output can be detached by a stream switch. Reattach at most twice
+   // per film while retaining already observed cues; normal gaps do not clear
+   // the selected track or interrupt playback.
+   if now-lastNativeCallbackAt>=90,now-lastNativeRecoveryAt>=90,
+    nativeOutputRecoveryCount<2 {
+    lastNativeRecoveryAt=now;nativeOutputRecoveryCount+=1
+    attachNativeOutput(to:item)
+   }
   }
   let time=player.currentTime().seconds-delay
   let next=enabled ? document?.text(at:time) ?? "" : (nativeEnabled ? nativeTimeline.text(at:time) : "")

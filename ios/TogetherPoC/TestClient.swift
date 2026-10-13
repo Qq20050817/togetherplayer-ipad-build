@@ -219,6 +219,7 @@ import CoreMedia
   visualSampler.onNewEvidence={ [weak self] in self?.plotIntelligence.visualChanged() }
   externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped() }
   externalSubtitles.plotCaptionChanged={ [weak self] text in self?.plotIntelligence.subtitleChanged(text) }
+  externalSubtitles.nativeSelectionHealthCheck={ [weak self] in self?.restoreSelectedNativeSubtitleIfNeeded() }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
   voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
   voice.roomKey={ [weak self] in self?.engine.room?.roomId ?? "" }
@@ -447,6 +448,22 @@ import CoreMedia
    }
    diagnostic("subtitleOptionsLoaded")
   }
+ }
+ // Keep an explicitly selected built-in subtitle track active across
+ // decoder/HLS option resets. Normal dialogue gaps never trigger a reselect.
+ private var lastNativeSubtitleRepairAt=0.0
+ private func restoreSelectedNativeSubtitleIfNeeded() {
+  guard !externalSubtitles.enabled,let requested=requestedSubtitleIndex,requested>=0,
+   let item=adapter.player.currentItem,item.status == .readyToPlay,
+   let group=subtitleGroup,group.options.indices.contains(requested) else {return}
+  let expected=group.options[requested]
+  guard item.currentMediaSelection.selectedMediaOption(in:group) !== expected else {return}
+  let now=Date().timeIntervalSince1970
+  guard now-lastNativeSubtitleRepairAt>=15 else{return}
+  lastNativeSubtitleRepairAt=now
+  item.select(expected,in:group)
+  selectedSubtitleIndex=requested
+  diagnostic("nativeSubtitleOptionRecovered")
  }
  func importSubtitle(_ url: URL) {
   Task {if await externalSubtitles.importFile(url) {enableExternalSubtitle()}}
