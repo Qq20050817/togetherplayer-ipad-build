@@ -66,6 +66,18 @@ final class PlotStoryStructureTests:XCTestCase {
   XCTAssertTrue(prompt.contains("早先发生一场调查"))
   XCTAssertFalse(prompt.contains("未来揭晓"))
  }
+  func testJumpToLaterSceneCannotRevealUnwatchedTenMinuteSummary() {
+  let early=PlotEvidence.cue(start:15,end:18,text:"最初发现的蓝色钥匙",source:"embedded-subtitle")
+  let middle=PlotEvidence.cue(start:300,end:303,text:"调查蓝色钥匙的来源",source:"embedded-subtitle")
+  let late=PlotEvidence.cue(start:590,end:593,text:"蓝色钥匙被交给警方",source:"embedded-subtitle")
+  let whole=PlotStoryNode(start:0,end:600,summary:"蓝色钥匙关系到全部事件",
+   characters:[],events:[],motivations:[],relationships:[],unresolved:[],
+   causalLinks:[],evidenceIDs:[early.id],confidence:0.6)
+  XCTAssertTrue(PlotStoryStructure.observedClues([whole],watched:[early],at:601).isEmpty,
+   "Watching just one dialogue before seeking to the end must not reveal the full scene recap")
+  let connected=PlotStoryStructure.observedClues([whole],watched:[early,middle,late],at:601)
+  XCTAssertEqual(connected.count,1)
+ }
   func testNoFutureNodeCanEnterCurrentWatchedMemory() {
   let early=PlotEvidence.cue(start:10,end:13,text:"有人报告秘密实验",source:"embedded-subtitle")
   let later=PlotEvidence.cue(start:100,end:103,text:"随后发现实验真相",source:"embedded-subtitle")
