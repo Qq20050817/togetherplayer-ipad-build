@@ -175,6 +175,26 @@ import CoreMedia
     self.adapter.player.rate>0 else{return false}
    return self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true
   }
+  plotIntelligence.automaticAvailabilityReason={ [weak self] in
+   guard let self else{return "房间控制器不可用"}
+   guard self.isConnected else{return "房间尚未连接；自动提问需房主在线"}
+   guard self.isRoomHost else{return "当前是观众端，由房主负责触发自动提问"}
+   guard self.supportsBlockingPolls else{return "服务器未开启自动暂停答题能力"}
+   guard self.adapter.player.rate>0 else{return "播放器暂停中，等待继续播放"}
+   guard self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true else{return "上一道题尚未完成"}
+   let settings=self.plotIntelligence
+   if settings.mode == .local && !PlotLocalAI.available {return "设备端 Apple AI 当前不可用；请查看 AI 模式"}
+   let auth=settings.auth
+   let cloudReady=settings.automaticAllowed && settings.consent && settings.creditsDisabled &&
+    auth.integrationReady && !auth.usagePaused && !auth.working
+   if settings.mode == .chatgpt && !cloudReady {
+    return "ChatGPT 自动提问未就绪，请检查授权、智能调用开关、隐私及额度保护"
+   }
+   if settings.mode == .smart && !PlotLocalAI.available && !cloudReady {
+    return "智能模式尚无可用真实 AI：苹果本地模型或 ChatGPT 自动授权至少需要一种"
+   }
+   return nil
+  }
   plotIntelligence.isSubtitleCurrentlyShown={ [weak self] in
    guard let self else{return true}
    return !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
