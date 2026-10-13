@@ -115,6 +115,10 @@ import CoreMedia
  @Published var subtitleLabels: [String]=[]
  @Published var selectedSubtitleIndex = -1
  private var subtitleGroup: AVMediaSelectionGroup?
+ // Remember an explicit embedded-track choice until its asynchronous media group is available.
+ // The choice survives reloading the same film but must not be applied to another movie.
+ private var requestedSubtitleIndex: Int?
+ private var requestedSubtitleFilmKey=""
  @Published var mediaInfo=""
  @Published var streamInfo="等待读取播放轨道"
  @Published var atmosReferenceOverride=false
@@ -308,6 +312,10 @@ import CoreMedia
   let identity=engine.room?.mediaUrl ?? url.absoluteString
   var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
   let plotKey=PlotMemoryStore.key(components?.string ?? identity)
+  if requestedSubtitleFilmKey != plotKey {
+   requestedSubtitleIndex=nil
+   requestedSubtitleFilmKey=plotKey
+  }
   if externalSubtitles.isCurrentPlotFilm(plotKey) {plotIntelligence.preserveCurrentFilmEvidence()}
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
@@ -350,8 +358,7 @@ import CoreMedia
    item=AVPlayerItem(asset:AVURLAsset(url:playbackURL,options:[AVURLAssetHTTPUserAgentKey:"pan.baidu.com"]))
   } else {item=AVPlayerItem(url:playbackURL)}
  item.preferredForwardBufferDuration=30;audioGroup=nil;audioLabels=[];selectedAudioIndex = -1
-  subtitleGroup=nil;subtitleLabels=[];selectedSubtitleIndex = -1
-  if externalSubtitles.enabled {selectedSubtitleIndex = -2}
+  subtitleGroup=nil;subtitleLabels=[];selectedSubtitleIndex = externalSubtitles.enabled ? -2 : (requestedSubtitleIndex ?? -1)
   videoBadges=[]
   if MediaSourceCatalog.canShare(originalURL.absoluteString),originalURL != baiduPlaybackURL {library.played(originalURL.absoluteString,title:movieTitle)}
   streamInfo="等待读取播放轨道";adapter.pause();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);visualSampler.attach(to:item);updateMediaInfo()
@@ -423,8 +430,21 @@ import CoreMedia
     let title=option.commonMetadata.first(where:{$0.commonKey == .commonKeyTitle})?.stringValue ?? option.displayName
     return TrackLabel.localized(title,language:option.extendedLanguageTag ?? option.locale?.identifier,subtitle:true)+" · 字幕 \(index+1)"
    } ?? []
-   if (externalSubtitles.enabled || selectedSubtitleIndex == -2),let group=group {item.select(nil,in:group)}
-   else if let group=group,let current=item.currentMediaSelection.selectedMediaOption(in:group) {selectedSubtitleIndex=group.options.firstIndex(where:{$0 === current}) ?? -1}
+   if let group=group {
+    // The menu may have been used before AVFoundation exposed this group.
+    // Reapply the user choice each time an item is installed or becomes ready.
+    if externalSubtitles.enabled || requestedSubtitleIndex == -2 {
+     item.select(nil,in:group);selectedSubtitleIndex = -2
+    } else if let requested=requestedSubtitleIndex,requested >= 0,group.options.indices.contains(requested) {
+     item.select(group.options[requested],in:group);selectedSubtitleIndex=requested
+    } else if requestedSubtitleIndex == -1 {
+     item.selectMediaOptionAutomatically(in:group);selectedSubtitleIndex = -1
+    } else if let current=item.currentMediaSelection.selectedMediaOption(in:group) {
+     selectedSubtitleIndex=group.options.firstIndex(where:{$0 === current}) ?? -1
+    } else {
+     selectedSubtitleIndex = -1
+    }
+   }
    diagnostic("subtitleOptionsLoaded")
   }
  }
@@ -434,12 +454,20 @@ import CoreMedia
  func enableExternalSubtitle() {
   guard externalSubtitles.available else {return}
   if let item=adapter.player.currentItem,let group=subtitleGroup {item.select(nil,in:group)}
+  requestedSubtitleIndex = -2
   selectedSubtitleIndex = -2;externalSubtitles.enabled=true
  }
  func chooseSubtitle(_ index: Int) {
-  // Reselecting the active option must not erase cues already delivered ahead
-  // of playback. The player does not necessarily deliver those cues twice.
-  if index==selectedSubtitleIndex && !externalSubtitles.enabled {return}
+  requestedSubtitleIndex=index
+  // Reselecting an already applied track must preserve its earlier cues.
+  // A pending selection without a loaded group still needs to be applied later.
+  if index==selectedSubtitleIndex && !externalSubtitles.enabled,
+    let item=adapter.player.currentItem,let group=subtitleGroup {
+   let active=item.currentMediaSelection.selectedMediaOption(in:group)
+   if (index == -2 && active == nil) ||
+      (index == -1 && active != nil) ||
+      (index >= 0 && group.options.indices.contains(index) && active === group.options[index]) {return}
+  }
   externalSubtitles.nativeSelectionChanged(enabled:index != -2);externalSubtitles.enabled=false;selectedSubtitleIndex=index
   guard let item=adapter.player.currentItem,let group=subtitleGroup else {return}
   if index == -1 {item.selectMediaOptionAutomatically(in:group)}
