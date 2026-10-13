@@ -24,7 +24,7 @@ import SwiftUI
       VStack(alignment:.leading,spacing:12) {
        Label("正在投票 · \(Int(((poll["positionMs"] as? Double ?? 0)/1000)/60)) 分钟",systemImage:"theatermasks.fill").font(.headline)
        Text(title).font(.title3.bold())
-       if model.plotPollWaiting {Label("请双方回答后继续播放",systemImage:"pause.circle.fill")}
+       if model.plotPollWaiting {Label(poll["solo"] as? Bool == true ? "回答后继续播放" : "请双方回答后继续播放",systemImage:"pause.circle.fill")}
        if !model.plotPollSubmitted {
         ForEach(options,id:\.self) {option in
          Button {selected=option;custom=""} label:{
@@ -40,13 +40,13 @@ import SwiftUI
          .buttonStyle(.borderedProminent)
        } else {Label("你已经回答，答案已锁定",systemImage:"checkmark.seal.fill")}
        if revealed {
-        Text("双方均已回答 · 观点对照").font(.headline)
+        Text(poll["solo"] as? Bool == true ? "回答已提交" : "双方均已回答 · 观点对照").font(.headline)
         ForEach(model.plotPollAnswers.keys.sorted(),id:\.self){userID in
          let name=model.members.first(where:{$0.userId==userID})?.name ?? (userID==model.plotMyUserID ? "我":"好友")
          Text("\(name)：\(model.plotPollAnswers[userID] ?? "")").padding(8)
           .frame(maxWidth:.infinity,alignment:.leading).background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius:8))
         }
-       } else {Text("双方都提交以后才公开答案，避免互相影响。").font(.caption).foregroundStyle(.secondary)}
+       } else {Text(poll["solo"] as? Bool == true ? "提交回答后即可继续观影。" : "双方都提交以后才公开答案，避免互相影响。").font(.caption).foregroundStyle(.secondary)}
       }
       .id(id)
      } else {Text("还没有剧情问题。房主可以根据已播放的字幕出一道题；没有字幕也能使用免费问题模板。")
@@ -57,7 +57,7 @@ import SwiftUI
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
       if !model.isConnected {Text("房间已断线：仍可在本机生成问题预览，重新连接后才能发布给好友。").font(.caption).foregroundStyle(.orange)}
       Toggle("答题后继续播放",isOn:$intelligence.pauseForQuestions).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
-      Text(model.supportsBlockingPolls ? "设置会保存，关闭此窗口仍有效。开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
+      Text(model.supportsBlockingPolls ? "设置会保存，关闭此窗口仍有效。单人答完即可恢复；双人需双方答完；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
        .font(.caption).foregroundStyle(.secondary)
       if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}}
       Toggle("重要剧情自动暂停并提问",isOn:$intelligence.eventDrivenEnabled)
@@ -100,7 +100,7 @@ import SwiftUI
        TextField("问题预览（可以编辑）",text:$editQuestion,axis:.vertical).textFieldStyle(.roundedBorder).accessibilityIdentifier("plot-question-preview")
        ForEach(editOptions.indices,id:\.self) {index in TextField("候选选项 \(index+1)",text:$editOptions[index]).textFieldStyle(.roundedBorder)}
        Button("重新生成（同片段不会重复调用云端）") {intelligence.generate(regenerate:true)}.disabled(intelligence.working)
-       Button("发布问题给两个人") {
+       Button("发布问题并回答") {
         guard intelligence.previewUsable else {return}
         let edited=PlotQuestion(text:editQuestion.trimmingCharacters(in:.whitespacesAndNewlines),choices:editOptions.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)},source:draft.source,evidenceIDs:draft.evidenceIDs,kind:draft.kind,blocking:intelligence.pauseForQuestions)
         model.publishPlotPoll(edited)

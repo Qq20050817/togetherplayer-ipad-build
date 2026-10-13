@@ -168,10 +168,10 @@ import CoreMedia
    }
    return PlotFrame(key:key,position:position,evidence:self.externalSubtitles.observedPlotEvidence(),prediction:prediction)
   }
-  // Only an actual two-person, host-controlled film session may issue an
-  // automatic question. A pending unanswered poll cannot be overwritten.
+  // Hosts can receive automatic questions alone or with a peer.
+  // A pending unanswered poll cannot be overwritten.
   plotIntelligence.mayPublishAutomatically={ [weak self] in
-   guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,self.members.count>=2,
+   guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,
     self.adapter.player.rate>0 else{return false}
    return self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true
   }
