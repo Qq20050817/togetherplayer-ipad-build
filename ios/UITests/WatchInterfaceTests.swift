@@ -376,7 +376,7 @@ final class WatchInterfaceTests: XCTestCase {
   let button=app.buttons["set-room-media"]
   XCTAssertTrue(button.waitForExistence(timeout:5))
   // Scroll from within the actual viewport, not from an offscreen button.
-  let viewport=app.scrollViews.firstMatch
+  let viewport=app.scrollViews.containing(.button,identifier:"set-room-media").firstMatch
   for _ in 0..<4 {
    if button.isHittable {break}
    viewport.swipeUp()
