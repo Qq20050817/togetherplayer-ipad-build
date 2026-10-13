@@ -289,6 +289,12 @@ struct SubtitleHeightKey:PreferenceKey {
     Button("移除外挂字幕",role:.destructive) {subtitles.clear();model.chooseSubtitle(-1)}
    }
    if !subtitles.status.isEmpty && !compact {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
+   if !compact && subtitles.enabled && !subtitles.fullFilmAnalysisStatus.isEmpty {
+    Text(subtitles.fullFilmAnalysisStatus).font(.caption2).foregroundStyle(.secondary)
+   }
+   if !compact && !subtitles.enabled && !subtitles.nativeCaptureStatus.isEmpty {
+    Text(subtitles.nativeCaptureStatus).font(.caption2).foregroundStyle(.secondary)
+   }
   }.buttonStyle(AnimatedAppButtonStyle(.bordered))
    .onChange(of:importing || adjustingSubtitles || showingAudio || showingSubtitles || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
