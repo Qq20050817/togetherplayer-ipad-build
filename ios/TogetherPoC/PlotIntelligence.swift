@@ -83,9 +83,7 @@ struct PlotFrame {
    guard let self else{return}
    for point in points {
     if Task.isCancelled || self.fullFilmPreparedKey != signature {return}
-    let rows=Array(document.cues.filter{$0.end<=point.at && $0.end>=point.at-240}.suffix(24))
-    let evidence=rows.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:source)}
-    let context=PlotContext(cutoff:point.at,recent:evidence,earlier:[],predictions:[])
+    let context=PlotFullFilmPlanner.context(document,at:point.at,source:source)
     guard context.sufficient else{continue}
     if let answer=await PlotLocalAI.question(context,automatic:true,planned:true),
        PlotQuality.check(answer,context:context,history:[]),
