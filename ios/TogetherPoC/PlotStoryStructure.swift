@@ -84,9 +84,10 @@ enum PlotStoryStructure {
   }
  }
  static func prompt(_ context:PlotContext,previous:[PlotStoryNode])->String {
-  // Older segments are explicitly marked as hypotheses. All previous nodes
-  // end before the section being analyzed, never after it.
-  let history=previous.suffix(3).map{String($0.recap.prefix(200))}
+  // Resume may restore later nodes before a missing earlier window is rebuilt.
+  // Filter by the current window start so future nodes NEVER enter its prompt.
+  let start=context.recent.map(\.start).min() ?? context.cutoff
+  let history=previous.filter{$0.end<=start}.suffix(3).map{String($0.recap.prefix(200))}
   return "仅此前已分析的剧情推测："+history.joined(separator:"\n")+
    "\n当前分段的有时间标记的字幕证据："+context.localInput
  }
