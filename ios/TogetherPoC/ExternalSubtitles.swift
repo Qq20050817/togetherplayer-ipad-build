@@ -62,6 +62,7 @@ import AVFoundation
   nativeIndexStatus="内置字幕已索引\(document.cues.count)条 · 预选\(nativeIndexedQuestions.count)处剧情"
   refresh()
  }
+ func nativeIndexStarted() {if nativeIndexedDocument == nil {nativeIndexStatus="正在读取内置文字字幕并规划剧情节点…"}}
  func nativeIndexUnavailable() {
   if nativeIndexedDocument == nil {nativeIndexStatus="此内置字幕轨道暂不支持全片索引，继续使用实时字幕"}
  }
