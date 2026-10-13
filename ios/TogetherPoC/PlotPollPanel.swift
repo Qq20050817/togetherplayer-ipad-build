@@ -77,7 +77,7 @@ import SwiftUI
       }
       Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases){mode in Text(mode.title).tag(mode)}}
        .pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
-      Text("苹果本地 AI：\(PlotLocalAI.availabilityDetail) · 已采集字幕线索：\(model.externalSubtitles.observedPlotEvidence().count) 条")
+      Text("苹果本地 AI：\(PlotLocalAI.availabilityDetail) · 本机已采集字幕线索：\(intelligence.collectedSubtitleCount) 条")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
       Text("ChatGPT：\(auth.integrationReady ? "已授权" : "未完成本应用授权") · 智能云端调用：\(intelligence.automaticAllowed ? "允许" : "关闭") · 剧情隐私同意：\(intelligence.consent ? "已开启" : "未开启") · Credits 保护确认：\(intelligence.creditsDisabled ? "已确认" : "未确认")")
        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
