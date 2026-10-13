@@ -271,9 +271,9 @@ struct SubtitleHeightKey:PreferenceKey {
  private var transport: some View {
   HStack(spacing:compact ? 12 : 22) {
    Button {model.neighboringMedia(-1)} label:{Image(systemName:"backward.end.fill")}.disabled(!model.canMoveMedia(-1)).accessibilityLabel("上一部影片")
-   Button {model.control("SEEK",position:max(0,model.adapter.position-model.engine.timelineOffset-10000))} label:{Image(systemName:"gobackward.10")}.accessibilityLabel("后退10秒")
+   Button {model.skipBy(-10000)} label:{Image(systemName:"gobackward.10")}.accessibilityLabel("后退10秒")
    Button {model.control(model.requestedPlaying ? "PAUSE" : "PLAY")} label:{Image(systemName:model.requestedPlaying ? "pause.fill" : "play.fill").foregroundColor(.black).frame(width:compact ? 42 : 56,height:compact ? 42 : 56).background(Color.white).clipShape(Circle())}.accessibilityLabel(model.requestedPlaying ? "暂停" : "播放")
-   Button {model.control("SEEK",position:model.adapter.position-model.engine.timelineOffset+10000)} label:{Image(systemName:"goforward.10")}.accessibilityLabel("前进10秒")
+   Button {model.skipBy(10000)} label:{Image(systemName:"goforward.10")}.accessibilityLabel("前进10秒")
    Button {model.neighboringMedia(1)} label:{Image(systemName:"forward.end.fill")}.disabled(!model.canMoveMedia(1)).accessibilityLabel("下一部影片")
   }.font(.title2).foregroundColor(.white).buttonStyle(PlaybackTransportStyle())
  }
