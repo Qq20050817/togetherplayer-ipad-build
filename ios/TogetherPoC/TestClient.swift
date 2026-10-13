@@ -129,6 +129,7 @@ import CoreMedia
  let adapter=AVPlayerAdapter()
  lazy var playback=PlaybackMonitor(player:adapter.player)
  lazy var externalSubtitles=ExternalSubtitles(player:adapter.player)
+ lazy var visualSampler=PlotVisualSampler(player:adapter.player)
  let clock=ClockSync()
  lazy var engine=SyncEngine(adapter,clock)
  private var registering=false
@@ -166,7 +167,9 @@ import CoreMedia
    if let poll=self.plotPoll,poll["revealed"] as? Bool==true,let id=poll["id"] as? String,let question=poll["question"] as? String,let end=poll["revealPositionMs"] as? Double {
     prediction=PlotPrediction(id:id,end:max(0,(end+self.engine.timelineOffset)/1000),question:question,answers:self.plotPollAnswers)
    }
-   return PlotFrame(key:key,position:position,evidence:self.externalSubtitles.observedPlotEvidence(),prediction:prediction)
+   let observed=self.externalSubtitles.observedPlotEvidence()
+   let visuals=self.visualSampler.evidence(cutoff:position)
+   return PlotFrame(key:key,position:position,evidence:observed+visuals,prediction:prediction)
   }
   // Hosts can receive automatic questions alone or with a peer.
   // A pending unanswered poll cannot be overwritten.
@@ -204,6 +207,12 @@ import CoreMedia
    self.publishPlotPoll(question)
   }
   plotIntelligence.start()
+  plotIntelligence.visualEvidenceEnabled=visualSampler.enabled
+  visualSampler.onEnabledChanged={ [weak self] enabled in
+   self?.plotIntelligence.visualEvidenceEnabled=enabled
+   self?.plotIntelligence.playbackJumped()
+  }
+  visualSampler.onNewEvidence={ [weak self] in self?.plotIntelligence.visualChanged() }
   externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped() }
   externalSubtitles.plotCaptionChanged={ [weak self] text in self?.plotIntelligence.subtitleChanged(text) }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
@@ -301,6 +310,7 @@ import CoreMedia
   let plotKey=PlotMemoryStore.key(components?.string ?? identity)
   if externalSubtitles.isCurrentPlotFilm(plotKey) {plotIntelligence.preserveCurrentFilmEvidence()}
   externalSubtitles.beginPlotFilm(plotKey)
+   visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
@@ -344,7 +354,7 @@ import CoreMedia
   if externalSubtitles.enabled {selectedSubtitleIndex = -2}
   videoBadges=[]
   if MediaSourceCatalog.canShare(originalURL.absoluteString),originalURL != baiduPlaybackURL {library.played(originalURL.absoluteString,title:movieTitle)}
-  streamInfo="等待读取播放轨道";adapter.pause();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);updateMediaInfo()
+  streamInfo="等待读取播放轨道";adapter.pause();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);visualSampler.attach(to:item);updateMediaInfo()
   // Show already saved film evidence immediately after the player is reattached.
   Task {await plotIntelligence.collect()}
   if allowRemuxRetry {
@@ -846,7 +856,7 @@ extension TestClient {
   }
  }
  private func stopUnmatchedMedia() {
-  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();currentOriginalURL=nil
+  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();visualSampler.clear();currentOriginalURL=nil
  }
  func useBaiduSource(_ url: URL,file: BaiduFile,confirmedRoomID: String? = nil,confirmedMediaURL: String? = nil) -> Bool {
   guard connected,let room=engine.room else {requestStatus="请先创建或加入房间，再选择百度影片";return false}
@@ -935,6 +945,7 @@ extension TestClient {
   if pendingRoomMedia != nil {finishRoomMedia("已离开房间，换片请求已取消。")}
   localSelectionGeneration += 1;pendingLocalFile=nil;localSelectionRoom="";localSelectionMedia=""
   externalSubtitles.clear()
+  visualSampler.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
   mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   plotPoll=nil
@@ -958,8 +969,8 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {plotIntelligence.preserveCurrentFilmEvidence();setSpeedHold(false);voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
- func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;if credentials != nil {connect()}}
+ func handleBackground() {plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;visualSampler.setForeground(true);if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}
   guard durations.count==2,abs(durations[0]-durations[1])>5000 else {return ""}

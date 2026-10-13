@@ -1,7 +1,7 @@
 name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013]
+    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013]
   workflow_dispatch:
 permissions:
   contents: read
@@ -59,13 +59,13 @@ jobs:
       - name: Package verified unsigned IPA
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.7-PlotMemory-AutoPrompt-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-delivery/TogetherPlayer-0.6.7-PlotMemory-AutoPrompt-unsigned.ipa > plot-delivery/SHA256SUMS.txt
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.8-OnDeviceVisual-EXPERIMENTAL-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-delivery/TogetherPlayer-0.6.8-OnDeviceVisual-EXPERIMENTAL-unsigned.ipa > plot-delivery/SHA256SUMS.txt
           printf "Source branch: %s\nSource SHA: %s\nCI: iPad build and regression tests succeeded\n" "$GITHUB_REF_NAME" "$GITHUB_SHA" > plot-delivery/BUILD.txt
-          printf "Real-device reconnect and Apple AI/ChatGPT OAuth acceptance pending. Compatible 0.6.3 server already deployed; this change is iPad-only.\n" >> plot-delivery/BUILD.txt
+          printf "Experimental on-device Vision sampling defaults OFF; frame classification is coarse. Device crash report and real-device 4K/HDR playback evaluation pending. Real-device reconnect and Apple AI/ChatGPT OAuth acceptance pending. Existing server untouched.\n" >> plot-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.7-PlotMemory-AutoPrompt-candidate
+          name: TogetherPlayer-iPad-v0.6.8-OnDeviceVisual-EXPERIMENTAL-candidate
           path: plot-delivery/
           retention-days: 7
 
