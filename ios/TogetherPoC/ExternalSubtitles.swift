@@ -25,6 +25,9 @@ import AVFoundation
  private var nativeIndexedDocument:SubtitleDocument?
  private var nativeIndexedQuestions:[PlotQuestionCheckpoint]=[]
  private(set) var nativeIndexedTrack:Int?
+ // Bitmap OCR projection is for AI only. It never becomes the displayed caption.
+ private(set) var nativeIndexAIOnly=false
+ private(set) var nativeAISRT:String?
  @Published private(set) var nativeIndexStatus=""
  private let player: AVPlayer
  private var observer: Any?
@@ -56,12 +59,15 @@ import AVFoundation
  var available: Bool {document != nil}
  var plannedQuestionCount:Int {enabled ? plannedQuestions.count : nativeIndexedQuestions.count}
  var nativeIndexedCueCount:Int {nativeIndexedDocument?.cues.count ?? 0}
- func installNativeIndex(_ document:SubtitleDocument,track:Int) {
+ func installNativeIndex(_ document:SubtitleDocument,track:Int,forAIOnly:Bool=false) {
   guard track>=0,!document.cues.isEmpty else{return}
   nativeIndexedDocument=document
   nativeIndexedQuestions=PlotQuestionPlanner.indexed(document.cues)
   nativeIndexedTrack=track
-  nativeIndexStatus="内置字幕已索引\(document.cues.count)条 · 预选\(nativeIndexedQuestions.count)处剧情"
+  nativeIndexAIOnly=forAIOnly
+  nativeAISRT=forAIOnly ? SubtitleSRTEncoder.encode(document) : nil
+  nativeIndexStatus=forAIOnly ? "PGS OCR 已生成仅供 AI 使用的 SRT（\(document.cues.count)条），播放字幕轨道未切换" :
+   "内置字幕已索引\(document.cues.count)条 · 预选\(nativeIndexedQuestions.count)处剧情"
   plotFullSubtitleIndexed?(document,"embedded-subtitle",nativeIndexedQuestions)
   refresh()
  }
@@ -70,7 +76,8 @@ import AVFoundation
   if nativeIndexedDocument == nil {nativeIndexStatus="此内置字幕轨道暂不支持全片索引，继续使用实时字幕"}
  }
  private func clearNativeIndex() {
-  nativeIndexedDocument=nil;nativeIndexedQuestions=[];nativeIndexedTrack=nil;nativeIndexStatus=""
+  nativeIndexedDocument=nil;nativeIndexedQuestions=[];nativeIndexedTrack=nil
+  nativeIndexAIOnly=false;nativeAISRT=nil;nativeIndexStatus=""
  }
  func plannedQuestionCheckpoint(at position:Double,duration:Double)->Double? {
   // A complete imported subtitle can be indexed without sending the future
@@ -230,7 +237,7 @@ import AVFoundation
   let time=player.currentTime().seconds-delay
   let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
-   (nativeEnabled ? (nativeIndexedDocument?.text(at:time) ?? live) : "")
+   (nativeEnabled ? (nativeIndexAIOnly ? live : (nativeIndexedDocument?.text(at:time) ?? live)) : "")
   if next != text {text=next;plotCaptionChanged?(next)}
  }
 }
