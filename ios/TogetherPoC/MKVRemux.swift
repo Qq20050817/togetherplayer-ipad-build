@@ -17,6 +17,9 @@ struct MKVAudioTrackPresentation: Equatable {
  private var generation=0
  private(set) var audioLabelsByDisplayName: [String:[String]] = [:]
  private(set) var audioTrackSummary: [String] = []
+ // This session exposes PGS only via PrismCore\'s OCR-fed HLS text rendition.
+ // Do not use that rendition to replace the viewer\'s native subtitle display.
+ private(set) var pgsOCRRendition=false
  enum Failure: LocalizedError {
   case replaced, preparation
   case diagnostic(String)
@@ -28,7 +31,7 @@ struct MKVAudioTrackPresentation: Equatable {
  func stop() {
   generation += 1
   let old=session;session=nil
-  audioLabelsByDisplayName=[:];audioTrackSummary=[]
+  audioLabelsByDisplayName=[:];audioTrackSummary=[];pgsOCRRendition=false
   if let old=old {Task {await old.stop()}}
  }
  func prepare(_ url: URL,headers: [String:String]) async throws -> URL {
@@ -41,6 +44,12 @@ struct MKVAudioTrackPresentation: Equatable {
   } catch {throw Self.safeFailure(error)}
   guard g==generation else {throw Failure.replaced}
   let sourceInfo=probed.info
+  // PrismCore (pinned revision) exposes bitmap renditions through OCR only
+  // when there are no text subtitle streams in the source container.
+  let hasPGS=sourceInfo.bitmapSubtitleTracks.contains {
+   $0.codecName.lowercased().contains("pgs")
+  }
+  let bitmapOCR=hasPGS && sourceInfo.textSubtitleTracks.isEmpty
   let current: PrismCoreSession
   do {
    current=try PrismCoreSession(
@@ -58,6 +67,7 @@ struct MKVAudioTrackPresentation: Equatable {
    )
    audioLabelsByDisplayName=Dictionary(grouping:presentations,by:\.displayName).mapValues {$0.map(\.menuLabel)}
    audioTrackSummary=presentations.map(\.summary)
+   pgsOCRRendition=bitmapOCR
    return playlist
   } catch {
    await current.stop()
