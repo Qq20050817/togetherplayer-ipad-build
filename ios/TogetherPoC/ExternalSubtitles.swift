@@ -222,7 +222,7 @@ import AVFoundation
   let time=player.currentTime().seconds-delay
   let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
-   (nativeEnabled ? (live.isEmpty ? nativeIndexedDocument?.text(at:time) ?? "" : live) : "")
+   (nativeEnabled ? (nativeIndexedDocument?.text(at:time) ?? live) : "")
   if next != text {text=next;plotCaptionChanged?(next)}
  }
 }
