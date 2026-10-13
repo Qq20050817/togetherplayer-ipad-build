@@ -123,8 +123,11 @@ final class PlotMemoryTests:XCTestCase {
   let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   defer {try? FileManager.default.removeItem(at:root)}
   let film=PlotMemoryStore.key("room-film-A"),other=PlotMemoryStore.key("room-film-B")
-  let cues=(0..<8).map {i in
-   PlotEvidence.cue(start:Double(i*4),end:Double(i*4+2),text:"已播放的第\(i)句字幕",source:"embedded-subtitle")
+  var cues:[PlotEvidence]=[]
+  for i in 0..<8 {
+   let start=Double(i)*4
+   let text="已播放的第"+String(i)+"句字幕"
+   cues.append(PlotEvidence.cue(start:start,end:start+2,text:text,source:"embedded-subtitle"))
   }
   _ = try await PlotMemoryStore(directory:root).ingest(cues,cutoff:50,key:film)
   // A fresh store/controller simulates the reopened transport and player.
@@ -170,7 +173,12 @@ final class PlotMemoryTests:XCTestCase {
   let store=PlotMemoryStore(directory:nil)
   let controller=PlotIntelligence(memory:store,preferences:preferences)
   controller.mode = .chatgpt;controller.automaticAllowed=false;controller.consent=false;controller.creditsDisabled=false
-  let cues=(0..<3).map{PlotEvidence.cue(start:Double($0*3),end:Double($0*3+2),text:"已经发生的对话\($0)",source:"test")}
+  var cues:[PlotEvidence]=[]
+  for i in 0..<3 {
+   let start=Double(i)*3
+   let phrase="已经发生的对话"+String(i)
+   cues.append(PlotEvidence.cue(start:start,end:start+2,text:phrase,source:"test"))
+  }
   let frame=PlotFrame(key:"guard-test",position:10,evidence:cues)
   controller.frame={frame}
   // A previously cached free-template question must not masquerade as ChatGPT.
