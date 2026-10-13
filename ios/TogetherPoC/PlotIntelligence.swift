@@ -27,8 +27,14 @@ struct PlotFrame {
  @Published private(set) var selectedModel="尚未出题"
  @Published private(set) var requests=0
  @Published private(set) var automaticRequests=0
+ @Published private(set) var savedSubtitleCount=0
+ var collectedSubtitleCount:Int {
+  guard let current=frame?() else{return 0}
+  return current.key==lastKey ? max(savedSubtitleCount,current.evidence.count) : current.evidence.count
+ }
  @Published private(set) var assessment=PlotComplexity.uncertain
  @Published private(set) var latestBeat:PlotBeatAssessment?
+ @Published private(set) var autoTriggerStatus="等待已播放字幕与剧情转折"
  @Published private(set) var previewCutoff=0.0
  @Published private(set) var autoSuggestion:PlotQuestion?
  let auth=ChatGPTAuthProbe()
@@ -45,6 +51,7 @@ struct PlotFrame {
  private var mostRecentAutoPosition = -Double.infinity
  private var mostRecentPublishedPosition = -Double.infinity
  var mayPublishAutomatically:(()->Bool)?
+ var automaticAvailabilityReason:(()->String?)?
  var publishAutomatically:((PlotQuestion)->Void)?
  var isSubtitleCurrentlyShown:(()->Bool)?
  var frame:(()->PlotFrame?)?
@@ -65,34 +72,65 @@ struct PlotFrame {
  }
  func collect() async {
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
-  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;lastKey=snapshot.key}
+  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;autoTriggerStatus="已加载新影片，正在积累字幕";savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
-  if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic}
+  if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic;savedSubtitleCount=state.evidence.count}
+ }
+ // Snapshot before the transport or player is torn down. The actor keeps
+ // the final watched cues even if the normal 20-second sampler has not fired.
+ func preserveCurrentFilmEvidence() {
+  guard let snapshot=frame?(),lastKey.isEmpty || snapshot.key==lastKey else{return}
+  Task(priority:.utility) {[memory] in
+   _ = try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
+  }
  }
  func cancel() {generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
  func subtitleChanged(_ text:String) {
   momentTask?.cancel();momentTask=nil
-  // Event-driven: only after a caption ends, not at each new subtitle or an
-  // arbitrary movie timestamp. The debounce is a quiet-window safety check,
-  // not a repeating timer that manufactures questions.
-  guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,mayPublishAutomatically?()==true,
-   let snapshot=frame?() else{return}
-  let beat=PlotMomentGate.assess(snapshot.evidence,position:snapshot.position,minQuietSeconds:0)
-  latestBeat=beat
-  guard beat.isCandidate else{return}
-  // There is no timed question schedule. These are only safety backoffs
-  // after failed attempts and after a successfully published interruption.
-  guard snapshot.key != mostRecentAutoKey ||
-   PlotMomentGate.canAttempt(position:snapshot.position,lastAttempt:mostRecentAutoPosition,lastPublished:mostRecentPublishedPosition) else{return}
+  // Only evaluate already-watched subtitles at the end of a caption.
+  // A reconnect can replace the player, so merge stored film evidence
+  // before deciding whether this quiet gap is a real plot turning point.
+  guard text.isEmpty else{return}
+  guard eventDrivenEnabled else{autoTriggerStatus="自动暂停提问已关闭";return}
+  guard mode != .fallback else{autoTriggerStatus="免费备用题库只支持手动出题；自动提问请选择真实 AI";return}
+  guard !working else{autoTriggerStatus="AI 正在分析剧情";return}
+  if let blocked=automaticAvailabilityReason?() {autoTriggerStatus=blocked;return}
+  guard mayPublishAutomatically?()==true else{autoTriggerStatus="当前房间不满足自动提问条件";return}
+  guard let snapshot=frame?() else{autoTriggerStatus="暂未获得可用的影片进度";return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
+   guard let self,!Task.isCancelled else{return}
+   // Read persisted clues without writing the entire growing film JSON on
+   // every subtitle gap. The normal 20-second sampler and generation pass
+   // perform durable saves; disconnect also flushes the last observed batch.
+   var saved=await self.memory.load(key)
+   saved.ingest(snapshot.evidence,cutoff:snapshot.position)
+   guard !Task.isCancelled,self.frame?()?.key==key else{return}
+   let beat=PlotMomentGate.assess(saved.evidence,position:snapshot.position,minQuietSeconds:0)
+   self.latestBeat=beat
+   guard beat.isCandidate else {
+    self.autoTriggerStatus="已采集字幕，当前场景未达到剧情提问门槛（线索\(beat.informationChange) · 矛盾\(beat.contradiction) · 悬念\(beat.unresolvedMystery) · 剧情变化\(beat.storyDevelopment)）"
+    return
+   }
+   guard key != self.mostRecentAutoKey ||
+    PlotMomentGate.canAttempt(position:snapshot.position,lastAttempt:self.mostRecentAutoPosition,lastPublished:self.mostRecentPublishedPosition) else {
+    self.autoTriggerStatus="已有剧情候选，正在避免重复打断"
+    return
+   }
+   self.autoTriggerStatus="发现剧情候选，等待对白自然结束后复核"
    try? await Task.sleep(nanoseconds:3_500_000_000)
-   guard !Task.isCancelled,let self,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
-    self.isSubtitleCurrentlyShown?()==false,let current=self.frame?(),current.key==key,
-    current.evidence.last?.id==last,
-    PlotMomentGate.likelyQuestionMoment(current.evidence,position:current.position) else{return}
+   guard !Task.isCancelled,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
+    self.isSubtitleCurrentlyShown?()==false else{return}
+   guard let current=self.frame?(),current.key==key,current.evidence.last?.id==last else{return}
+   var restored=await self.memory.load(key)
+   restored.ingest(current.evidence,cutoff:current.position)
+   guard !Task.isCancelled,PlotMomentGate.likelyQuestionMoment(restored.evidence,position:current.position) else {
+    self.autoTriggerStatus="候选剧情复核未通过，继续观影"
+    return
+   }
    self.mostRecentAutoKey=key;self.mostRecentAutoPosition=current.position
+   self.autoTriggerStatus="剧情候选通过，正在请求 AI 生成问题"
    self.generate(autoMoment:true)
   }
  }
@@ -119,6 +157,7 @@ struct PlotFrame {
   do {
    let state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
    requests=state.budget.total;automaticRequests=state.budget.automatic
+   if frame?()?.key==snapshot.key {savedSubtitleCount=state.evidence.count}
    let context=state.context(at:snapshot.position)
    let history=state.questions.filter{$0.cutoff<=snapshot.position}.map{$0.question.text}
    // Explicit model choices MUST NOT silently reuse a free-template cache.
@@ -134,11 +173,11 @@ struct PlotFrame {
     if mode == .smart {return item.source=="ChatGPT" || item.source=="Apple 设备端 AI"}
     return true
    }
-   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {working=false;deadline?.cancel();deadline=nil;return}
+   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {autoTriggerStatus="该剧情片段已经生成过问题，为避免重复打断已跳过";working=false;deadline?.cancel();deadline=nil;return}
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
-   if autoMoment && (!context.sufficient || !PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position)) {working=false;deadline?.cancel();deadline=nil;return}
+   if autoMoment && (!context.sufficient || !PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position)) {autoTriggerStatus="本次剧情线索不足，暂不暂停影片";working=false;deadline?.cancel();deadline=nil;return}
    let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
@@ -222,11 +261,13 @@ struct PlotFrame {
    // Display the real failure instead of silently substituting a template.
    if (explicitlyCloud && chosen?.source != "ChatGPT") || (explicitlyLocal && chosen?.source != "Apple 设备端 AI") {
     selectedModel=explicitlyCloud ? "ChatGPT 未出题" : "苹果本地 AI 未出题"
+    if autoMoment {autoTriggerStatus="已发现剧情候选，AI 未完成出题：\(explanation)"}
     reason=explanation;working=false;deadline?.cancel();deadline=nil;return
    }
    // Smart mode promises a real model. Show actionable failure information
    // instead of silently presenting a free template as its own output.
    if mode == .smart && chosen == nil {
+    if autoMoment {autoTriggerStatus="已发现剧情候选，智能模式无法出题：\(explanation)"}
     selectedModel="智能模式未出题"
     reason=explanation+"；没有可用的真实 AI 结果，请检查设备端模型及 ChatGPT 授权/开关，或主动切换免费备用题库"
     working=false;deadline?.cancel();deadline=nil;return
@@ -234,6 +275,7 @@ struct PlotFrame {
    // An automatic suggestion is NEVER a free template or an uncited question.
    // Avoid popping up an unrelated generic question mid-film.
    if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true || !PlotMomentGate.questionIsTimely(chosen!,context:context)) {
+    autoTriggerStatus=chosen == nil ? "剧情候选有效，但真实 AI 未生成合格问题：\(explanation)" : "AI 问题缺乏当前剧情证据，已避免打断"
     working=false;deadline?.cancel();deadline=nil;return
    }
    let question=chosen ?? PlotFallback.question(context:context,history:history)
@@ -253,6 +295,7 @@ struct PlotFrame {
      let now=frame?(),now.key==snapshot.key,now.position>=snapshot.position,
      now.position-snapshot.position<=45 {
      mostRecentPublishedPosition=now.position
+     autoTriggerStatus="已自动发布剧情问题，请回答后继续观影"
      autoSuggestion=safe
      publishAutomatically?(safe)
     }

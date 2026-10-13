@@ -62,6 +62,33 @@ final class PlotMomentGateTests:XCTestCase {
   ]
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(isolated,position:28))
  }
+ func testThrillerResearchThreatAndPlanGenerateCandidateWithoutSpoilers() {
+  // Generic, already-watched fictional dialogue from a visually driven thriller.
+  // Avoid any reliance on a specific copyrighted film's transcript.
+  let sample=[
+   cue(4,"研究人员正在整理新的实验样本。"),
+   cue(8,"这项实验和之前的样本完全不同。"),
+   cue(12,"病毒已经扩散到原先隔离的地区。"),
+   cue(16,"公司决定继续进行这个计划。"),
+   cue(20,"那些克隆体的记忆为什么被修改？"),
+   cue(24,"研究小组发现样本仍然存活。")
+  ]
+  let result=PlotMomentGate.assess(sample,position:28)
+  XCTAssertGreaterThanOrEqual(result.storyDevelopment,2)
+  XCTAssertTrue(result.isCandidate,"a credible plot development should reach real AI verification")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(sample,position:24.5),"never interrupt dialogue too early")
+ }
+ func testSingleTopicOrSilentActionDoesNotInventAQuestion() {
+  let ordinary=[
+   cue(4,"今天研究了一个新的咖啡杯。"),
+   cue(8,"我们计划下午一起去公园散步。"),
+   cue(12,"咖啡杯还有漂亮的图案。"),
+   cue(16,"我准备把它送给朋友。"),
+   cue(20,"晚上再看看其他杯子。")
+  ]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(ordinary,position:24))
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment([],position:1200),"no subtitles means no scene-level evidence")
+ }
  func testImportantQuestionMustCiteFreshSubtitleEvidence() {
   let values=(0..<12).map{cue(Double(4+$0*4),"关于那天的真相我们仍有一些疑问和没有解释的地方")}
   let context=PlotContext(cutoff:60,recent:values,earlier:[],predictions:[])

@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import TogetherPoC
 
 final class PlotMemoryTests:XCTestCase {
@@ -118,6 +119,58 @@ final class PlotMemoryTests:XCTestCase {
  }
 }
 @MainActor final class PlotControllerTests:XCTestCase {
+ func testSameFilmReconnectRetainsSavedSubtitlesAndNewFilmStaysIsolated() async throws {
+  let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  defer {try? FileManager.default.removeItem(at:root)}
+  let film=PlotMemoryStore.key("room-film-A"),other=PlotMemoryStore.key("room-film-B")
+  var cues:[PlotEvidence]=[]
+  for i in 0..<8 {
+   let start=Double(i)*4
+   let text="已播放的第"+String(i)+"句字幕"
+   cues.append(PlotEvidence.cue(start:start,end:start+2,text:text,source:"embedded-subtitle"))
+  }
+  _ = try await PlotMemoryStore(directory:root).ingest(cues,cutoff:50,key:film)
+  // A fresh store/controller simulates the reopened transport and player.
+  let controller=PlotIntelligence(memory:PlotMemoryStore(directory:root),preferences:UserDefaults(suiteName:UUID().uuidString)!)
+  controller.frame={PlotFrame(key:film,position:50,evidence:[])}
+  await controller.collect()
+  XCTAssertEqual(controller.collectedSubtitleCount,cues.count)
+  controller.frame={PlotFrame(key:film,position:18,evidence:[])}
+  await controller.collect()
+  XCTAssertEqual(controller.collectedSubtitleCount,cues.count,"rewind retains local memory while contexts still obey the cutoff")
+  let stored=await PlotMemoryStore(directory:root).load(film)
+  let context=stored.context(at:18)
+  XCTAssertTrue(context.recent.allSatisfy{$0.end<=18})
+  controller.frame={PlotFrame(key:other,position:50,evidence:[])}
+  XCTAssertEqual(controller.collectedSubtitleCount,0,"never show another film's evidence before loading")
+  await controller.collect()
+  XCTAssertEqual(controller.collectedSubtitleCount,0)
+ }
+ func testSubtitleDocumentSurvivesReconnectButClearsForNewFilm() async throws {
+  let player=AVPlayer()
+  let subtitles=ExternalSubtitles(player:player,preferences:UserDefaults(suiteName:UUID().uuidString)!)
+  let temp=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".srt")
+  defer {try? FileManager.default.removeItem(at:temp)}
+  try Data("1\n00:00:01,000 --> 00:00:03,000\n已经观看的字幕\n".utf8).write(to:temp)
+  subtitles.beginPlotFilm("film-A")
+  let imported=await subtitles.importFile(temp)
+  XCTAssertTrue(imported)
+  XCTAssertTrue(subtitles.available)
+  subtitles.beginPlotFilm("film-A")
+  XCTAssertTrue(subtitles.available,"same-film reconnect must not discard imported subtitles")
+  subtitles.beginPlotFilm("film-B")
+  XCTAssertFalse(subtitles.available,"a genuinely different film must not inherit subtitles")
+ }
+ func testAutoPromptExplainsUnavailableRoomAndFreeModel() {
+  let model=TestClient(automaticallyConnect:false)
+  model.plotIntelligence.eventDrivenEnabled=true
+  model.plotIntelligence.mode = .smart
+  model.plotIntelligence.subtitleChanged("")
+  XCTAssertTrue(model.plotIntelligence.autoTriggerStatus.contains("房间"),"no room must not silently skip")
+  model.plotIntelligence.mode = .fallback
+  model.plotIntelligence.subtitleChanged("")
+  XCTAssertTrue(model.plotIntelligence.autoTriggerStatus.contains("手动"),"free questions require explicit manual request")
+ }
  func testUnansweredBlockingPollRejectsPlaybackLocally() {
   let model=TestClient(automaticallyConnect:false)
   model.plotPoll=["waitingForAnswers":true]
@@ -130,7 +183,12 @@ final class PlotMemoryTests:XCTestCase {
   let store=PlotMemoryStore(directory:nil)
   let controller=PlotIntelligence(memory:store,preferences:preferences)
   controller.mode = .chatgpt;controller.automaticAllowed=false;controller.consent=false;controller.creditsDisabled=false
-  let cues=(0..<3).map{PlotEvidence.cue(start:Double($0*3),end:Double($0*3+2),text:"已经发生的对话\($0)",source:"test")}
+  var cues:[PlotEvidence]=[]
+  for i in 0..<3 {
+   let start=Double(i)*3
+   let phrase="已经发生的对话"+String(i)
+   cues.append(PlotEvidence.cue(start:start,end:start+2,text:phrase,source:"test"))
+  }
   let frame=PlotFrame(key:"guard-test",position:10,evidence:cues)
   controller.frame={frame}
   // A previously cached free-template question must not masquerade as ChatGPT.

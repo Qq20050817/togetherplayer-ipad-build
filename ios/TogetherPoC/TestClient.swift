@@ -175,6 +175,26 @@ import CoreMedia
     self.adapter.player.rate>0 else{return false}
    return self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true
   }
+  plotIntelligence.automaticAvailabilityReason={ [weak self] in
+   guard let self else{return "房间控制器不可用"}
+   guard self.isConnected else{return "房间尚未连接；自动提问需房主在线"}
+   guard self.isRoomHost else{return "当前是观众端，由房主负责触发自动提问"}
+   guard self.supportsBlockingPolls else{return "服务器未开启自动暂停答题能力"}
+   guard self.adapter.player.rate>0 else{return "播放器暂停中，等待继续播放"}
+   guard self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true else{return "上一道题尚未完成"}
+   let settings=self.plotIntelligence
+   if settings.mode == .local && !PlotLocalAI.available {return "设备端 Apple AI 当前不可用；请查看 AI 模式"}
+   let auth=settings.auth
+   let cloudReady=settings.automaticAllowed && settings.consent && settings.creditsDisabled &&
+    auth.integrationReady && !auth.usagePaused && !auth.working
+   if settings.mode == .chatgpt && !cloudReady {
+    return "ChatGPT 自动提问未就绪，请检查授权、智能调用开关、隐私及额度保护"
+   }
+   if settings.mode == .smart && !PlotLocalAI.available && !cloudReady {
+    return "智能模式尚无可用真实 AI：苹果本地模型或 ChatGPT 自动授权至少需要一种"
+   }
+   return nil
+  }
   plotIntelligence.isSubtitleCurrentlyShown={ [weak self] in
    guard let self else{return true}
    return !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
@@ -273,7 +293,14 @@ import CoreMedia
   String(bytes:[UInt8((value>>24)&255),UInt8((value>>16)&255),UInt8((value>>8)&255),UInt8(value&255)],encoding:.ascii) ?? "unknown"
  }
  private func loadMedia(_ url: URL,forceRemux: Bool=false) {
-  if let previous=currentOriginalURL,previous != url {externalSubtitles.clear()}
+  // Room media identity remains stable across WebSocket reconnects and
+  // refreshed signed playback URLs. Only a genuinely different film resets
+  // watched subtitle evidence and imported subtitle state.
+  let identity=engine.room?.mediaUrl ?? url.absoluteString
+  var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
+  let plotKey=PlotMemoryStore.key(components?.string ?? identity)
+  if externalSubtitles.isCurrentPlotFilm(plotKey) {plotIntelligence.preserveCurrentFilmEvidence()}
+  externalSubtitles.beginPlotFilm(plotKey)
   currentOriginalURL=url
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
@@ -318,6 +345,8 @@ import CoreMedia
   videoBadges=[]
   if MediaSourceCatalog.canShare(originalURL.absoluteString),originalURL != baiduPlaybackURL {library.played(originalURL.absoluteString,title:movieTitle)}
   streamInfo="等待读取播放轨道";adapter.pause();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);updateMediaInfo()
+  // Show already saved film evidence immediately after the player is reattached.
+  Task {await plotIntelligence.collect()}
   if allowRemuxRetry {
    let g=mediaLoadGeneration
    Task {
@@ -454,6 +483,7 @@ import CoreMedia
  func connect() {
   localVideoTest=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
   guard foreground,let token=credentials?["token"] as? String else {return}
+  plotIntelligence.preserveCurrentFilmEvidence()
   generation += 1;let g=generation;socket?.cancel(with:.goingAway,reason:nil);connected=false;engine.resetSession();pending=nil;requestStatus=""
   guard var components=URLComponents(string:credentialServer) else {status="无效 URL";return}
   components.scheme=components.scheme == "https" ? "wss" : "ws";components.path="/ws";components.query=nil
@@ -477,6 +507,7 @@ import CoreMedia
   guard g==generation,foreground,credentials != nil else {return}
   setSpeedHold(false)
   voice.cancel(message:"连接中断，当前录音已取消，未发送")
+   plotIntelligence.preserveCurrentFilmEvidence()
   // Invalidate both send and receive callbacks before scheduling one retry.
   generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil
   connected=false;engine.resetSession();attempt += 1
@@ -927,7 +958,7 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {setSpeedHold(false);voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {plotIntelligence.preserveCurrentFilmEvidence();setSpeedHold(false);voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}

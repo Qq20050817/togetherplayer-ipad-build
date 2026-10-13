@@ -7,12 +7,14 @@ struct PlotBeatAssessment: Equatable {
  let contradiction:Int
  let unresolvedMystery:Int
  let narrativeAnchor:Bool
+ let storyDevelopment:Int
  let dialogueBreak:Bool
  let evidenceIDs:[String]
- var importance:Int {min(100,informationChange*15+contradiction*15+unresolvedMystery*10)}
+ var importance:Int {min(100,informationChange*15+contradiction*15+unresolvedMystery*10+storyDevelopment*16)}
  var isCandidate:Bool {
-  dialogueBreak && importance>=65 &&
-  ((informationChange>=2 && (contradiction>=1 || unresolvedMystery>=2)) ||
+  dialogueBreak && importance>=55 &&
+  ((informationChange>=2 && (contradiction>=1 || unresolvedMystery>=1)) ||
+   (storyDevelopment>=2 && (informationChange>=1 || contradiction>=1 || unresolvedMystery>=1)) ||
    (narrativeAnchor && contradiction>=2 && unresolvedMystery>=2))
  }
 }
@@ -24,18 +26,28 @@ enum PlotMomentGate {
  static let reversals=["但是","可是","然而","却","明明","不可能","根本","不是我","不是他","不是她","没有","从没","从未","撒谎","说谎","骗了","隐瞒","矛盾","不对","相反","but ","however","impossible","lied","lying","contradict","never"]
  static let questions=["为什么","怎么知道","怎么会","究竟","难道","到底","是谁","谁才","怀疑","凶手","不明白","不可思议","可疑","？","?","why","how did","who","suspect","murder"]
  static let criticalConflict=["撒谎","说谎","骗了","隐瞒","失踪","凶手","谋杀","死亡","死了","谎言","不在场","时间线","不可能","嫌疑","murder","lied","missing person"]
+ // Distinct story themes are useful for visually driven thrillers whose
+ // subtitle dialogue describes an experiment, threat or plan without saying
+ // the literal words "truth" or "evidence". Multiple themes and another
+ // narrative signal are required; one generic word never stops the film.
+ static let storyThemes:[[String]]=[
+  ["实验","试验","研究","克隆","抗体","样本","实验体","基因","experiment","research","clone","cloned","antibody","sample","test subject","dna"],
+  ["病毒","感染","扩散","变异","免疫","隔离","威胁","袭击","virus","infected","infection","spread","immune","mutation","threat"],
+  ["计划","项目","命令","任务","目的","保护伞","公司","project","mission","plan","objective","umbrella","corporation"],
+  ["复制品","另一个人","身份","失忆","记忆","原本的","替身","仿制","replica","identity","memory","copy","original"]
+ ]
  static let contextLinks=["之前","刚才","昨晚","那天","当时","一直","你说","我说","还记得","本来","原以为","早就","先前","当初","昨天","之前说过","earlier","yesterday","last night","before"]
 
  private static func matchCount(_ text:String,against words:[String])->Int {
   words.reduce(0){$0+(text.contains($1) ? 1 : 0)}
  }
  static func assess(_ values:[PlotEvidence],position:Double,minQuietSeconds:Double=1.8)->PlotBeatAssessment {
-  let empty=PlotBeatAssessment(informationChange:0,contradiction:0,unresolvedMystery:0,narrativeAnchor:false,dialogueBreak:false,evidenceIDs:[])
+  let empty=PlotBeatAssessment(informationChange:0,contradiction:0,unresolvedMystery:0,narrativeAnchor:false,storyDevelopment:0,dialogueBreak:false,evidenceIDs:[])
   guard position.isFinite,position>=0 else{return empty}
   // A cue is eligible only after its end and only if it belongs to this
   // actually watched 95-second window. Never read an unplayed future cue.
   let recent=Array(values.filter{$0.start>=0 && $0.end.isFinite && $0.end<=position && $0.end>=position-95}.suffix(16))
-  guard recent.count>=5,let last=recent.last else{return empty}
+  guard recent.count>=4,let last=recent.last else{return empty}
   let gap=position-last.end
   guard gap>=minQuietSeconds,gap<=16 else{return empty}
   let latest=Array(recent.suffix(5))
@@ -54,9 +66,10 @@ enum PlotMomentGate {
   let contradiction=min(3,reversalCount+(prior && reversalCount>0 ? 1 : 0))
   let information=min(3,discoveryCount)
   let mystery=min(3,mysteryCount)
-  let anchor=discoveryCount>0 || matchCount(latestText,against:criticalConflict)>0
+  let thematic=storyThemes.reduce(0){count,group in count+(matchCount(latestText,against:group)>0 ? 1 : 0)}
+  let anchor=discoveryCount>0 || matchCount(latestText,against:criticalConflict)>0 || thematic>=2
   return PlotBeatAssessment(informationChange:information,contradiction:contradiction,
-   unresolvedMystery:mystery,narrativeAnchor:anchor,dialogueBreak:true,evidenceIDs:latest.map(\.id))
+   unresolvedMystery:mystery,narrativeAnchor:anchor,storyDevelopment:thematic,dialogueBreak:true,evidenceIDs:latest.map(\.id))
  }
  static func likelyQuestionMoment(_ values:[PlotEvidence],position:Double,minQuietSeconds:Double=1.8)->Bool {
   assess(values,position:position,minQuietSeconds:minQuietSeconds).isCandidate
