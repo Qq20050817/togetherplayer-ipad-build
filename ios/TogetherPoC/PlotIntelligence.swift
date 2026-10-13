@@ -75,6 +75,14 @@ struct PlotFrame {
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic;savedSubtitleCount=state.evidence.count}
  }
+ // Snapshot before the transport or player is torn down. The actor keeps
+ // the final watched cues even if the normal 20-second sampler has not fired.
+ func preserveCurrentFilmEvidence() {
+  guard let snapshot=frame?(),lastKey.isEmpty || snapshot.key==lastKey else{return}
+  Task(priority:.utility) {[memory] in
+   _ = try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
+  }
+ }
  func cancel() {generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
  func subtitleChanged(_ text:String) {
   momentTask?.cancel();momentTask=nil
