@@ -21,7 +21,7 @@ enum NativeSubtitleIndexReader {
   return safeURL(value,relativeTo:base)
  }
  private static func attribute(_ name:String,from line:String)->String? {
-  guard let range=line.range(of:name+"=\\\"") else{return nil}
+  guard let range=line.range(of:name+"=\"") else{return nil}
   let value=line[range.upperBound...]
   return value.prefix(while:{$0 != "\""}).description
  }
