@@ -77,6 +77,8 @@ import SwiftUI
        Text("内置字幕：\(subtitles.nativeIndexStatus)")
         .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-native-subtitle-index")
       }
+      Text("全片 AI 预分析：\(intelligence.fullFilmPreparationStatus)")
+       .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-full-film-preanalysis")
       Text("自动提问状态：\(intelligence.autoTriggerStatus)")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-auto-trigger-status")
       if let beat=intelligence.latestBeat {
