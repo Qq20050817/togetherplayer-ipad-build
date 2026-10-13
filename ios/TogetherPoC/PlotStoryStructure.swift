@@ -88,8 +88,17 @@ enum PlotStoryStructure {
  static func observedClues(_ nodes:[PlotStoryNode],watched:[PlotEvidence],at cutoff:Double)->[PlotClue] {
   let past=watched.filter{$0.end<=cutoff}
   let ids=Set(past.map(\.id))
-  let available=nodes.filter{$0.end<=cutoff && !$0.evidenceIDs.isEmpty &&
-   Set($0.evidenceIDs).isSubset(of:ids)}
+  let available=nodes.filter {node in
+   guard node.end<=cutoff,!node.evidenceIDs.isEmpty,
+    Set(node.evidenceIDs).isSubset(of:ids) else{return false}
+   // Jumping into the middle of a movie must not expose the segment recap.
+   // Long story sections need evidence distributed across their duration.
+   let duration=node.end-node.start
+   if duration<=120 {return true}
+   let seen=past.filter{$0.start>=node.start && $0.end<=node.end}
+   guard seen.count>=3,let first=seen.first,let last=seen.last else{return false}
+   return last.end-first.start>=duration*0.45
+  }
   // Recover an early foreshadowing scene even when it is much older than the
   // latest five scenes. Rank by overlap with actually watched recent dialogue.
   let current=past.filter{$0.end>=cutoff-240}.suffix(16).map(\.text).joined(separator:"")
