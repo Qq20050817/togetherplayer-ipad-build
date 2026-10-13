@@ -30,6 +30,14 @@ import AVFoundation
  var plotDidSeek:(()->Void)?
  var plotCaptionChanged:((String)->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
+ private var plotFilmKey=""
+ // Reconnecting can replace AVPlayerItem without changing the film.
+ // Keep watched intervals for that film; never transfer them to another film.
+ func beginPlotFilm(_ key:String) {
+  guard !key.isEmpty,plotFilmKey != key else {return}
+  if !plotFilmKey.isEmpty {clear()}
+  plotFilmKey=key;plotLastTime=nil;plotLastWasPlaying=false
+ }
  var available: Bool {document != nil}
  // Only subtitles strictly at/before the current player time may enter a
  // generative question prompt; never pass the whole movie's subtitle file.
@@ -71,10 +79,10 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotLastTime=nil;enabled=false;delay=0}
+ func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
-  if attachedItem !== item {plotWatched=[];plotLastTime=nil}
+  if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
   if let old=legibleOutput,let attachedItem=attachedItem {attachedItem.remove(old)}
   nativeTimeline.clear();nativeEnabled=true;attachedItem=item
   let output=AVPlayerItemLegibleOutput()
