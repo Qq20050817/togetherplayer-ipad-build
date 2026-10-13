@@ -27,6 +27,11 @@ struct PlotFrame {
  @Published private(set) var selectedModel="尚未出题"
  @Published private(set) var requests=0
  @Published private(set) var automaticRequests=0
+ @Published private(set) var savedSubtitleCount=0
+ var collectedSubtitleCount:Int {
+  guard let current=frame?() else{return 0}
+  return current.key==lastKey ? max(savedSubtitleCount,current.evidence.count) : current.evidence.count
+ }
  @Published private(set) var assessment=PlotComplexity.uncertain
  @Published private(set) var latestBeat:PlotBeatAssessment?
  @Published private(set) var previewCutoff=0.0
@@ -65,33 +70,35 @@ struct PlotFrame {
  }
  func collect() async {
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
-  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;lastKey=snapshot.key}
+  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
-  if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic}
+  if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic;savedSubtitleCount=state.evidence.count}
  }
  func cancel() {generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
  func subtitleChanged(_ text:String) {
   momentTask?.cancel();momentTask=nil
-  // Event-driven: only after a caption ends, not at each new subtitle or an
-  // arbitrary movie timestamp. The debounce is a quiet-window safety check,
-  // not a repeating timer that manufactures questions.
+  // Assess the full already-observed film history, including persisted
+  // evidence from before a disconnect or a replaced player item. Never
+  // consult a future cue when the viewer seeks backward.
   guard text.isEmpty,eventDrivenEnabled,mode != .fallback,!working,mayPublishAutomatically?()==true,
    let snapshot=frame?() else{return}
-  let beat=PlotMomentGate.assess(snapshot.evidence,position:snapshot.position,minQuietSeconds:0)
-  latestBeat=beat
-  guard beat.isCandidate else{return}
-  // There is no timed question schedule. These are only safety backoffs
-  // after failed attempts and after a successfully published interruption.
-  guard snapshot.key != mostRecentAutoKey ||
-   PlotMomentGate.canAttempt(position:snapshot.position,lastAttempt:mostRecentAutoPosition,lastPublished:mostRecentPublishedPosition) else{return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
+   guard let self,
+    let saved=try? await self.memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:key,prediction:snapshot.prediction),
+    !Task.isCancelled,self.frame?()?.key==key else{return}
+   let beat=PlotMomentGate.assess(saved.evidence,position:snapshot.position,minQuietSeconds:0)
+   self.latestBeat=beat
+   guard beat.isCandidate else{return}
+   guard key != self.mostRecentAutoKey ||
+    PlotMomentGate.canAttempt(position:snapshot.position,lastAttempt:self.mostRecentAutoPosition,lastPublished:self.mostRecentPublishedPosition) else{return}
    try? await Task.sleep(nanoseconds:3_500_000_000)
-   guard !Task.isCancelled,let self,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
+   guard !Task.isCancelled,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
     self.isSubtitleCurrentlyShown?()==false,let current=self.frame?(),current.key==key,
-    current.evidence.last?.id==last,
-    PlotMomentGate.likelyQuestionMoment(current.evidence,position:current.position) else{return}
+    current.evidence.last?.id==last else{return}
+   let restored=(try? await self.memory.ingest(current.evidence,cutoff:current.position,key:key,prediction:current.prediction))?.evidence ?? current.evidence
+   guard !Task.isCancelled,PlotMomentGate.likelyQuestionMoment(restored,position:current.position) else{return}
    self.mostRecentAutoKey=key;self.mostRecentAutoPosition=current.position
    self.generate(autoMoment:true)
   }
@@ -119,6 +126,7 @@ struct PlotFrame {
   do {
    let state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
    requests=state.budget.total;automaticRequests=state.budget.automatic
+   if frame?()?.key==snapshot.key {savedSubtitleCount=state.evidence.count}
    let context=state.context(at:snapshot.position)
    let history=state.questions.filter{$0.cutoff<=snapshot.position}.map{$0.question.text}
    // Explicit model choices MUST NOT silently reuse a free-template cache.
