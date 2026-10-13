@@ -34,7 +34,7 @@ import CoreMedia
  var plotMyUserID:String {credentials?["userId"] as? String ?? ""}
 
  @Published var videoBadges: [String]=[]
- var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : engine.room?.state == "playing"}
+ var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : (optimisticPlaying ?? (engine.room?.state == "playing"))}
  var playbackTitle: String {usingLocalFile ? localFileName : usingBaiduSource ? baiduFileName : roomTitle}
  func isMyMessage(_ message: ChatMessage) -> Bool {message.userId == credentials?["userId"] as? String}
  var usingBaiduSource: Bool {baiduPlaybackURL != nil && activeLocalSource==baiduPlaybackURL?.absoluteString && localSourceRoomURL==engine.room?.mediaUrl && localSourceRoomID==engine.room?.roomId}
@@ -90,6 +90,10 @@ import CoreMedia
  private var localSourceRoomID=""
  private var speedHoldID:String?
  private var speedHoldTimer:Timer?
+ @Published private var optimisticPlaying:Bool?
+ private var optimisticUntil=0.0
+ private var optimisticRoomID=""
+ private var speedHoldReleaseUntil=0.0
  private var foreground=true
  private var lastTyping=0.0
  private var prerolling=false
@@ -571,6 +575,7 @@ import CoreMedia
   connected=false;engine.resetSession();attempt += 1
   disconnectCount += 1;lastDisconnectReason=reason
   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
+  clearOptimisticPlayback()
   status="连接中断，自动重连"
   if pendingRoomMedia != nil {mediaFeedback.requestStatus="连接中断，换片请求已保留；重连后继续确认…"}
   let delay=min(15.0,pow(2.0,Double(min(attempt,5)))*0.5)
@@ -595,10 +600,12 @@ import CoreMedia
   lastMessageAt=clock.localNow()
   let type=obj["type"] as? String ?? ""
   if type=="PONG",let t1=obj["t1"] as? Double,let t2=obj["t2"] as? Double,let t3=obj["t3"] as? Double {clock.add(t1,t2,t3,t4);return}
-  if type=="WELCOME" {connected=true;attempt=0;sequence=(obj["lastSequence"] as? NSNumber)?.int64Value ?? 0;pingBurst()}
+  if type=="WELCOME" {connected=true;attempt=0;sequence=(obj["lastSequence"] as? NSNumber)?.int64Value ?? 0;clearOptimisticPlayback();pingBurst()}
   if let raw=obj["room"] as? [String:Any],let data=try? JSONSerialization.data(withJSONObject:raw),let room=try? JSONDecoder().decode(Room.self,from:data) {
    if outboxRoom != room.roomId {outbox=[:];outboxRoom=room.roomId}
+   if !optimisticRoomID.isEmpty && optimisticRoomID != room.roomId {clearOptimisticPlayback()}
    engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
+   if plotPollWaiting {clearOptimisticPlayback()}
    if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
    chat.reset(room.roomId);let nextTitle=room.title?.isEmpty == false ? room.title! : "一起看电影";if roomTitle != nextTitle {roomTitle=nextTitle};let nextWait=room.waitForPeer ?? false;if waitForPeer != nextWait {waitForPeer=nextWait}
    let reasons=["buffering":"等待对方缓冲","disconnected":"等待对方重新连接","ended":"播放完毕，点播放可重播","source":"等待双方授权并匹配同一百度影片","server_restart":"同步服务器已恢复，影片保持暂停；点播放继续"]
@@ -635,13 +642,15 @@ import CoreMedia
   if type=="ROOM_CLOSE" || type=="ROOM_LEAVE" {clearRoom();return}
   if obj["ackUserId"] as? String == credentials?["userId"] as? String,(obj["ackSequence"] as? NSNumber)?.int64Value == inFlightSequence,inFlight != nil {
    if inFlight?["type"] as? String=="ROOM_MEDIA",let change=pendingRoomMedia,let room=engine.room,change.matches(room) {finishRoomMedia("房间影片已设置；双方正在加载新影片。")}
-   inFlight=nil;inFlightStartedAt=nil;operationRetry=0;flushOperations()
+   inFlight=nil;inFlightStartedAt=nil;operationRetry=0
+   if !queuedOperations.contains(where:{["PLAY","PAUSE","SEEK"].contains($0["type"] as? String ?? "")}) {clearOptimisticPlayback()}
+   flushOperations()
   }
   if type=="ERROR" {
    let code=obj["error"] as? String ?? "ERROR"
    if code=="EXPIRED" {clearRoom();requestStatus="房间已过期";return}
    if code=="STALE_VERSION",let operation=inFlight,operationRetry<1 {operationRetry += 1;inFlight=nil;inFlightStartedAt=nil;queuedOperations.insert(operation,at:0);flushOperations()}
-   else {inFlight=nil;inFlightStartedAt=nil;queuedOperations=[];requestStatus=errorText(code);if pendingRoomMedia != nil {finishRoomMedia(errorText(code))}}
+   else {inFlight=nil;inFlightStartedAt=nil;queuedOperations=[];clearOptimisticPlayback();requestStatus=errorText(code);if pendingRoomMedia != nil {finishRoomMedia(errorText(code))}}
   }
  }
  func retryCompatibility() {
@@ -685,7 +694,9 @@ import CoreMedia
    // Keep only the last pending jump while preserving pause/play and media actions.
    if type=="SEEK" {queuedOperations.removeAll {($0["type"] as? String)=="SEEK"}}
    guard queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";feedback.showPlaybackAction(requestStatus);return}
-   queuedOperations.append(operation);flushOperations()
+   queuedOperations.append(operation)
+   applyOptimisticPlayback(type,position:operation["position"] as? Double ?? 0)
+   flushOperations()
   }
   else {sequence += 1;operation["sequence"]=sequence;send(["type":"CONTROL_REQUEST","sequence":sequence,"data":operation]);requestStatus="已向房主发送请求"}
 
@@ -703,7 +714,21 @@ import CoreMedia
   }
   guard connected else {return}
   let error: Double?
-  if variantDurationCheck == .compatible {error=engine.tick()} else {adapter.pause();error=nil}
+  if variantDurationCheck == .compatible {
+   if let room=engine.room,optimisticRoomID==room.roomId,clock.localNow()<optimisticUntil,
+      (inFlight != nil || !queuedOperations.isEmpty) {
+    // A pending host command must not be reverted by an outdated room snapshot.
+    error=nil
+   } else if speedHoldID != nil && speedHoldID != "local" && adapter.player.rate>0 && !plotPollWaiting {
+    // Keep the local 2× rate while the server processes SPEED_HOLD.
+    error=nil
+   } else if speedHoldReleaseUntil>clock.localNow() && adapter.player.rate>0 {
+    error=nil
+   } else {
+    if optimisticPlaying != nil {clearOptimisticPlayback()}
+    error=engine.tick()
+   }
+  } else {clearOptimisticPlayback();adapter.pause();error=nil}
   ticks += 1
   if clock.ready {flushOperations()}
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
@@ -1000,9 +1025,27 @@ extension TestClient {
   externalSubtitles.clear()
   visualSampler.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
-  mediaLoadGeneration += 1;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
+  mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   plotPoll=nil
-  outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
+  outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
+ }
+ private func applyOptimisticPlayback(_ type:String,position:Double) {
+  guard isHost,connected,engine.room != nil,variantDurationCheck == .compatible,
+        adapter.player.currentItem?.status == .readyToPlay,!plotPollWaiting else {return}
+  optimisticRoomID=engine.room?.roomId ?? ""
+  optimisticUntil=clock.localNow()+1800
+  switch type {
+  case "PAUSE":optimisticPlaying=false;adapter.pause()
+  case "PLAY":
+   guard adapter.ready else {return}
+   optimisticPlaying=true;adapter.play()
+  case "SEEK":adapter.seekTo(position+engine.timelineOffset)
+  default:break
+  }
+ }
+ private func clearOptimisticPlayback() {
+  optimisticUntil=0;optimisticRoomID=""
+  if optimisticPlaying != nil {optimisticPlaying=nil}
  }
  func setSpeedHold(_ active:Bool) {
   if active && plotPollWaiting {feedback.showPlaybackAction("请先回答剧情问题");return}
@@ -1011,6 +1054,7 @@ extension TestClient {
    if localVideoTest {adapter.player.rate=2;speedHoldID="local";return}
    guard connected else {return}
    speedHoldID=UUID().uuidString
+   adapter.setPlaybackSpeed(2)
    sendSpeedHold()
    let timer=Timer(timeInterval:0.5,repeats:true){[weak self] _ in Task {@MainActor in self?.sendSpeedHold()}}
    speedHoldTimer=timer;RunLoop.main.add(timer,forMode:.common)
@@ -1018,11 +1062,11 @@ extension TestClient {
    speedHoldTimer?.invalidate();speedHoldTimer=nil
    guard let id=speedHoldID else {return};speedHoldID=nil
    if id=="local" {adapter.player.rate=1}
-   else {send(["type":"SPEED_HOLD","data":["active":false,"holdId":id]])}
+   else {adapter.setPlaybackSpeed(1);speedHoldReleaseUntil=clock.localNow()+600;send(["type":"SPEED_HOLD","data":["active":false,"holdId":id]])}
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;visualSampler.setForeground(true);if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}
