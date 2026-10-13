@@ -42,7 +42,8 @@ enum PlotStoryStructure {
   guard valid.count>=6,let duration=valid.last?.end,duration>=240 else{return []}
   // Twelve approximately ten-minute segments for a feature film. Bound model
   // calls and resource usage independently of the number of subtitle cues.
-  let interval=max(240,min(900,duration/12))
+  let target=duration>9000 ? 18.0 : 12.0
+  let interval=max(240,duration/target)
   let count=min(18,Int(ceil(duration/interval)))
   return (0..<count).compactMap {index in
    let start=Double(index)*interval,end=min(duration,start+interval)
