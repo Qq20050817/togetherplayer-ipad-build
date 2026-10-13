@@ -159,7 +159,7 @@ import AVFoundation
   legibleOutput=output;legibleDelegate=delegate
   output.setDelegate(delegate,queue:.main);item.add(output);refresh()
  }
- func nativeSelectionChanged(enabled:Bool=true) {nativeEnabled=enabled;nativeTimeline.clear();clearNativeIndex();refresh()}
+ func nativeSelectionChanged(enabled:Bool=true) {plotFullFilmReset?();nativeEnabled=enabled;nativeTimeline.clear();clearNativeIndex();refresh()}
  fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
   guard output === legibleOutput else {return}
   lastNativeCallbackAt=Date().timeIntervalSince1970
@@ -185,6 +185,7 @@ import AVFoundation
     return try SubtitleParser.parse(data,extension:ext)
    }.value
    guard current==generation else {return false}
+   plotFullFilmReset?()
    document=result
    plannedQuestions=PlotQuestionPlanner.indexed(result.cues)
    name=url.lastPathComponent;delay=0;enabled=true
