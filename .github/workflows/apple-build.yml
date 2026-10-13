@@ -15,9 +15,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(gh run view 38368019445 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
-          test "$(gh run view 38368019445 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = 25dd2ca6fc7e2e2f29ebf77bd0cea71bb98dc83f
-          gh run download 38368019445 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.3-StoryTurn-Validated-candidate --dir verified
+          test "$(gh run view 38368401851 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 38368401851 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = d524d6a1f4b0d945903ac640329b1b39c4a295af
+          gh run download 38368401851 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.3-StoryTurn-Validated-candidate --dir verified
           cd verified
           sed 's|plot-delivery/||' SHA256SUMS.txt | sha256sum -c -
           cd ..
@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/tarball/25dd2ca6fc7e2e2f29ebf77bd0cea71bb98dc83f" > source.tar.gz
+          gh api "repos/$GITHUB_REPOSITORY/tarball/d524d6a1f4b0d945903ac640329b1b39c4a295af" > source.tar.gz
           mkdir source
           tar -xzf source.tar.gz --strip-components=1 -C source
           cd source
@@ -38,4 +38,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.6.3-storyturn-preview-ipad TogetherPlayer-iPad-0.6.3-StoryTurn-unsigned.ipa TogetherPlayer-0.6.3-StoryTurn-source.zip SHA256SUMS.txt verified/BUILD.txt --repo "$GITHUB_REPOSITORY" --target 25dd2ca6fc7e2e2f29ebf77bd0cea71bb98dc83f --title 'TogetherPlayer iPad 0.6.3 · Verified story-turn candidate' --notes 'Unsigned trial IPA. Fixes recursive published quota updates and final packaging. 114 core tests and all 21 UI cases covered across the full suite and focused completion; unchanged passed cases retained, all affected cases rerun; story-turn gate smoke and isolated authenticated server protocols passed. Local Apple AI availability and real official ChatGPT first authorization, continuous calls and restart remain device acceptance requirements. No actual model accuracy percentage is claimed. Production server remains 0.6.2; blocking question mode requires a separately authorized server update. Sign with the original certificate. Public source and licenses included; private server source retained in private repository.' --prerelease
+          gh release create v0.6.3-storyturn-preview-ipad TogetherPlayer-iPad-0.6.3-StoryTurn-unsigned.ipa TogetherPlayer-0.6.3-StoryTurn-source.zip SHA256SUMS.txt verified/BUILD.txt --repo "$GITHUB_REPOSITORY" --target d524d6a1f4b0d945903ac640329b1b39c4a295af --title 'TogetherPlayer iPad 0.6.3 · Verified story-turn candidate' --notes 'Unsigned trial IPA. Fixes recursive published quota updates and final packaging. 114 core tests and all 21 UI cases covered across the full suite and focused completion; unchanged passed cases retained, all affected cases rerun; story-turn gate smoke and isolated authenticated server protocols passed. Local Apple AI availability and real official ChatGPT first authorization, continuous calls and restart remain device acceptance requirements. No actual model accuracy percentage is claimed. Production server remains 0.6.2; blocking question mode requires a separately authorized server update. Sign with the original certificate. Public source and licenses included; private server source retained in private repository.' --prerelease
