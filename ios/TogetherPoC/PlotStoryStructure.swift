@@ -27,6 +27,16 @@ struct PlotStoryWindow {
 }
 
 enum PlotStoryStructure {
+ static func transcriptFingerprint(_ document:SubtitleDocument)->String {
+  let cues=document.cues
+  guard !cues.isEmpty else{return ""}
+  let step=max(1,cues.count/32)
+  let selected=stride(from:0,to:cues.count,by:step).map {index in
+   let cue=cues[index]
+   return "\(cue.start):\(cue.end):\(cue.text)"
+  }
+  return PlotMemoryStore.key(selected.joined(separator:"\n"))
+ }
  static func windows(_ document:SubtitleDocument)->[PlotStoryWindow] {
   let valid=document.cues.filter{$0.start.isFinite && $0.end.isFinite && $0.start>=0 && $0.end>$0.start}
   guard valid.count>=6,let duration=valid.last?.end,duration>=240 else{return []}
