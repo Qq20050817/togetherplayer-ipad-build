@@ -241,11 +241,13 @@ struct PlotFrame {
    // Display the real failure instead of silently substituting a template.
    if (explicitlyCloud && chosen?.source != "ChatGPT") || (explicitlyLocal && chosen?.source != "Apple 设备端 AI") {
     selectedModel=explicitlyCloud ? "ChatGPT 未出题" : "苹果本地 AI 未出题"
+    if autoMoment {autoTriggerStatus="已发现剧情候选，AI 未完成出题：\(explanation)"}
     reason=explanation;working=false;deadline?.cancel();deadline=nil;return
    }
    // Smart mode promises a real model. Show actionable failure information
    // instead of silently presenting a free template as its own output.
    if mode == .smart && chosen == nil {
+    if autoMoment {autoTriggerStatus="已发现剧情候选，智能模式无法出题：\(explanation)"}
     selectedModel="智能模式未出题"
     reason=explanation+"；没有可用的真实 AI 结果，请检查设备端模型及 ChatGPT 授权/开关，或主动切换免费备用题库"
     working=false;deadline?.cancel();deadline=nil;return
