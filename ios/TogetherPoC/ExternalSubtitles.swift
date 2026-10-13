@@ -21,6 +21,7 @@ import AVFoundation
  private weak var attachedItem:AVPlayerItem?
  private var nativeEnabled=true
  private var document: SubtitleDocument?
+ private var plannedQuestions:[PlotQuestionCheckpoint]=[]
  private let player: AVPlayer
  private var observer: Any?
  private var generation=0
@@ -47,6 +48,15 @@ import AVFoundation
   nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0
  }
  var available: Bool {document != nil}
+ var plannedQuestionCount:Int {enabled ? plannedQuestions.count : 0}
+ func plannedQuestionCheckpoint(at position:Double,duration:Double)->Double? {
+  // A complete imported subtitle can be indexed without sending the future
+  // transcript to Apple AI or ChatGPT. Native cues are streamed and use
+  // duration landmarks, verified against already watched evidence at runtime.
+  let stops=enabled && !plannedQuestions.isEmpty
+   ? plannedQuestions : PlotQuestionPlanner.durationCheckpoints(duration)
+  return PlotQuestionPlanner.active(stops,at:position)
+ }
  // Only subtitles strictly at/before the current player time may enter a
  // generative question prompt; never pass the whole movie's subtitle file.
  func observedPlotExcerpt() -> String {
@@ -87,7 +97,7 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;document=nil;name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;enabled=false;delay=0}
+ func clear() {generation+=1;document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
@@ -134,7 +144,9 @@ import AVFoundation
     return try SubtitleParser.parse(data,extension:ext)
    }.value
    guard current==generation else {return false}
-   document=result;name=url.lastPathComponent;delay=0;enabled=true
+   document=result
+   plannedQuestions=PlotQuestionPlanner.indexed(result.cues)
+   name=url.lastPathComponent;delay=0;enabled=true
    status=(ext=="ass" || ext=="ssa") ? "已加载\(result.cues.count)条字幕；ASS/SSA按文本显示" : "已加载\(result.cues.count)条字幕"
    refresh();return true
   } catch {
