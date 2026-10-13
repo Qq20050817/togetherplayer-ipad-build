@@ -224,7 +224,11 @@ final class PlotMemoryTests:XCTestCase {
   for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
   XCTAssertNil(controller.result)
   XCTAssertEqual(controller.selectedModel,"苹果本地 AI 未出题")
-  XCTAssertTrue(controller.reason.contains("暂不可用"))
+  // Device/OS/model readiness produce different truthful diagnostics on CI.
+  // Require the real availability reason and never accept a template as AI.
+  XCTAssertTrue(controller.reason.contains(PlotLocalAI.availabilityDetail),
+   "Explicit local mode must surface the current device-model availability reason")
+  XCTAssertFalse(controller.reason.contains("免费备用题库"))
  }
  func testSmartModeNeverMasqueradesAsFreeTemplateWithoutAvailableModels() async throws {
   guard !PlotLocalAI.available else {return}
