@@ -89,6 +89,41 @@ final class PlotMomentGateTests:XCTestCase {
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(ordinary,position:24))
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment([],position:1200),"no subtitles means no scene-level evidence")
  }
+ func testOnDeviceSceneChangeOnlyAfterFourAlreadyPlayedSamples() {
+  func scene(_ end:Double,_ category:String)->PlotEvidence {
+   PlotEvidence.cue(start:end-0.2,end:end,
+    text:"本地视觉模型推测：画面可能包含\(category)。仅为画面分类，不能证明情节。",
+    source:"ondevice-vision")
+  }
+  let scenes=[
+   scene(10,"室内环境"),scene(30,"屏幕或设备"),
+   scene(50,"实验或医疗环境"),scene(70,"户外环境")
+  ]
+  let candidate=PlotMomentGate.assess(scenes,position:75)
+  XCTAssertTrue(candidate.isCandidate)
+  XCTAssertGreaterThanOrEqual(candidate.visualTransitions,2)
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(scenes,position:70.3),
+   "never pause before the new visual observation's quiet window")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(scenes,position:65),
+   "future frame labels must be excluded")
+  let staticScene=[
+   scene(10,"室内环境"),scene(30,"室内环境"),
+   scene(50,"室内环境"),scene(70,"室内环境")
+  ]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(staticScene,position:75))
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment([],position:300))
+ }
+ func testVisualClassificationIsConservativeAndNeverUsesActorsOrMovieIdentity() {
+  XCTAssertEqual(PlotSceneTagger.category("hospital_room"),"实验或医疗环境")
+  XCTAssertEqual(PlotSceneTagger.category("city_street"),"户外环境")
+  XCTAssertNil(PlotSceneTagger.category("Alice Project clone 123"))
+  let groups=PlotSceneTagger.candidateLabels([
+   ("hospital_room",0.8),("medical_scene",0.5),
+   ("sky",0.15),("unknown_object",0.9)
+  ])
+  XCTAssertEqual(groups.count,1,"deduplicate categories and require confidence")
+  XCTAssertEqual(groups.first?.0,"实验或医疗环境")
+ }
  func testImportantQuestionMustCiteFreshSubtitleEvidence() {
   let values=(0..<12).map{cue(Double(4+$0*4),"关于那天的真相我们仍有一些疑问和没有解释的地方")}
   let context=PlotContext(cutoff:60,recent:values,earlier:[],predictions:[])
