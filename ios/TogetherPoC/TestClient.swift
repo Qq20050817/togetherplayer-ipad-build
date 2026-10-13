@@ -231,6 +231,16 @@ import CoreMedia
   externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped() }
   externalSubtitles.plotCaptionChanged={ [weak self] text in self?.plotIntelligence.subtitleChanged(text) }
   externalSubtitles.plotFullFilmReset={ [weak self] in self?.plotIntelligence.resetFullFilmPreparation() }
+  externalSubtitles.onAIOnlyPGSChanged={ [weak self] in
+   guard let self,self.mkvRemux.pgsOCRRendition else{return}
+   if !self.externalSubtitles.convertPGSForAI {
+    self.nativeIndexTask?.cancel();self.nativeIndexTask=nil;self.nativeIndexRequestKey=""
+    self.externalSubtitles.clearAIOnlyOCRIndex()
+    self.externalSubtitles.nativeIndexDisabledForAI()
+   } else if self.selectedSubtitleIndex>=0,let item=self.adapter.player.currentItem {
+    self.prepareNativeSubtitleIndex(item:item,track:self.selectedSubtitleIndex)
+   }
+  }
   externalSubtitles.plotFullSubtitleIndexed={ [weak self] document,source,checkpoints in
    guard let self,let key=self.plotIntelligence.frame?()?.key else{return}
    self.plotIntelligence.prepareFullFilm(document,source:source,key:key,checkpoints:checkpoints)
@@ -472,6 +482,9 @@ import CoreMedia
  private func prepareNativeSubtitleIndex(item:AVPlayerItem,track:Int) {
   guard track>=0,!externalSubtitles.enabled,let source=(item.asset as? AVURLAsset)?.url,
         source.pathExtension.lowercased()=="m3u8" else{return}
+  if mkvRemux.pgsOCRRendition && !externalSubtitles.convertPGSForAI {
+   externalSubtitles.nativeIndexDisabledForAI();return
+  }
   if externalSubtitles.nativeIndexedTrack==track {return}
   let key="\(mediaLoadGeneration):\(track):\(source.absoluteString)"
   guard key != nativeIndexRequestKey else{return}
