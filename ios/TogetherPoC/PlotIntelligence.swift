@@ -6,6 +6,7 @@ struct PlotFrame {
  let position:Double
  let evidence:[PlotEvidence]
  var prediction:PlotPrediction?
+ var plannedCheckpoint:Double? = nil
 }
 @MainActor final class PlotIntelligence:ObservableObject {
  @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
@@ -119,7 +120,9 @@ struct PlotFrame {
    guard !Task.isCancelled,self.frame?()?.key==key else{return}
    let beat=PlotMomentGate.assess(saved.evidence,position:snapshot.position,minQuietSeconds:0)
    self.latestBeat=beat
-   guard beat.isCandidate else {
+   let scheduled=snapshot.plannedCheckpoint != nil &&
+    PlotQuestionPlanner.hasWatchedEvidence(saved.evidence,at:snapshot.position)
+   guard beat.isCandidate || scheduled else {
     self.autoTriggerStatus="已采集字幕，当前场景未达到剧情提问门槛（线索\(beat.informationChange) · 矛盾\(beat.contradiction) · 悬念\(beat.unresolvedMystery) · 剧情变化\(beat.storyDevelopment) · 画面变化\(beat.visualTransitions)）"
     return
    }
@@ -128,7 +131,7 @@ struct PlotFrame {
     self.autoTriggerStatus="已有剧情候选，正在避免重复打断"
     return
    }
-   self.autoTriggerStatus="发现剧情候选，等待对白自然结束后复核"
+   self.autoTriggerStatus=scheduled ? "进入预规划讨论区间，等待对白结束后分析" : "发现剧情候选，等待对白自然结束后复核"
    try? await Task.sleep(nanoseconds:3_500_000_000)
    guard !Task.isCancelled,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
     self.isSubtitleCurrentlyShown?()==false else{return}
@@ -136,13 +139,16 @@ struct PlotFrame {
    var restored=await self.memory.load(key)
    if !self.visualEvidenceEnabled {restored.evidence.removeAll{$0.source=="ondevice-vision"}}
    restored.ingest(current.evidence,cutoff:current.position)
-   guard !Task.isCancelled,PlotMomentGate.likelyQuestionMoment(restored.evidence,position:current.position) else {
+   let checkpointReady=scheduled && current.plannedCheckpoint != nil &&
+    PlotQuestionPlanner.hasWatchedEvidence(restored.evidence,at:current.position)
+   guard !Task.isCancelled,
+    (PlotMomentGate.likelyQuestionMoment(restored.evidence,position:current.position) || checkpointReady) else {
     self.autoTriggerStatus="候选剧情复核未通过，继续观影"
     return
    }
    self.mostRecentAutoKey=key;self.mostRecentAutoPosition=current.position
-   self.autoTriggerStatus="剧情候选通过，正在请求 AI 生成问题"
-   self.generate(autoMoment:true)
+   self.autoTriggerStatus=checkpointReady ? "已到预规划讨论点，正在结合已看字幕与画面出题" : "剧情候选通过，正在请求 AI 生成问题"
+   self.generate(autoMoment:true,plannedMoment:checkpointReady)
   }
  }
  func acknowledgeAutoSuggestion() {autoSuggestion=nil}
@@ -153,18 +159,18 @@ struct PlotFrame {
   if current.key != lastKey || current.position<previewCutoff {result=nil}
  }
  var previewUsable:Bool {guard let current=frame?() else {return false};return current.key==lastKey && current.position>=previewCutoff}
- func generate(manualDeep:Bool=false,regenerate:Bool=false,autoMoment:Bool=false) {
+ func generate(manualDeep:Bool=false,regenerate:Bool=false,autoMoment:Bool=false,plannedMoment:Bool=false) {
   guard !working,let snapshot=frame?() else {reason="请先加载影片；本机出题无需房间在线";return}
   cancel();lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
   working=true;result=nil;reason="正在分析已观看的剧情…"
-  operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment)}
+  operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment,plannedMoment:plannedMoment)}
   deadline=Task {[weak self] in
    try? await Task.sleep(nanoseconds:60_000_000_000)
    guard !Task.isCancelled,let self,self.generation==token,self.working else {return}
    self.cancel();self.reason="分析超时，可以重试；影片继续播放"
   }
  }
- private func run(_ snapshot:PlotFrame,token:Int,manualDeep:Bool,regenerate:Bool,autoMoment:Bool) async {
+ private func run(_ snapshot:PlotFrame,token:Int,manualDeep:Bool,regenerate:Bool,autoMoment:Bool,plannedMoment:Bool) async {
   do {
    var state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
    if !visualEvidenceEnabled {state.evidence.removeAll{$0.source=="ondevice-vision"}}
@@ -189,7 +195,12 @@ struct PlotFrame {
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
-   if autoMoment && (!context.sufficient || !PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position)) {autoTriggerStatus="本次剧情线索不足，暂不暂停影片";working=false;deadline?.cancel();deadline=nil;return}
+   let indexedReady=plannedMoment && snapshot.plannedCheckpoint != nil &&
+    PlotQuestionPlanner.hasWatchedEvidence(context.recent,at:snapshot.position)
+   if autoMoment && (!context.sufficient ||
+    (!PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position) && !indexedReady)) {
+    autoTriggerStatus="本次剧情线索不足，暂不暂停影片";working=false;deadline?.cancel();deadline=nil;return
+   }
    let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
@@ -197,7 +208,7 @@ struct PlotFrame {
    if mode == .smart || mode == .local {
     // Even without subtitles, use the REAL on-device model for an honest
     // context-free question; never claim it analyzed unobserved movie content.
-    local=context.sufficient ? await PlotLocalAI.question(context,automatic:autoMoment) : await PlotLocalAI.genericQuestion(at:snapshot.position)
+    local=context.sufficient ? await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment) : await PlotLocalAI.genericQuestion(at:snapshot.position)
    }
    guard valid(snapshot,token:token) else {cancel();return}
    var localGeneric = !context.sufficient
@@ -234,7 +245,7 @@ struct PlotFrame {
       let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
       do {
        guard valid(snapshot,token:token) else {cancel();return}
-       let instruction=context.sufficient ? (autoMoment ? PlotLocalAI.importantMomentInstructions : PlotLocalAI.questionInstructions) : PlotLocalAI.noEvidenceInstructions
+       let instruction=context.sufficient ? (plannedMoment ? PlotLocalAI.plannedMomentInstructions : (autoMoment ? PlotLocalAI.importantMomentInstructions : PlotLocalAI.questionInstructions)) : PlotLocalAI.noEvidenceInstructions
        let input=context.sufficient ? context.boundedInput : "当前影片播放到约\(Int(snapshot.position/60))分钟，暂无足够的已观看字幕；请生成一道不依赖任何虚构细节的通用讨论问题。"
        let text=try await auth.performInference(instructions:instruction,input:input,canSend:{self.valid(snapshot,token:token)})
        guard valid(snapshot,token:token) else {return}
