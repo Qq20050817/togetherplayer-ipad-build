@@ -128,7 +128,7 @@ extension PlotContext {
  static let importantMomentInstructions=questionInstructions+" 自动打断条件更严格：核对最近的已观看字幕或本机场景分类线索及此前已出现的事实，只有发生新的关键事实、旧说法被推翻、或尚无答案的重要悬念，且此刻值得两人暂停讨论时才出题。普通对话、重复的疑问和没有新意义的台词，输出{\"question\":\"\",\"options\":[],\"evidenceIDs\":[],\"kind\":\"discussion\"}。必须至少引用最近五条有效线索中的一个真实证据ID，不能只根据更早的片段出题，不要用未来剧情。"
  // Preplanned checkpoints are discussion opportunities selected before
  // playback. They never authorize reading future cues or invented film facts.
- static let plannedMomentInstructions=questionInstructions+" 这是预先规划的观影讨论区间。只根据输入中已经播放完毕的字幕和本地画面分类提出一道值得两人交换看法的问题。可以询问当前角色动机、刚才的矛盾或已出现的场景变化；不要求一定发生了惊天反转。必须引用最近八条有效证据中的真实evidenceID；证据只有笼统画面标签时，仅询问观众对这些画面变化的理解，不编造人物身份和具体事件。若证据不足或只能重复无意义的日常提问，输出空问题。"
+ static let plannedMomentInstructions=questionInstructions+" 这是根据完整字幕建立的预规划时间点，但输入仅允许包括当前时间点前的证据。recent 是近期已出现对白，earlier 是前文事件的推测性摘要。选择 recent 中真实出现的人名、物件、行动、证词或矛盾，尽可能联系 earlier 中相应的前文事件，提出一道两人能基于已经看到的剧情推理的具体问题。问题文字必须包含最新引用字幕的具体关键词，选项要围绕该事件给出不同合理解释；避免泛泛而谈。不把推测当确定事实，不使用外部电影知识或未来剧情，不臆造无对白画面。至少引用 recent 最近八条有效证据的一个真实 evidenceID，可补充已出现的 earlier 证据。证据不足或无法建立具体联系就输出空问题。"
  static func question(_ context:PlotContext,automatic:Bool=false,planned:Bool=false) async -> PlotQuestion? {
   let instructions=planned ? plannedMomentInstructions : (automatic ? importantMomentInstructions : questionInstructions)
   guard context.sufficient,let response=try? await respond(instructions:instructions,input:context.localInput) else {return nil}
