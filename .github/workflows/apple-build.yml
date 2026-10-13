@@ -21,6 +21,7 @@ jobs:
           cd verified
           sed 's|plot-delivery/||' SHA256SUMS.txt | sha256sum -c -
           cd ..
+          printf "Current compatible solo server SHA256: ff888d8d07cf756205d0fb9d9e107fc97d9bd90c6ac627620f5bb6b43cec87b6; public solo and two-peer protocols verified.\n" >> verified/BUILD.txt
           cp verified/TogetherPlayer-0.6.5-SoloPlot-Validated-unsigned.ipa TogetherPlayer-iPad-0.6.5-SoloPlot-unsigned.ipa
       - name: Preserve exact public client source and licenses
         env:
