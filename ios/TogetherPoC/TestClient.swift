@@ -483,7 +483,8 @@ import CoreMedia
      self.adapter.player.currentItem === item,
      !self.externalSubtitles.enabled,self.selectedSubtitleIndex==track else{return}
    if let result {
-    self.externalSubtitles.installNativeIndex(result,track:track)
+    self.externalSubtitles.installNativeIndex(result,track:track,
+     forAIOnly:self.mkvRemux.pgsOCRRendition)
     await self.plotIntelligence.collect()
    } else {self.externalSubtitles.nativeIndexUnavailable()}
   }
