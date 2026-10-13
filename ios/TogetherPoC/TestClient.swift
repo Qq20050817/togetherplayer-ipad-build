@@ -327,7 +327,7 @@ import CoreMedia
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
   let needsRemux=forceRemux || MKVRemux.needed(url:url,fileName:url==baiduPlaybackURL ? baiduFileName : nil)
-  adapter.pause();adapter.player.replaceCurrentItem(with:nil)
+  adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil)
   mkvRemux.stop();remuxAudioLabelsByDisplayName=[:];remuxAudioTrackSummary=[]
   Task {
    guard g==mediaLoadGeneration else {return}
@@ -365,7 +365,7 @@ import CoreMedia
   subtitleGroup=nil;subtitleLabels=[];selectedSubtitleIndex = externalSubtitles.enabled ? -2 : (requestedSubtitleIndex ?? -1)
   videoBadges=[]
   if MediaSourceCatalog.canShare(originalURL.absoluteString),originalURL != baiduPlaybackURL {library.played(originalURL.absoluteString,title:movieTitle)}
-  streamInfo="等待读取播放轨道";adapter.pause();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);visualSampler.attach(to:item);updateMediaInfo()
+  streamInfo="等待读取播放轨道";adapter.pause();adapter.resetPendingSeeks();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);visualSampler.attach(to:item);updateMediaInfo()
   // Show already saved film evidence immediately after the player is reattached.
   Task {await plotIntelligence.collect()}
   if allowRemuxRetry {
@@ -681,7 +681,12 @@ import CoreMedia
   }
   guard connected && clock.ready else {requestStatus="尚未连接或正在校准时钟";feedback.showPlaybackAction(requestStatus);return}
   var operation: [String:Any]=["type":type,"position":max(0,position)]
-  if isHost {guard queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";feedback.showPlaybackAction(requestStatus);return};queuedOperations.append(operation);flushOperations()}
+  if isHost {
+   // Keep only the last pending jump while preserving pause/play and media actions.
+   if type=="SEEK" {queuedOperations.removeAll {($0["type"] as? String)=="SEEK"}}
+   guard queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";feedback.showPlaybackAction(requestStatus);return}
+   queuedOperations.append(operation);flushOperations()
+  }
   else {sequence += 1;operation["sequence"]=sequence;send(["type":"CONTROL_REQUEST","sequence":sequence,"data":operation]);requestStatus="已向房主发送请求"}
 
  }
@@ -904,7 +909,7 @@ extension TestClient {
   }
  }
  private func stopUnmatchedMedia() {
-  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();visualSampler.clear();currentOriginalURL=nil
+  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();visualSampler.clear();currentOriginalURL=nil
  }
  func useBaiduSource(_ url: URL,file: BaiduFile,confirmedRoomID: String? = nil,confirmedMediaURL: String? = nil) -> Bool {
   guard connected,let room=engine.room else {requestStatus="请先创建或加入房间，再选择百度影片";return false}
@@ -942,7 +947,7 @@ extension TestClient {
   baiduPlaybackURL=nil;baiduFileName="";baiduSourceID="";baiduSourceRoom=""
   if activeLocalSource==url.absoluteString {
    activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
-   mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.player.replaceCurrentItem(with:nil);loadedURL=""
+   mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL=""
    requestStatus="百度本机片源已清除；恢复房间片源请点应用本机片源"
   }
  }
