@@ -19,7 +19,7 @@ jobs:
           test "$(gh run view 38363318379 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = 0222a736fa025df22ddbbecb348bc56f256043e8
           gh run download 38363318379 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.3-StoryTurn-Validated-candidate --dir verified
           cd verified
-          sha256sum -c SHA256SUMS.txt
+          sed 's|plot-delivery/||' SHA256SUMS.txt | sha256sum -c -
           cd ..
           cp verified/TogetherPlayer-0.6.3-StoryTurn-Validated-unsigned.ipa TogetherPlayer-iPad-0.6.3-StoryTurn-unsigned.ipa
       - name: Preserve exact public client source and licenses
