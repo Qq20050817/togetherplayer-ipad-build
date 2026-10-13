@@ -86,9 +86,25 @@ enum PlotStoryStructure {
    evidenceIDs:ids,confidence:confidence)
  }
  static func observedClues(_ nodes:[PlotStoryNode],watched:[PlotEvidence],at cutoff:Double)->[PlotClue] {
-  let ids=Set(watched.filter{$0.end<=cutoff}.map(\.id))
-  return Array(nodes.filter{$0.end<=cutoff && !$0.evidenceIDs.isEmpty &&
-    Set($0.evidenceIDs).isSubset(of:ids)}.suffix(5)).map {node in
+  let past=watched.filter{$0.end<=cutoff}
+  let ids=Set(past.map(\.id))
+  let available=nodes.filter{$0.end<=cutoff && !$0.evidenceIDs.isEmpty &&
+   Set($0.evidenceIDs).isSubset(of:ids)}
+  // Recover an early foreshadowing scene even when it is much older than the
+  // latest five scenes. Rank by overlap with actually watched recent dialogue.
+  let current=past.filter{$0.end>=cutoff-240}.suffix(16).map(\.text).joined(separator:"")
+  func triples(_ text:String)->Set<String> {
+   let chars=Array(text.lowercased().filter{$0.isLetter || $0.isNumber})
+   guard chars.count>=3 else{return []}
+   return Set((0..<(chars.count-2)).map{String(chars[$0...($0+2)])})
+  }
+  let reference=triples(current)
+  let ranked=available.sorted {a,b in
+   let aMatch=triples(a.recap).intersection(reference).count
+   let bMatch=triples(b.recap).intersection(reference).count
+   return aMatch==bMatch ? a.end>b.end : aMatch>bMatch
+  }
+  return Array(ranked.prefix(5)).sorted{$0.end<$1.end}.map {node in
    PlotClue(id:PlotMemoryStore.key("story-node:\(node.start):\(node.end)"),
     kind:"inference",text:"AI 分段剧情推测："+node.recap,
     evidenceIDs:node.evidenceIDs,end:node.end,confidence:node.confidence)
