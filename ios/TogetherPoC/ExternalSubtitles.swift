@@ -31,6 +31,9 @@ import AVFoundation
  var plotCaptionChanged:((String)->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  private var plotFilmKey=""
+ private var lastNativeSelectionAuditAt=0.0
+ // Called on the player's existing clock: no extra polling timer or decoder.
+ var nativeSelectionHealthCheck:(()->Void)?
  func isCurrentPlotFilm(_ key:String)->Bool {!key.isEmpty && plotFilmKey==key}
  // Reconnecting can replace AVPlayerItem without changing the film.
  // Keep watched intervals for that film; never transfer them to another film.
@@ -85,7 +88,12 @@ import AVFoundation
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
   if let old=legibleOutput,let attachedItem=attachedItem {attachedItem.remove(old)}
-  nativeTimeline.clear();nativeEnabled=true;attachedItem=item
+  // When a reconnect installs another AVPlayerItem for the SAME film,
+  // the new legible output may not replay already delivered cues immediately.
+  // beginPlotFilm()/explicit track selection already clear old-film/track data.
+  // Preserve the timeline across same-film item replacements.
+  if plotFilmKey.isEmpty {nativeTimeline.clear()}
+  nativeEnabled=true;attachedItem=item
   let output=AVPlayerItemLegibleOutput()
   // The delegate queues future events; they are never drawn before their
   // shifted timestamp. 120 seconds matches the adjustment panel's bounds.
@@ -138,6 +146,16 @@ import AVFoundation
    }
    plotLastTime=actual
    plotLastWasPlaying=player.rate>0
+  }
+  // AVFoundation can silently reset the selected legible option when HLS
+  // variants or decoder state change. Verify the requested native track
+  // without clearing on-screen cues or touching external subtitle documents.
+  let now=Date().timeIntervalSince1970
+  if !enabled,nativeEnabled,player.rate>0,let item=attachedItem,
+   player.currentItem === item,item.status == .readyToPlay,
+   now-lastNativeSelectionAuditAt>=4 {
+   lastNativeSelectionAuditAt=now
+   nativeSelectionHealthCheck?()
   }
   let time=player.currentTime().seconds-delay
   let next=enabled ? document?.text(at:time) ?? "" : (nativeEnabled ? nativeTimeline.text(at:time) : "")
