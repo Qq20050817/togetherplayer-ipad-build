@@ -101,10 +101,11 @@ struct PlotFrame {
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
    guard let self,!Task.isCancelled else{return}
-   guard let saved=try? await self.memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:key,prediction:snapshot.prediction) else {
-    self.autoTriggerStatus="本机剧情记忆保存失败，请检查存储空间"
-    return
-   }
+   // Read persisted clues without writing the entire growing film JSON on
+   // every subtitle gap. The normal 20-second sampler and generation pass
+   // perform durable saves; disconnect also flushes the last observed batch.
+   var saved=await self.memory.load(key)
+   saved.ingest(snapshot.evidence,cutoff:snapshot.position)
    guard !Task.isCancelled,self.frame?()?.key==key else{return}
    let beat=PlotMomentGate.assess(saved.evidence,position:snapshot.position,minQuietSeconds:0)
    self.latestBeat=beat
@@ -122,8 +123,9 @@ struct PlotFrame {
    guard !Task.isCancelled,self.eventDrivenEnabled,!self.working,self.mayPublishAutomatically?()==true,
     self.isSubtitleCurrentlyShown?()==false else{return}
    guard let current=self.frame?(),current.key==key,current.evidence.last?.id==last else{return}
-   let restored=(try? await self.memory.ingest(current.evidence,cutoff:current.position,key:key,prediction:current.prediction))?.evidence ?? current.evidence
-   guard !Task.isCancelled,PlotMomentGate.likelyQuestionMoment(restored,position:current.position) else {
+   var restored=await self.memory.load(key)
+   restored.ingest(current.evidence,cutoff:current.position)
+   guard !Task.isCancelled,PlotMomentGate.likelyQuestionMoment(restored.evidence,position:current.position) else {
     self.autoTriggerStatus="候选剧情复核未通过，继续观影"
     return
    }
