@@ -93,6 +93,8 @@ import CoreMedia
  @Published private var optimisticPlaying:Bool?
  private var optimisticUntil=0.0
  private var optimisticRoomID=""
+ private var lastStepTarget:Double?
+ private var lastStepTime=0.0
  private var speedHoldReleaseUntil=0.0
  private var foreground=true
  private var lastTyping=0.0
@@ -331,7 +333,7 @@ import CoreMedia
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
   let needsRemux=forceRemux || MKVRemux.needed(url:url,fileName:url==baiduPlaybackURL ? baiduFileName : nil)
-  adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil)
+  lastStepTarget=nil;clearOptimisticPlayback();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil)
   mkvRemux.stop();remuxAudioLabelsByDisplayName=[:];remuxAudioTrackSummary=[]
   Task {
    guard g==mediaLoadGeneration else {return}
@@ -575,7 +577,7 @@ import CoreMedia
   connected=false;engine.resetSession();attempt += 1
   disconnectCount += 1;lastDisconnectReason=reason
   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
-  clearOptimisticPlayback()
+  clearOptimisticPlayback();lastStepTarget=nil
   status="连接中断，自动重连"
   if pendingRoomMedia != nil {mediaFeedback.requestStatus="连接中断，换片请求已保留；重连后继续确认…"}
   let delay=min(15.0,pow(2.0,Double(min(attempt,5)))*0.5)
@@ -600,7 +602,7 @@ import CoreMedia
   lastMessageAt=clock.localNow()
   let type=obj["type"] as? String ?? ""
   if type=="PONG",let t1=obj["t1"] as? Double,let t2=obj["t2"] as? Double,let t3=obj["t3"] as? Double {clock.add(t1,t2,t3,t4);return}
-  if type=="WELCOME" {connected=true;attempt=0;sequence=(obj["lastSequence"] as? NSNumber)?.int64Value ?? 0;clearOptimisticPlayback();pingBurst()}
+  if type=="WELCOME" {connected=true;attempt=0;sequence=(obj["lastSequence"] as? NSNumber)?.int64Value ?? 0;lastStepTarget=nil;clearOptimisticPlayback();pingBurst()}
   if let raw=obj["room"] as? [String:Any],let data=try? JSONSerialization.data(withJSONObject:raw),let room=try? JSONDecoder().decode(Room.self,from:data) {
    if outboxRoom != room.roomId {outbox=[:];outboxRoom=room.roomId}
    if !optimisticRoomID.isEmpty && optimisticRoomID != room.roomId {clearOptimisticPlayback()}
@@ -681,8 +683,25 @@ import CoreMedia
   adapter.setPlaybackSpeed(1);loadedURL=mediaURL;loadMedia(url)
   status="本机视频验证：可测试 PLAY / PAUSE / SEEK；尚未加入同步房间"
  }
+ // Rapid ±10s taps accumulate against the latest requested target,
+ // even when the decoder has not yet reached that position.
+ func skipBy(_ milliseconds:Double) {
+  guard milliseconds.isFinite else {return}
+  let now=clock.localNow()
+  let baseline:Double
+  if let previous=lastStepTarget,now-lastStepTime<1300 {
+   baseline=previous
+  } else {baseline=adapter.position-engine.timelineOffset}
+  let desired=max(0,baseline+milliseconds)
+  let end=adapter.duration
+  let bounded=end.isFinite && end>0 ? min(desired,max(0,end-engine.timelineOffset)) : desired
+  lastStepTarget=bounded;lastStepTime=now
+  control("SEEK",position:bounded)
+ }
  func control(_ type: String,position: Double=0) {
   if plotPollWaiting && type != "PAUSE" {requestStatus="请双方先回答剧情问题，再继续播放";feedback.showPlaybackAction(requestStatus);return}
+  guard position.isFinite else {return}
+  if type != "SEEK" {lastStepTarget=nil}
   let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
   feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
   if localVideoTest {
@@ -722,7 +741,7 @@ import CoreMedia
    } else if speedHoldID != nil && speedHoldID != "local" && adapter.player.rate>0 && !plotPollWaiting {
     // Keep the local 2× rate while the server processes SPEED_HOLD.
     error=nil
-   } else if speedHoldReleaseUntil>clock.localNow() && adapter.player.rate>0 {
+   } else if speedHoldReleaseUntil>clock.localNow() && adapter.player.rate>0 && engine.room?.state=="playing" && !plotPollWaiting {
     error=nil
    } else {
     if optimisticPlaying != nil {clearOptimisticPlayback()}
@@ -1054,6 +1073,7 @@ extension TestClient {
    if localVideoTest {adapter.player.rate=2;speedHoldID="local";return}
    guard connected else {return}
    speedHoldID=UUID().uuidString
+   speedHoldReleaseUntil=0
    adapter.setPlaybackSpeed(2)
    sendSpeedHold()
    let timer=Timer(timeInterval:0.5,repeats:true){[weak self] _ in Task {@MainActor in self?.sendSpeedHold()}}
