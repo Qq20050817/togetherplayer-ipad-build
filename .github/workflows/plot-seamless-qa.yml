@@ -42,16 +42,14 @@ jobs:
             -only-testing:TogetherPoCCoreTests \
             -retry-tests-on-failure \
             test
-      - name: Validate three watch UI regressions serially
+      - name: Validate all watch UI regressions serially
         run: |
           set -euo pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
             -parallel-testing-enabled NO \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff \
+            -only-testing:TogetherPoCUITests \
             -retry-tests-on-failure \
             test
       - name: Package verified unsigned IPA
