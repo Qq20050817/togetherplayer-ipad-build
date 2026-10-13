@@ -78,6 +78,13 @@ struct PlotFrame {
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic;savedSubtitleCount=state.evidence.count}
+  // AVPlayerItemLegibleOutput does not promise an empty end callback for every
+  // caption. Evaluate natural quiet gaps at the existing 20-second sample too.
+  // This is an opportunity to inspect a story beat, never a fixed-time prompt.
+  if eventDrivenEnabled,!working,momentTask==nil,
+   isSubtitleCurrentlyShown?()==false {
+   subtitleChanged("")
+  }
  }
  // Snapshot before the transport or player is torn down. The actor keeps
  // the final watched cues even if the normal 20-second sampler has not fired.
