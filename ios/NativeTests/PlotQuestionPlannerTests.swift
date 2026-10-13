@@ -58,7 +58,21 @@ final class PlotQuestionPlannerTests:XCTestCase {
    PlotEvidence.cue(start:$0.start,end:$0.end,text:"静止室内",source:"ondevice-vision")
   },at:75),"Generic unchanging picture labels are not enough")
  }
- func testNoWholeFilmTranscriptLeaksIntoPromptMemory() {
+ func testAutoQuestionsRequireVisibleDetailsFromCitedSubtitle() {
+  let a=PlotEvidence.cue(start:100,end:102,text:"他昨晚声称自己在家",source:"embedded-subtitle")
+  let b=PlotEvidence.cue(start:106,end:108,text:"警方找到了监控录像",source:"embedded-subtitle")
+  let c=PlotEvidence.cue(start:112,end:114,text:"监控记录与之前的证词存在矛盾",source:"embedded-subtitle")
+  let context=PlotContext(cutoff:120,recent:[a,b,c],earlier:[],predictions:[])
+  let factual=PlotQuestion(text:"警方发现监控后，为什么证词会与录像矛盾？",choices:["故意隐瞒","误会"],source:"Apple 设备端 AI",evidenceIDs:[b.id,c.id])
+  XCTAssertTrue(PlotMomentGate.questionIsTimely(factual,context:context))
+  let generic=PlotQuestion(text:"你觉得这个人的未来会发生什么？",choices:["成功","失败"],source:"Apple 设备端 AI",evidenceIDs:[b.id,c.id])
+  XCTAssertFalse(PlotMomentGate.questionIsTimely(generic,context:context),
+   "Valid-looking evidence IDs must not approve a disconnected generic question")
+  let historical=PlotQuestion(text:"昨晚他为什么声称自己在家？",choices:["想隐瞒","没记清"],source:"Apple 设备端 AI",evidenceIDs:[a.id])
+  XCTAssertTrue(PlotMomentGate.questionIsTimely(historical,context:context))
+  XCTAssertFalse(PlotMomentGate.questionIsTimely(PlotQuestion(text:"录像是真的吗？",choices:["是","否"],source:"Apple 设备端 AI",evidenceIDs:["future-not-watched"]),context:context))
+ }
+  func testNoWholeFilmTranscriptLeaksIntoPromptMemory() {
   let values=[
    PlotEvidence.cue(start:2,end:5,text:"开场已经看过的故事",source:"external-subtitle"),
    PlotEvidence.cue(start:900,end:905,text:"秘密的未来结局绝不能提前显示",source:"external-subtitle")
