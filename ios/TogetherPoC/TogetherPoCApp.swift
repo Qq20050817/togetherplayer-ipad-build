@@ -245,11 +245,28 @@ struct SubtitleHeightKey:PreferenceKey {
  }
  private var volumeButton:some View {Button {adjustingVolume=true} label:{Image(systemName:volume>0 ? "speaker.wave.2" : "speaker.slash")}.accessibilityLabel("播放音量").popover(isPresented:$adjustingVolume) {volumeControl.frame(width:220).padding(20)}}
  private var progressRow:some View {
-   HStack(spacing:10) {
-    Text(PlaybackMonitor.time(dragging ? target : playback.position)).font(.caption.monospacedDigit()).frame(minWidth:45)
-    Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0;dragging=true}),in:0...max(1,playback.duration),onEditingChanged:{editing in if editing && !dragging {target=playback.position};dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
-    Text(PlaybackTime.remaining(duration:playback.duration,position:dragging ? target : playback.position)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
-   }
+  let duration=playback.duration.isFinite ? max(1,playback.duration) : 1
+  let current=playback.position.isFinite ? min(duration,max(0,playback.position)) : 0
+  let displayed=dragging ? min(duration,max(0,target)) : current
+  return HStack(spacing:10) {
+   Text(PlaybackMonitor.time(displayed)).font(.caption.monospacedDigit()).frame(minWidth:45)
+   Slider(value:Binding(get:{dragging ? min(duration,max(0,target)) : current},set:{value in
+    target=value.isFinite ? min(duration,max(0,value)) : current
+    dragging=true
+   }),in:0...duration,onEditingChanged:{editing in
+    if editing {
+     if !dragging {target=current}
+     dragging=true
+    } else {
+     let destination=min(duration,max(0,target))
+     dragging=false
+     if playback.duration.isFinite && playback.duration>0 {
+      model.control("SEEK",position:max(0,destination*1000-model.engine.timelineOffset))
+     }
+    }
+   }).disabled(!playback.duration.isFinite || playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
+   Text(PlaybackTime.remaining(duration:playback.duration,position:displayed)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
+  }
  }
  private var transport: some View {
   HStack(spacing:compact ? 12 : 22) {
