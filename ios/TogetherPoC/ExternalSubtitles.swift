@@ -22,6 +22,10 @@ import AVFoundation
  private var nativeEnabled=true
  private var document: SubtitleDocument?
  private var plannedQuestions:[PlotQuestionCheckpoint]=[]
+ private var nativeIndexedDocument:SubtitleDocument?
+ private var nativeIndexedQuestions:[PlotQuestionCheckpoint]=[]
+ private(set) var nativeIndexedTrack:Int?
+ @Published private(set) var nativeIndexStatus=""
  private let player: AVPlayer
  private var observer: Any?
  private var generation=0
@@ -48,13 +52,29 @@ import AVFoundation
   nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0
  }
  var available: Bool {document != nil}
- var plannedQuestionCount:Int {enabled ? plannedQuestions.count : 0}
+ var plannedQuestionCount:Int {enabled ? plannedQuestions.count : nativeIndexedQuestions.count}
+ var nativeIndexedCueCount:Int {nativeIndexedDocument?.cues.count ?? 0}
+ func installNativeIndex(_ document:SubtitleDocument,track:Int) {
+  guard track>=0,!document.cues.isEmpty else{return}
+  nativeIndexedDocument=document
+  nativeIndexedQuestions=PlotQuestionPlanner.indexed(document.cues)
+  nativeIndexedTrack=track
+  nativeIndexStatus="内置字幕已索引\(document.cues.count)条 · 预选\(nativeIndexedQuestions.count)处剧情"
+  refresh()
+ }
+ func nativeIndexUnavailable() {
+  if nativeIndexedDocument == nil {nativeIndexStatus="此内置字幕轨道暂不支持全片索引，继续使用实时字幕"}
+ }
+ private func clearNativeIndex() {
+  nativeIndexedDocument=nil;nativeIndexedQuestions=[];nativeIndexedTrack=nil;nativeIndexStatus=""
+ }
  func plannedQuestionCheckpoint(at position:Double,duration:Double)->Double? {
   // A complete imported subtitle can be indexed without sending the future
   // transcript to Apple AI or ChatGPT. Native cues are streamed and use
   // duration landmarks, verified against already watched evidence at runtime.
-  let stops=enabled && !plannedQuestions.isEmpty
-   ? plannedQuestions : PlotQuestionPlanner.durationCheckpoints(duration)
+  let stops=enabled && !plannedQuestions.isEmpty ? plannedQuestions :
+   (!enabled && nativeEnabled && !nativeIndexedQuestions.isEmpty ? nativeIndexedQuestions :
+    PlotQuestionPlanner.durationCheckpoints(duration))
   return PlotQuestionPlanner.active(stops,at:position)
  }
  // Only subtitles strictly at/before the current player time may enter a
@@ -64,7 +84,11 @@ import AVFoundation
   guard cutoff.isFinite && cutoff>=0 else {return ""}
   let past:[String]
   if enabled {past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff}.suffix(22).map{$0.text} ?? []}
-  else {past=nativeEnabled ? nativeTimeline.completedText(before:cutoff) : []}
+  else if nativeEnabled {
+   if let nativeIndexedDocument {
+    past=Array(nativeIndexedDocument.cues.filter{$0.end<=cutoff && $0.start<=cutoff}.suffix(22).map(\.text))
+   } else {past=nativeTimeline.completedText(before:cutoff)}
+  } else {past=[]}
   return past.joined(separator:"\n")
  }
  func observedPlotEvidence()->[PlotEvidence] {
@@ -74,8 +98,18 @@ import AVFoundation
   if enabled,let document {
    return document.cues.prefix(while:{$0.start<=cutoff}).filter{$0.end<=cutoff && watched($0.start,$0.end)}.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"external-subtitle")}
   }
-  guard nativeEnabled,nativeTimeline.events.count>1 else {return []}
-  return zip(nativeTimeline.events,nativeTimeline.events.dropFirst()).filter{!$0.0.text.isEmpty && $0.1.time<=cutoff && watched($0.0.time,$0.1.time)}.map{PlotEvidence.cue(start:$0.0.time,end:$0.1.time,text:$0.0.text,source:"embedded-subtitle")}
+  guard nativeEnabled else{return []}
+  // A remuxed subtitle track can be indexed before playback. Only cues
+  // really watched on this device are eligible as AI evidence.
+  if let nativeIndexedDocument {
+   return nativeIndexedDocument.cues.prefix(while:{$0.start<=cutoff})
+    .filter{$0.end<=cutoff && watched($0.start,$0.end)}
+    .map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"embedded-subtitle")}
+  }
+  guard nativeTimeline.events.count>1 else{return []}
+  return zip(nativeTimeline.events,nativeTimeline.events.dropFirst())
+   .filter{!$0.0.text.isEmpty && $0.1.time<=cutoff && watched($0.0.time,$0.1.time)}
+   .map{PlotEvidence.cue(start:$0.0.time,end:$0.1.time,text:$0.0.text,source:"embedded-subtitle")}
  }
 
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
@@ -97,7 +131,7 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;enabled=false;delay=0}
+ func clear() {generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
@@ -118,7 +152,7 @@ import AVFoundation
   legibleOutput=output;legibleDelegate=delegate
   output.setDelegate(delegate,queue:.main);item.add(output);refresh()
  }
- func nativeSelectionChanged(enabled:Bool=true) {nativeEnabled=enabled;nativeTimeline.clear();refresh()}
+ func nativeSelectionChanged(enabled:Bool=true) {nativeEnabled=enabled;nativeTimeline.clear();clearNativeIndex();refresh()}
  fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
   guard output === legibleOutput else {return}
   lastNativeCallbackAt=Date().timeIntervalSince1970
@@ -185,7 +219,9 @@ import AVFoundation
    }
   }
   let time=player.currentTime().seconds-delay
-  let next=enabled ? document?.text(at:time) ?? "" : (nativeEnabled ? nativeTimeline.text(at:time) : "")
+  let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
+  let next=enabled ? document?.text(at:time) ?? "" :
+   (nativeEnabled ? (live.isEmpty ? nativeIndexedDocument?.text(at:time) ?? "" : live) : "")
   if next != text {text=next;plotCaptionChanged?(next)}
  }
 }
