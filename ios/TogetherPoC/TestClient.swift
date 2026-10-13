@@ -273,7 +273,12 @@ import CoreMedia
   String(bytes:[UInt8((value>>24)&255),UInt8((value>>16)&255),UInt8((value>>8)&255),UInt8(value&255)],encoding:.ascii) ?? "unknown"
  }
  private func loadMedia(_ url: URL,forceRemux: Bool=false) {
-  if let previous=currentOriginalURL,previous != url {externalSubtitles.clear()}
+  // Room media identity remains stable across WebSocket reconnects and
+  // refreshed signed playback URLs. Only a genuinely different film resets
+  // watched subtitle evidence and imported subtitle state.
+  let identity=engine.room?.mediaUrl ?? url.absoluteString
+  var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
+  externalSubtitles.beginPlotFilm(PlotMemoryStore.key(components?.string ?? identity))
   currentOriginalURL=url
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
@@ -318,6 +323,8 @@ import CoreMedia
   videoBadges=[]
   if MediaSourceCatalog.canShare(originalURL.absoluteString),originalURL != baiduPlaybackURL {library.played(originalURL.absoluteString,title:movieTitle)}
   streamInfo="等待读取播放轨道";adapter.pause();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);updateMediaInfo()
+  // Show already saved film evidence immediately after the player is reattached.
+  Task {await plotIntelligence.collect()}
   if allowRemuxRetry {
    let g=mediaLoadGeneration
    Task {
