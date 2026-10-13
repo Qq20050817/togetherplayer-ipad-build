@@ -126,8 +126,12 @@ extension PlotContext {
  // An automatic question interrupts *two* viewers. Require the model to
  // independently judge importance and relevance, not merely obey keywords.
  static let importantMomentInstructions=questionInstructions+" 自动打断条件更严格：核对最近的已观看字幕或本机场景分类线索及此前已出现的事实，只有发生新的关键事实、旧说法被推翻、或尚无答案的重要悬念，且此刻值得两人暂停讨论时才出题。普通对话、重复的疑问和没有新意义的台词，输出{\"question\":\"\",\"options\":[],\"evidenceIDs\":[],\"kind\":\"discussion\"}。必须至少引用最近五条有效线索中的一个真实证据ID，不能只根据更早的片段出题，不要用未来剧情。"
- static func question(_ context:PlotContext,automatic:Bool=false) async -> PlotQuestion? {
-  guard context.sufficient,let response=try? await respond(instructions:automatic ? importantMomentInstructions : questionInstructions,input:context.localInput) else {return nil}
+ // Preplanned checkpoints are discussion opportunities selected before
+ // playback. They never authorize reading future cues or invented film facts.
+ static let plannedMomentInstructions=questionInstructions+" 这是预先规划的观影讨论区间。只根据输入中已经播放完毕的字幕和本地画面分类提出一道值得两人交换看法的问题。可以询问当前角色动机、刚才的矛盾或已出现的场景变化；不要求一定发生了惊天反转。必须引用最近八条有效证据中的真实evidenceID；证据只有笼统画面标签时，仅询问观众对这些画面变化的理解，不编造人物身份和具体事件。若证据不足或只能重复无意义的日常提问，输出空问题。"
+ static func question(_ context:PlotContext,automatic:Bool=false,planned:Bool=false) async -> PlotQuestion? {
+  let instructions=planned ? plannedMomentInstructions : (automatic ? importantMomentInstructions : questionInstructions)
+  guard context.sufficient,let response=try? await respond(instructions:instructions,input:context.localInput) else {return nil}
   return PlotPromptMaker.parse(response)
  }
  // A manual request can ask the real device model for an honest general
