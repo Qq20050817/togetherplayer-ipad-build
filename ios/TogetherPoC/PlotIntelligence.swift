@@ -7,6 +7,7 @@ struct PlotFrame {
  let evidence:[PlotEvidence]
  var prediction:PlotPrediction?
  var plannedCheckpoint:Double? = nil
+ var storyBeats:[PlotClue]=[]
 }
 @MainActor final class PlotIntelligence:ObservableObject {
  @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
@@ -176,7 +177,16 @@ struct PlotFrame {
    if !visualEvidenceEnabled {state.evidence.removeAll{$0.source=="ondevice-vision"}}
    requests=state.budget.total;automaticRequests=state.budget.automatic
    if frame?()?.key==snapshot.key {savedSubtitleCount=state.evidence.count}
-   let context=state.context(at:snapshot.position)
+   let storedContext=state.context(at:snapshot.position)
+   let ids=storedContext.evidenceIDs
+   // A whole-film analysis is stored locally, but only windows fully watched
+   // and corroborated by the actual observed subtitle IDs can enter prompts.
+   let playableBeats=snapshot.storyBeats.filter{
+    $0.end<=snapshot.position && !$0.evidenceIDs.isEmpty &&
+    Set($0.evidenceIDs).isSubset(of:ids)
+   }
+   let context=PlotContext(cutoff:storedContext.cutoff,recent:storedContext.recent,
+    earlier:storedContext.earlier+playableBeats,predictions:storedContext.predictions)
    let history=state.questions.filter{$0.cutoff<=snapshot.position}.map{$0.question.text}
    // Explicit model choices MUST NOT silently reuse a free-template cache.
    // This also permits users to switch from a cached fallback to real AI.
