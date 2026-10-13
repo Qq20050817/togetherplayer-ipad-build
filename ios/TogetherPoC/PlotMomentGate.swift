@@ -49,14 +49,16 @@ enum PlotMomentGate {
   // A cue is eligible only after its end and only if it belongs to this
   // actually watched 95-second window. Never read an unplayed future cue.
   let recent=Array(values.filter{$0.start>=0 && $0.end.isFinite && $0.end<=position && $0.end>=position-95}.suffix(16))
-  guard recent.count>=4,let last=recent.last else{return empty}
+  // Three short but connected revelations may be a meaningful turn in
+  // dialogue-heavy drama; scene-only video still needs four sampled frames.
+  guard recent.count>=3,let last=recent.last else{return empty}
   let gap=position-last.end
   guard gap>=minQuietSeconds,gap<=16 else{return empty}
   let latest=Array(recent.suffix(5))
-  guard latest.map(\.text).joined().count>=35 else{return empty}
+  guard latest.map(\.text).joined().count>=22 else{return empty}
   // Avoid interrupting rapid-fire scenes at tiny subtitle gaps.
   let nearbyCount=recent.filter{$0.end>=position-30}.count
-  guard nearbyCount<=10 else{return empty}
+  guard nearbyCount<=13 else{return empty}
   let latestText=latest.map(\.text).joined(separator:" ").lowercased()
   let earlierText=recent.dropLast(5).map(\.text).joined(separator:" ").lowercased()
   let discoveryCount=matchCount(latestText,against:discoveries)
@@ -87,7 +89,7 @@ enum PlotMomentGate {
   // Failed AI attempts need a short retry guard; successful interruptions
   // need a much longer break to preserve the viewing experience.
   position.isFinite && position>=0 &&
-   position-lastAttempt>=120 && position-lastPublished>=600
+   position-lastAttempt>=90 && position-lastPublished>=300
  }
  static func questionIsTimely(_ question:PlotQuestion,context:PlotContext)->Bool {
   let recentIDs=Set(context.recent.suffix(8).map(\.id))
