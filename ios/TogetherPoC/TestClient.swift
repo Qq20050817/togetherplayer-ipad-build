@@ -471,6 +471,7 @@ import CoreMedia
   let key="\(mediaLoadGeneration):\(track):\(source.absoluteString)"
   guard key != nativeIndexRequestKey else{return}
   nativeIndexTask?.cancel();nativeIndexRequestKey=key
+  externalSubtitles.nativeIndexStarted()
   nativeIndexTask=Task { [weak self,weak item] in
    let result=await NativeSubtitleIndexReader.fetch(master:source,track:track)
    guard !Task.isCancelled,let self,let item,self.nativeIndexRequestKey==key,
