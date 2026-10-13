@@ -23,6 +23,17 @@ final class PGSAIOnlySRTTests:XCTestCase {
   XCTAssertFalse(output.contains("无效"))
   XCTAssertFalse(output.contains("倒序"))
  }
+ @MainActor func testPGSAIOCRPreferenceIsPersistentAndDefaultsEnabled() {
+  let name="pgs-ai-only-tests-"+UUID().uuidString
+  guard let defaults=UserDefaults(suiteName:name) else {XCTFail("Missing test preferences");return}
+  defer {defaults.removePersistentDomain(forName:name)}
+  let model=ExternalSubtitles(player:AVPlayer(),preferences:defaults)
+  XCTAssertTrue(model.convertPGSForAI)
+  model.convertPGSForAI=false
+  XCTAssertEqual(defaults.object(forKey:"plot-pgs-ai-srt-enabled") as? Bool,false)
+  let reopened=ExternalSubtitles(player:AVPlayer(),preferences:defaults)
+  XCTAssertFalse(reopened.convertPGSForAI)
+ }
  @MainActor func testAIOnlyOCRIndexDoesNotSelectOrReplacePlaybackTrack() {
   let player=AVPlayer()
   let subtitles=ExternalSubtitles(player:player)
