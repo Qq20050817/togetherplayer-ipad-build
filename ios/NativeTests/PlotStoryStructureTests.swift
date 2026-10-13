@@ -45,7 +45,28 @@ final class PlotStoryStructureTests:XCTestCase {
   let attack=String(data:try JSONSerialization.data(withJSONObject:poisoned),encoding:.utf8)!
   XCTAssertNil(PlotStoryStructure.parse(attack,window:part,context:context))
  }
- func testNoFutureNodeCanEnterCurrentWatchedMemory() {
+ func testChangingSubtitleTrackCannotReuseAnotherLanguageStoryGraph() {
+  let english=SubtitleDocument([SubtitleCue(start:10,end:12,text:"Evidence discovered"),
+    SubtitleCue(start:40,end:43,text:"Where were you last night?")])
+  let chinese=SubtitleDocument([SubtitleCue(start:10,end:12,text:"找到新证据"),
+    SubtitleCue(start:40,end:43,text:"你昨晚在哪里？")])
+  XCTAssertNotEqual(PlotStoryStructure.transcriptFingerprint(english),
+   PlotStoryStructure.transcriptFingerprint(chinese))
+ }
+ func testCachedFutureSceneNeverAppearsInRebuiltEarlierScenePrompt() {
+  let current=PlotEvidence.cue(start:102,end:105,text:"我还在调查中",source:"embedded-subtitle")
+  let context=PlotContext(cutoff:110,recent:[current],earlier:[],predictions:[])
+  let historic=PlotStoryNode(start:0,end:60,summary:"早先发生一场调查",
+   characters:[],events:[],motivations:[],relationships:[],unresolved:[],causalLinks:[],
+   evidenceIDs:["previous"],confidence:0.6)
+  let future=PlotStoryNode(start:190,end:290,summary:"未来揭晓的幕后主使身份",
+   characters:[],events:[],motivations:[],relationships:[],unresolved:[],causalLinks:[],
+   evidenceIDs:["future"],confidence:0.6)
+  let prompt=PlotStoryStructure.prompt(context,previous:[historic,future])
+  XCTAssertTrue(prompt.contains("早先发生一场调查"))
+  XCTAssertFalse(prompt.contains("未来揭晓"))
+ }
+  func testNoFutureNodeCanEnterCurrentWatchedMemory() {
   let early=PlotEvidence.cue(start:10,end:13,text:"有人报告秘密实验",source:"embedded-subtitle")
   let later=PlotEvidence.cue(start:100,end:103,text:"随后发现实验真相",source:"embedded-subtitle")
   func node(_ time:Double,_ cue:PlotEvidence)->PlotStoryNode {
