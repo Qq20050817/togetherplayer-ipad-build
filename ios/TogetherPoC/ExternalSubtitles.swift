@@ -31,6 +31,7 @@ import AVFoundation
  var plotCaptionChanged:((String)->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  private var plotFilmKey=""
+ func isCurrentPlotFilm(_ key:String)->Bool {!key.isEmpty && plotFilmKey==key}
  // Reconnecting can replace AVPlayerItem without changing the film.
  // Keep watched intervals for that film; never transfer them to another film.
  func beginPlotFilm(_ key:String) {
