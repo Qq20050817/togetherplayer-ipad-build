@@ -14,10 +14,27 @@ struct HTTPSource: MediaSourceAdapter {
   return value
  }
 }
+// Coalesce slider bursts so only the newest seek survives while decoding.
+struct SeekRequestBuffer {
+ private(set) var pending: Double?
+ @discardableResult mutating func replace(_ milliseconds: Double,duration: Double) -> Bool {
+  guard milliseconds.isFinite else {return false}
+  // A duration may be unknown while an asset is loading. Keep CMTime bounded.
+  let upper=duration.isFinite && duration>0 ? duration : 86_400_000
+  pending=min(upper,max(0,milliseconds))
+  return true
+ }
+ mutating func takeLatest() -> Double? {
+  let latest=pending;pending=nil;return latest
+ }
+ mutating func clear() {pending=nil}
+}
 final class AVPlayerAdapter: PlayerAdapter {
  let player: AVPlayer
  init(player: AVPlayer = AVPlayer()) {self.player=player}
  private var seeking = false
+ private var seekEpoch = 0
+ private var seekBuffer = SeekRequestBuffer()
  private var speed: Float = 1
  private var playRequested=false
  var position: Double { let n = player.currentTime().seconds*1000; return n.isFinite ? n : 0 }
@@ -43,10 +60,32 @@ final class AVPlayerAdapter: PlayerAdapter {
   speed = value;player.defaultRate=value
   if player.timeControlStatus == .playing && player.rate != value { player.rate = value }
  }
+ // Called before replacing a movie. A delayed completion must not seek its replacement.
+ func resetPendingSeeks() {
+  seekEpoch &+= 1
+  seekBuffer.clear()
+  seeking=false
+  player.currentItem?.cancelPendingSeeks()
+ }
  func seekTo(_ milliseconds: Double) {
-  guard !seeking else { return }; seeking = true
-  player.seek(to: CMTime(seconds: milliseconds/1000, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-   DispatchQueue.main.async { self?.seeking = false }
+  guard player.currentItem != nil,seekBuffer.replace(milliseconds,duration:duration) else {return}
+  if !seeking {performNextSeek()}
+ }
+ private func performNextSeek() {
+  guard let target=seekBuffer.takeLatest(),let item=player.currentItem else {seeking=false;return}
+  seeking=true
+  let epoch=seekEpoch
+  // Exact-frame decoding on each rapid jump is expensive for 4K/HDR video.
+  let tolerance=CMTime(value:1,timescale:10)
+  player.seek(to:CMTime(seconds:target/1000,preferredTimescale:600),toleranceBefore:tolerance,toleranceAfter:tolerance) { [weak self,weak item] _ in
+   DispatchQueue.main.async {
+    guard let self=self,epoch==self.seekEpoch else {return}
+    guard self.player.currentItem === item else {
+     self.seekBuffer.clear();self.seeking=false;return
+    }
+    self.seeking=false
+    if self.seekBuffer.pending != nil {self.performNextSeek()}
+   }
   }
  }
 }
