@@ -72,6 +72,23 @@ final class PlotQuestionPlannerTests:XCTestCase {
   XCTAssertTrue(PlotMomentGate.questionIsTimely(historical,context:context))
   XCTAssertFalse(PlotMomentGate.questionIsTimely(PlotQuestion(text:"录像是真的吗？",choices:["是","否"],source:"Apple 设备端 AI",evidenceIDs:["future-not-watched"]),context:context))
  }
+  func testFullFilmPreanalysisNeverIncludesLaterDialogueInEarlierQuestionPrompt() {
+  let document=SubtitleDocument([
+   SubtitleCue(start:80,end:84,text:"他声称一整晚都在家"),
+   SubtitleCue(start:90,end:94,text:"警方现在找到了监控录像"),
+   SubtitleCue(start:98,end:102,text:"他们怀疑之前的证词"),
+   SubtitleCue(start:800,end:804,text:"未来揭示的真实身份和结局"),
+   SubtitleCue(start:810,end:814,text:"那个角色已经被确认是最终幕后主使")
+  ])
+  let early=PlotFullFilmPlanner.context(document,at:110,source:"embedded-subtitle")
+  XCTAssertEqual(early.recent.count,3)
+  XCTAssertFalse(early.localInput.contains("未来揭示"))
+  XCTAssertFalse(early.boundedInput.contains("最终幕后主使"))
+  let later=PlotFullFilmPlanner.context(document,at:820,source:"embedded-subtitle")
+  XCTAssertTrue(later.recent.contains(where:{$0.text.contains("未来揭示")}),
+   "Later dialogue may be used only in questions prepared for later checkpoints")
+  XCTAssertEqual(PlotFullFilmPlanner.context(document,at:.nan,source:"external-subtitle").recent.count,0)
+ }
   func testNoWholeFilmTranscriptLeaksIntoPromptMemory() {
   let values=[
    PlotEvidence.cue(start:2,end:5,text:"开场已经看过的故事",source:"external-subtitle"),
