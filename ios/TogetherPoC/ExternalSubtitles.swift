@@ -7,6 +7,11 @@ import AVFoundation
  @Published private(set) var text=""
  @Published private(set) var status=""
  @Published var enabled=false {didSet {refresh()}}
+ // Controls an additional AI-only OCR index. Never selects a subtitle track.
+ @Published var convertPGSForAI:Bool {didSet {
+  preferences.set(convertPGSForAI,forKey:"plot-pgs-ai-srt-enabled")
+  onAIOnlyPGSChanged?()
+ }}
  @Published var delay=0.0 {didSet {refresh()}}
  @Published var fontSize:Double {didSet {preferences.set(SubtitleAppearance.font(fontSize),forKey:"subtitle-font-size")}}
  @Published var bottomFraction:Double {didSet {preferences.set(SubtitleAppearance.position(bottomFraction),forKey:"subtitle-bottom-fraction")}}
@@ -39,6 +44,7 @@ import AVFoundation
  var plotCaptionChanged:((String)->Void)?
  var plotFullSubtitleIndexed:((SubtitleDocument,String,[PlotQuestionCheckpoint])->Void)?
  var plotFullFilmReset:(()->Void)?
+ var onAIOnlyPGSChanged:(()->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  private var plotFilmKey=""
  private var lastNativeSelectionAuditAt=0.0
@@ -71,7 +77,14 @@ import AVFoundation
   plotFullSubtitleIndexed?(document,"embedded-subtitle",nativeIndexedQuestions)
   refresh()
  }
- func nativeIndexStarted() {if nativeIndexedDocument == nil {nativeIndexStatus="正在读取内置文字字幕并规划剧情节点…"}}
+ func nativeIndexStarted() {if nativeIndexedDocument == nil {nativeIndexStatus="正在读取内置字幕的 AI 文字索引…"}}
+ func nativeIndexDisabledForAI() {nativeIndexStatus="已关闭 PGS 转文字供 AI 使用；观看字幕未改变"}
+ func clearAIOnlyOCRIndex() {
+  guard nativeIndexAIOnly else{return}
+  plotFullFilmReset?()
+  clearNativeIndex()
+  refresh()
+ }
  func nativeIndexUnavailable() {
   if nativeIndexedDocument == nil {nativeIndexStatus="此内置字幕轨道暂不支持全片索引，继续使用实时字幕"}
  }
@@ -128,6 +141,7 @@ import AVFoundation
 
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
   self.player=player;self.preferences=preferences
+  convertPGSForAI=preferences.object(forKey:"plot-pgs-ai-srt-enabled") as? Bool ?? true
   fontSize=SubtitleAppearance.font(preferences.object(forKey:"subtitle-font-size") as? Double ?? 24)
   bottomFraction=SubtitleAppearance.position(preferences.object(forKey:"subtitle-bottom-fraction") as? Double ?? 0.07)
   fontFamily=SubtitleFontFamily(rawValue:preferences.string(forKey:"subtitle-font-family") ?? "") ?? .system
