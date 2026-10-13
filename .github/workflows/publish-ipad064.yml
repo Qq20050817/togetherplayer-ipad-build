@@ -1,0 +1,41 @@
+name: Publish verified story-turn iPad package
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require exact successful build and all regressions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh run view 38378257001 --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 38378257001 --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = 30404bc5a054a8c68c1789ebd0cef7fca44870d7
+          gh run download 38378257001 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.4-PlotSettings-Validated-candidate --dir verified
+          cd verified
+          sed 's|plot-delivery/||' SHA256SUMS.txt | sha256sum -c -
+          cd ..
+          cp verified/TogetherPlayer-0.6.4-PlotSettings-Validated-unsigned.ipa TogetherPlayer-iPad-0.6.4-PlotSettings-unsigned.ipa
+      - name: Preserve exact public client source and licenses
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/tarball/30404bc5a054a8c68c1789ebd0cef7fca44870d7" > source.tar.gz
+          mkdir source
+          tar -xzf source.tar.gz --strip-components=1 -C source
+          cd source
+          zip -qr ../TogetherPlayer-0.6.4-PlotSettings-source.zip .
+          cd ..
+          sha256sum TogetherPlayer-iPad-0.6.4-PlotSettings-unsigned.ipa TogetherPlayer-0.6.4-PlotSettings-source.zip > SHA256SUMS.txt
+      - name: Publish tested candidate only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.6.4-plotsettings-preview-ipad TogetherPlayer-iPad-0.6.4-PlotSettings-unsigned.ipa TogetherPlayer-0.6.4-PlotSettings-source.zip SHA256SUMS.txt verified/BUILD.txt --repo "$GITHUB_REPOSITORY" --target 30404bc5a054a8c68c1789ebd0cef7fca44870d7 --title 'TogetherPlayer iPad 0.6.4 · Persistent question settings' --notes 'Unsigned iPad IPA. Persists the answer-before-resume preference across panel dismissal, cancellation, and app restart; enables it by default. Shows installed version/build beside model readiness and collected subtitle count. Smart mode uses genuine AI or reports an explicit unavailable reason rather than silently substituting free templates. Full native core and UI regression suites must pass before this publisher can run. Real Apple AI inference, film-specific questioning and ChatGPT authorization still require actual device acceptance; no accuracy or live-model success claim. Compatible 0.6.3 server is already deployed and authenticated two-peer blocking/reconnect protocols verified. Existing Android 0.6.3 remains compatible. Sign with the original certificate. Exact public source and licenses included.' --prerelease
