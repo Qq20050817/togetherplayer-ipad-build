@@ -34,6 +34,8 @@ import AVFoundation
  private var plotJumpObserver:NSObjectProtocol?
  var plotDidSeek:(()->Void)?
  var plotCaptionChanged:((String)->Void)?
+ var plotFullSubtitleIndexed:((SubtitleDocument,String,[PlotQuestionCheckpoint])->Void)?
+ var plotFullFilmReset:(()->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  private var plotFilmKey=""
  private var lastNativeSelectionAuditAt=0.0
@@ -47,7 +49,7 @@ import AVFoundation
  // Keep watched intervals for that film; never transfer them to another film.
  func beginPlotFilm(_ key:String) {
   guard !key.isEmpty,plotFilmKey != key else {return}
-  if !plotFilmKey.isEmpty {clear()}
+  if !plotFilmKey.isEmpty {plotFullFilmReset?();clear()}
   plotFilmKey=key;plotLastTime=nil;plotLastWasPlaying=false
   nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0
  }
@@ -60,6 +62,7 @@ import AVFoundation
   nativeIndexedQuestions=PlotQuestionPlanner.indexed(document.cues)
   nativeIndexedTrack=track
   nativeIndexStatus="内置字幕已索引\(document.cues.count)条 · 预选\(nativeIndexedQuestions.count)处剧情"
+  plotFullSubtitleIndexed?(document,"embedded-subtitle",nativeIndexedQuestions)
   refresh()
  }
  func nativeIndexStarted() {if nativeIndexedDocument == nil {nativeIndexStatus="正在读取内置文字字幕并规划剧情节点…"}}
@@ -186,6 +189,7 @@ import AVFoundation
    plannedQuestions=PlotQuestionPlanner.indexed(result.cues)
    name=url.lastPathComponent;delay=0;enabled=true
    status=(ext=="ass" || ext=="ssa") ? "已加载\(result.cues.count)条字幕；ASS/SSA按文本显示" : "已加载\(result.cues.count)条字幕"
+   plotFullSubtitleIndexed?(result,"external-subtitle",plannedQuestions)
    refresh();return true
   } catch {
    guard current==generation else {return false}
