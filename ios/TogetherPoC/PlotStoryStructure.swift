@@ -15,7 +15,7 @@ struct PlotStoryNode:Codable,Equatable {
  let evidenceIDs:[String]
  let confidence:Double
  var recap:String {
-  let segments=[summary]+events.prefix(2)+relationships.prefix(1)+unresolved.prefix(1)
+  let segments=[summary]+Array(events.prefix(2))+Array(relationships.prefix(1))+Array(unresolved.prefix(1))
   return String(segments.joined(separator:"；").prefix(320))
  }
 }
