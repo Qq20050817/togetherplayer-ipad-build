@@ -97,3 +97,41 @@ jobs:
           name: plot-story-turn-test-diagnostics
           path: plot-diagnostics/
           retention-days: 7
+  publish_direct_ipa:
+    name: Publish verified direct IPA (no ZIP)
+    needs: ipad
+    if: ${{ success() && github.ref_name == 'fix/ipad-seek-burst-stability-20261014' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Verify exact current-run IPA and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.12-SeekStability-EXPERIMENTAL-candidate --dir verified
+          test -f verified/BUILD.txt
+          grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
+          cd verified
+          sed 's|^plot-delivery/||' SHA256SUMS.txt | sha256sum -c -
+          test -f TogetherPlayer-0.6.12-SeekStability-EXPERIMENTAL-unsigned.ipa
+      - name: Release direct unsigned IPA after all regressions pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v0.6.12-seek-stability-preview-ipad"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite existing assets." >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            verified/TogetherPlayer-0.6.12-SeekStability-EXPERIMENTAL-unsigned.ipa \
+            verified/SHA256SUMS.txt verified/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "TogetherPlayer iPad 0.6.12 · Seek stability and responsive controls" \
+            --notes "Unsigned experimental iPad IPA delivered directly, without a ZIP download. Based on verified 0.6.11 story-checkpoints code. Rapid-seek coalescing, accumulated 10s skipping, optimistic local host playback/pause, and immediate local 2x hold. GitHub build, core tests, and focused UI regressions required before publication. Real-device 4K/HDR seek-burst and network acceptance still pending. The existing server, Android app, other services and installed clients are not modified. Sign this unsigned IPA with the user's existing trusted signing method before installation."
