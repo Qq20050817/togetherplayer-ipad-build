@@ -67,6 +67,7 @@ import AVFoundation
   nativeIndexedQuestions=PlotQuestionPlanner.indexed(document.cues)
   nativeIndexedTrack=track
   nativeIndexStatus="内置字幕已索引\(document.cues.count)条 · 预选\(nativeIndexedQuestions.count)处剧情"
+  nativeCaptureStatus="已读取内置字幕全文 \(document.cues.count) 条，正在同步剧情索引"
   startFullFilmAnalysis(document.cues,source:"embedded-subtitle",generation:generation)
   refresh()
  }
@@ -85,7 +86,7 @@ import AVFoundation
    let windowStart=fullFilmBeatStarts[beat.id] ?? max(0,end-720)
    guard end>windowStart else{return 0}
    var covered=0.0,cursor=windowStart
-   for range in plotWatched where range.upperBound>windowStart && range.lowerBound<end {
+   for range in plotWatched.sorted(by:{$0.lowerBound<$1.lowerBound}) where range.upperBound>windowStart && range.lowerBound<end {
     let lower=max(windowStart,range.lowerBound),upper=min(end,range.upperBound)
     if upper>max(cursor,lower) {covered += upper-max(cursor,lower)}
     cursor=max(cursor,upper)
@@ -171,7 +172,7 @@ import AVFoundation
   if plotFilmKey.isEmpty {nativeTimeline.clear()}
   nativeEnabled=true;attachedItem=item
   lastNativeCallbackAt=Date().timeIntervalSince1970
-  if nativeCueCount==0 {nativeCaptureStatus="等待内置字幕文字回调，图形字幕可能需要其他识别方式"}
+  if nativeCueCount==0 && nativeIndexedDocument==nil {nativeCaptureStatus="等待内置字幕文字回调，图形字幕可能需要其他识别方式"}
   let output=AVPlayerItemLegibleOutput()
   // The delegate queues future events; they are never drawn before their
   // shifted timestamp. 120 seconds matches the adjustment panel's bounds.
@@ -279,12 +280,13 @@ import AVFoundation
    // legible output can be detached by a stream switch. Reattach at most twice
    // per film while retaining already observed cues; normal gaps do not clear
    // the selected track or interrupt playback.
-   if now-lastNativeCallbackAt>=32,now-lastNativeRecoveryAt>=32,
+   let retryAfter=nativeIndexedDocument == nil ? 45.0 : 90.0
+   if now-lastNativeCallbackAt>=retryAfter,now-lastNativeRecoveryAt>=retryAfter,
     nativeOutputRecoveryCount<2 {
     lastNativeRecoveryAt=now;nativeOutputRecoveryCount+=1
     nativeCaptureStatus="内置字幕输出长时间无回调，正在重新接入（\(nativeOutputRecoveryCount)/2）"
     attachNativeOutput(to:item)
-   } else if now-lastNativeCallbackAt>=70 && nativeOutputRecoveryCount>=2 {
+   } else if nativeIndexedDocument == nil && now-lastNativeCallbackAt>=100 && nativeOutputRecoveryCount>=2 {
     if legibleOutput?.suppressesPlayerRendering == true {
      legibleOutput?.suppressesPlayerRendering=false
      nativeCaptureStatus="内置字幕文字不可用，已切回系统字幕显示；此轨道暂无法进行实时文字分析"
