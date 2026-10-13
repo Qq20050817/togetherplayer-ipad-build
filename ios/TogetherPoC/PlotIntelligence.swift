@@ -75,7 +75,7 @@ struct PlotFrame {
  }
  func prepareFullFilm(_ document:SubtitleDocument,source:String,key:String,checkpoints:[PlotQuestionCheckpoint]) {
   guard !key.isEmpty,document.cues.count>=6 else{return}
-  let signature="\(key):\(source):\(document.cues.count):\(checkpoints.count)"
+  let signature="\(key):\(source):\(PlotStoryStructure.transcriptFingerprint(document))"
   guard signature != fullFilmPreparedKey else{return}
   fullFilmTask?.cancel()
   fullFilmPreparedKey=signature
