@@ -49,12 +49,7 @@ enum PlotFullFilmIndex {
 }
 
 @MainActor enum PlotFullFilmAnalyzer {
- static func summarize(_ window:PlotFilmWindow)->PlotClue? {
-  // This is deliberately a local inference; the COMPLETE imported subtitle
-  // document must never be uploaded to ChatGPT without separate consent.
-  return nil
- }
- static func interpret(_ window:PlotFilmWindow) async -> PlotClue? {
+ static func interpret(_ window:PlotFilmWindow,source:String="external-subtitle") async -> PlotClue? {
   guard PlotLocalAI.available else{return nil}
   let instructions="""
   你是电影剧情时间线整理工具。只分析输入的这一段字幕，不利用外部电影知识。
@@ -72,7 +67,7 @@ enum PlotFullFilmIndex {
     (12...100).contains(summary.count),
     let cue=PlotFullFilmIndex.anchor(quote,window:window) else{return nil}
   let textValue="已看剧情概要（AI推测，原字幕引用“\(String(quote.prefix(25)))”）："+String(summary.prefix(100))
-  let evidence=PlotEvidence.cue(start:cue.start,end:cue.end,text:cue.text,source:"external-subtitle")
+  let evidence=PlotEvidence.cue(start:cue.start,end:cue.end,text:cue.text,source:source)
   return PlotClue(id:PlotMemoryStore.key(textValue+String(window.end)),kind:"inference",
                   text:textValue,evidenceIDs:[evidence.id],end:window.end,confidence:0.5)
  }
