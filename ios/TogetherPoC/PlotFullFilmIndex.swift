@@ -43,7 +43,7 @@ enum PlotFullFilmIndex {
   return window.cues.last(where:{PlotGrounding.normalized($0.text).contains(normalized)})
  }
  static func visible(_ beat:PlotClue,at cutoff:Double,evidenceIDs:Set<String>,watchedFraction:Double)->Bool {
-  beat.end<=cutoff && watchedFraction>=0.65 &&
+  beat.end<=cutoff && watchedFraction>=0.98 &&
    !Set(beat.evidenceIDs).isDisjoint(with:evidenceIDs)
  }
 }
