@@ -1,7 +1,7 @@
 name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013, fix/ipad-embedded-subtitle-selection-20261013, fix/ipad-visual-frame-sampling-20261013, fix/ipad-native-caption-autoprompt-20261014, feat/ipad-story-question-checkpoints-20261014]
+    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013, fix/ipad-embedded-subtitle-selection-20261013, fix/ipad-visual-frame-sampling-20261013, fix/ipad-native-caption-autoprompt-20261014, feat/ipad-story-question-checkpoints-20261014, build/ipad-story-checkpoints-macos15-20261014]
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,10 +11,23 @@ concurrency:
   cancel-in-progress: true
 jobs:
   ipad:
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Select supported Xcode 26 on macOS 15 runner
+        run: |
+          set -euo pipefail
+          for version in 26.3 26.2 26.1.1 26.0.1; do
+            developer="/Applications/Xcode_${version}.app/Contents/Developer"
+            if [ -d "$developer" ]; then
+              sudo xcode-select -s "$developer"
+              xcodebuild -version
+              exit 0
+            fi
+          done
+          echo 'Xcode 26 unavailable on this macOS image' >&2
+          exit 1
       - name: Generate Xcode project
         run: |
           brew install xcodegen
