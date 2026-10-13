@@ -102,7 +102,7 @@ enum PlotSceneTagger {
   }
   // Keep item decoding independent of the subtitle output, and fail closed
   // for protected/incompatible streams instead of affecting playback.
-  let attributes:[String:Any]=[kCVPixelBufferPixelFormatTypeKey as String:Int(kCVPixelFormatType_32BGRA)]
+  let attributes:[String:Int]=[kCVPixelBufferPixelFormatTypeKey as String:Int(kCVPixelFormatType_32BGRA)]
   let next=AVPlayerItemVideoOutput(pixelBufferAttributes:attributes)
   item.add(next)
   output=next
