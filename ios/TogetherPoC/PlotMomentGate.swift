@@ -92,7 +92,51 @@ enum PlotMomentGate {
    position-lastAttempt>=90 && position-lastPublished>=300
  }
  static func questionIsTimely(_ question:PlotQuestion,context:PlotContext)->Bool {
-  let recentIDs=Set(context.recent.suffix(8).map(\.id))
-  return !question.evidenceIDs.isEmpty && !recentIDs.isDisjoint(with:question.evidenceIDs)
+  let newest=Array(context.recent.suffix(8))
+  let cited=newest.filter{question.evidenceIDs.contains($0.id)}
+  return !cited.isEmpty && PlotGrounding.refersToCitedScene(question.text,cited:cited)
  }
+}
+
+/// A cited ID must correspond to a detail mentioned by the question.
+/// Merely inventing valid evidence IDs is insufficient for an automatic pause.
+/// This lexical guard is deliberately conservative; the model may abstain.
+enum PlotGrounding {
+ private static let stopPhrases=[
+  "你觉得","你认为","你们","我们","他们","她们","这个人","这种","那个","这些",
+  "为什么","怎么样","有什么","接下来","之后","之前","过去","现在","目前",
+  "可能","或许","如果","根据","影片","电影","剧情","角色","人物",
+  "发生","事情","情况","是否","这个","那个","一个","什么","如何",
+  "已经","刚才","好像","似乎","以及","可以","还有","认为","需要"
+ ]
+ private static let shortAnchors=[
+  "证词","证据","警方","监控","录像","录音","失踪","凶手","动机",
+  "秘密","线索","身份","谎言","计划","病毒","感染","克隆","抗体",
+  "实验","记忆","医生","公司","研究","威胁","袭击","调查","父亲",
+  "母亲","姐姐","妹妹","女儿","儿子","昨晚","今天","明天","武器",
+  "电话","邮件","短信","警察","房间","基地","手术","伤口","钥匙"
+ ]
+ private static func compact(_ text:String)->String {
+  text.lowercased().filter{$0.isLetter || $0.isNumber}
+ }
+ static func refersToCitedScene(_ question:String,cited:[PlotEvidence])->Bool {
+  let prompt=compact(question)
+  guard prompt.count>=7 else{return false}
+  let evidence=compact(cited.filter{$0.source != "ondevice-vision"}.map(\.text).joined(separator:" "))
+  let visual=compact(cited.filter{$0.source == "ondevice-vision"}.map(\.text).joined(separator:" "))
+  guard evidence.count>=3 || visual.count>=3 else{return false}
+  if shortAnchors.contains(where:{prompt.contains($0) && (evidence+visual).contains($0)}) {return true}
+  // Three-character matching discards isolated pronouns and filler words.
+  // A concrete name, object, action or location should appear in the scene.
+  let scene=evidence.isEmpty ? visual : evidence
+  let chars=Array(scene)
+  guard chars.count>=3 else{return false}
+  for index in 0..<(chars.count-2) {
+   let token=String(chars[index...index+2])
+   guard !stopPhrases.contains(where:{$0.contains(token) || token.contains($0)}) else{continue}
+   if prompt.contains(token) {return true}
+  }
+  return false
+ }
+}
 }
