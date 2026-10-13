@@ -7,13 +7,14 @@ import SwiftUI
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
  @ObservedObject var visuals:PlotVisualSampler
+ @ObservedObject var subtitles:ExternalSubtitles
  @Environment(\.dismiss) private var dismiss
  @State private var selected=""
  @State private var custom=""
  @State private var editQuestion=""
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
- init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth;self.visuals=model.visualSampler}
+ init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth;self.visuals=model.visualSampler;self.subtitles=model.externalSubtitles}
  var body:some View {
   NavigationStack {
    ScrollView {
@@ -72,6 +73,10 @@ import SwiftUI
        .font(.caption2).foregroundStyle(.secondary)
       Text("画面识别：\(visuals.status)")
        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
+      if !subtitles.nativeIndexStatus.isEmpty {
+       Text("内置字幕：\(subtitles.nativeIndexStatus)")
+        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-native-subtitle-index")
+      }
       Text("自动提问状态：\(intelligence.autoTriggerStatus)")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-auto-trigger-status")
       if let beat=intelligence.latestBeat {
