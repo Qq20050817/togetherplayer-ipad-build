@@ -183,8 +183,9 @@ import CoreMedia
    let visuals=self.visualSampler.evidence(cutoff:position)
    let duration=self.adapter.player.currentItem?.duration.seconds ?? .nan
    let checkpoint=self.externalSubtitles.plannedQuestionCheckpoint(at:position,duration:duration)
+   let story=self.externalSubtitles.watchedStoryBeats(at:position,observed:observed)
    return PlotFrame(key:key,position:position,evidence:observed+visuals,
-    prediction:prediction,plannedCheckpoint:checkpoint)
+    prediction:prediction,plannedCheckpoint:checkpoint,storyBeats:story)
   }
   // Hosts can receive automatic questions alone or with a peer.
   // A pending unanswered poll cannot be overwritten.
