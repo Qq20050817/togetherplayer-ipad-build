@@ -1,0 +1,119 @@
+import Foundation
+
+/// A local, timestamped interpretation of a subtitle section. All text is
+/// uncertain until corroborated by actual watched evidence.
+struct PlotStoryNode:Codable,Equatable {
+ let start:Double
+ let end:Double
+ let summary:String
+ let characters:[String]
+ let events:[String]
+ let motivations:[String]
+ let relationships:[String]
+ let unresolved:[String]
+ let causalLinks:[String]
+ let evidenceIDs:[String]
+ let confidence:Double
+ var recap:String {
+  let segments=[summary]+events.prefix(2)+relationships.prefix(1)+unresolved.prefix(1)
+  return String(segments.joined(separator:"；").prefix(320))
+ }
+}
+
+struct PlotStoryWindow {
+ let start:Double
+ let end:Double
+ let cues:[SubtitleCue]
+}
+
+enum PlotStoryStructure {
+ static func windows(_ document:SubtitleDocument)->[PlotStoryWindow] {
+  let valid=document.cues.filter{$0.start.isFinite && $0.end.isFinite && $0.start>=0 && $0.end>$0.start}
+  guard valid.count>=6,let duration=valid.last?.end,duration>=240 else{return []}
+  // Twelve approximately ten-minute segments for a feature film. Bound model
+  // calls and resource usage independently of the number of subtitle cues.
+  let interval=max(240,min(900,duration/12))
+  let count=min(18,Int(ceil(duration/interval)))
+  return (0..<count).compactMap {index in
+   let start=Double(index)*interval,end=min(duration,start+interval)
+   let cues=valid.filter{$0.end>start && $0.end<=end}
+   guard cues.count>=3 else{return nil}
+   return PlotStoryWindow(start:start,end:end,cues:cues)
+  }
+ }
+ static func context(_ window:PlotStoryWindow,source:String)->PlotContext {
+  // Sample across the section to include the opening and turning point,
+  // keeping input bounded for Apple's small on-device model.
+  let cues=window.cues
+  var selected:[SubtitleCue]=[]
+  let step=max(1,Int(ceil(Double(cues.count)/18)))
+  for index in stride(from:0,to:cues.count,by:step) {selected.append(cues[index])}
+  selected.append(contentsOf:cues.suffix(5))
+  let unique=Dictionary(grouping:selected,by:{$0.start}).values.compactMap{$0.first}
+   .sorted{$0.start<$1.start}
+  let evidence=unique.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:source)}
+  return PlotContext(cutoff:window.end,recent:evidence,earlier:[],predictions:[])
+ }
+ static func parse(_ answer:String,window:PlotStoryWindow,context:PlotContext)->PlotStoryNode? {
+  guard let data=PlotJSON.object(answer),
+   let object=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],
+   let summary=object["summary"] as? String,
+   (8...220).contains(summary.count),
+   let ids=object["evidenceIDs"] as? [String],
+   !ids.isEmpty,Set(ids).isSubset(of:context.evidenceIDs) else{return nil}
+  let confidence=(object["confidence"] as? Double) ?? 0.6
+  guard confidence.isFinite,(0...1).contains(confidence) else{return nil}
+  func strings(_ name:String,limit:Int=5)->[String] {
+   ((object[name] as? [String]) ?? []).prefix(limit)
+    .map{String($0.trimmingCharacters(in:.whitespacesAndNewlines).prefix(110))}
+    .filter{!$0.isEmpty}
+  }
+  return PlotStoryNode(start:window.start,end:window.end,summary:String(summary.prefix(220)),
+   characters:strings("characters"),events:strings("events"),
+   motivations:strings("motivations"),relationships:strings("relationships"),
+   unresolved:strings("unresolved"),causalLinks:strings("causalLinks"),
+   evidenceIDs:ids,confidence:confidence)
+ }
+ static func observedClues(_ nodes:[PlotStoryNode],watched:[PlotEvidence],at cutoff:Double)->[PlotClue] {
+  let ids=Set(watched.filter{$0.end<=cutoff}.map(\.id))
+  return Array(nodes.filter{$0.end<=cutoff && !$0.evidenceIDs.isEmpty &&
+    Set($0.evidenceIDs).isSubset(of:ids)}.suffix(5)).map {node in
+   PlotClue(id:PlotMemoryStore.key("story-node:\(node.start):\(node.end)"),
+    kind:"inference",text:"AI 分段剧情推测："+node.recap,
+    evidenceIDs:node.evidenceIDs,end:node.end,confidence:node.confidence)
+  }
+ }
+ static func prompt(_ context:PlotContext,previous:[PlotStoryNode])->String {
+  // Older segments are explicitly marked as hypotheses. All previous nodes
+  // end before the section being analyzed, never after it.
+  let history=previous.suffix(3).map{String($0.recap.prefix(200))}
+  return "仅此前已分析的剧情推测："+history.joined(separator:"\n")+
+   "\n当前分段的有时间标记的字幕证据："+context.localInput
+ }
+}
+
+/// Stored only on device, keyed by a digest of the movie identity, not a URL.
+/// A reconnect can reuse the film map without replaying expensive model calls.
+actor PlotStoryArchive {
+ private let directory:URL?
+ init(directory:URL?=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)
+      .first?.appendingPathComponent("PlotStoryStructure")) {
+  self.directory=directory
+ }
+ func read(key:String)->[PlotStoryNode] {
+  guard let directory else{return []}
+  let url=directory.appendingPathComponent(key+".json")
+  guard let data=try? Data(contentsOf:url),
+        let nodes=try? JSONDecoder().decode([PlotStoryNode].self,from:data) else{return []}
+  return Array(nodes.prefix(18))
+ }
+ func write(_ nodes:[PlotStoryNode],key:String) throws {
+  guard let directory else{return}
+  try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+  var protected=directory;var values=URLResourceValues();values.isExcludedFromBackup=true
+  try? protected.setResourceValues(values)
+  let target=directory.appendingPathComponent(key+".json")
+  try JSONEncoder().encode(Array(nodes.prefix(18)))
+   .write(to:target,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+ }
+}
