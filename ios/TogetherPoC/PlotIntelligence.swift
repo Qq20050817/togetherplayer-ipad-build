@@ -66,6 +66,11 @@ struct PlotFrame {
  /// Read the whole subtitle timeline to choose key moments. Each local-model
  /// prompt receives only earlier dialogue, so no future scene can spoil a
  /// preplanned question. This is best effort and never blocks playback.
+ func resetFullFilmPreparation() {
+  fullFilmTask?.cancel();fullFilmTask=nil
+  fullFilmPreparedKey="";fullFilmPreparedCount=0;fullFilmQuestions=[:]
+  fullFilmPreparationStatus="等待本片字幕索引"
+ }
  func prepareFullFilm(_ document:SubtitleDocument,source:String,key:String,checkpoints:[PlotQuestionCheckpoint]) {
   guard !key.isEmpty,document.cues.count>=6 else{return}
   let signature="\(key):\(source):\(document.cues.count):\(checkpoints.count)"
