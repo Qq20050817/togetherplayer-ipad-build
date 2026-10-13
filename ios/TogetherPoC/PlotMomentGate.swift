@@ -54,7 +54,7 @@ enum PlotMomentGate {
   guard latest.map(\.text).joined().count>=35 else{return empty}
   // Avoid interrupting rapid-fire scenes at tiny subtitle gaps.
   let nearbyCount=recent.filter{$0.end>=position-30}.count
-  guard nearbyCount<=12 else{return empty}
+  guard nearbyCount<=10 else{return empty}
   let latestText=latest.map(\.text).joined(separator:" ").lowercased()
   let earlierText=recent.dropLast(5).map(\.text).joined(separator:" ").lowercased()
   let discoveryCount=matchCount(latestText,against:discoveries)
