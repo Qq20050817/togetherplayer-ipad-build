@@ -65,7 +65,7 @@ import SwiftUI
        .accessibilityIdentifier("plot-event-driven")
       Text("优先识别新事实、前后矛盾与尚未解开的悬念，避开密集对白；只有可靠的 AI 问题才会暂停双方，答完后同步继续。两次自动暂停至少间隔10分钟，不在固定时间点出题。")
        .font(.caption2).foregroundStyle(.secondary)
-      Text("自动提问状态：\\(intelligence.autoTriggerStatus)")
+      Text("自动提问状态：\(intelligence.autoTriggerStatus)")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-auto-trigger-status")
       if let beat=intelligence.latestBeat {
        Text("最近字幕信号（非 AI 结论）：新线索 \(beat.informationChange)/3 · 矛盾 \(beat.contradiction)/3 · 悬念 \(beat.unresolvedMystery)/3 · 剧情变化 \(beat.storyDevelopment)/4 · \(beat.isCandidate ? "候选转折" : "继续观影")")
