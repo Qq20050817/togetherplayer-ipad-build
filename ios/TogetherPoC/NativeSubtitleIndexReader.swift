@@ -59,7 +59,7 @@ enum NativeSubtitleIndexReader {
    return value/90000-localSeconds
   }()
   let largest=document.cues.map(\.end).max() ?? .infinity
-  let relative=mapOffset==nil && segment.start>10 && largest<=segment.duration+5
+  let relative=mapOffset==nil && segment.start>0.01 && largest<=segment.duration+0.75
   let shift=mapOffset ?? (relative ? segment.start : 0)
   return document.cues.compactMap {cue in
    let start=cue.start+shift,end=cue.end+shift
@@ -100,7 +100,8 @@ enum NativeSubtitleIndexReader {
     let received=await withTaskGroup(of:(Int,Data?).self) {group -> [(Int,Data?)] in
      for (i,part) in batch.enumerated() {
       group.addTask {
-       let data=try? await URLSession.shared.data(from:part.url).0
+       let response=try? await URLSession.shared.data(from:part.url)
+        let data=response?.0
        return (i,data)
       }
      }
