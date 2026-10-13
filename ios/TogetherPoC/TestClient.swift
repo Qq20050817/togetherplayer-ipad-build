@@ -230,6 +230,11 @@ import CoreMedia
   visualSampler.onNewEvidence={ [weak self] in self?.plotIntelligence.visualChanged() }
   externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped() }
   externalSubtitles.plotCaptionChanged={ [weak self] text in self?.plotIntelligence.subtitleChanged(text) }
+  externalSubtitles.plotFullFilmReset={ [weak self] in self?.plotIntelligence.resetFullFilmPreparation() }
+  externalSubtitles.plotFullSubtitleIndexed={ [weak self] document,source,checkpoints in
+   guard let self,let key=self.plotIntelligence.frame?()?.key else{return}
+   self.plotIntelligence.prepareFullFilm(document,source:source,key:key,checkpoints:checkpoints)
+  }
   externalSubtitles.nativeSelectionHealthCheck={ [weak self] in self?.restoreSelectedNativeSubtitleIfNeeded() }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
   voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
