@@ -55,6 +55,8 @@ struct PlotFrame {
  var publishAutomatically:((PlotQuestion)->Void)?
  var isSubtitleCurrentlyShown:(()->Bool)?
  var frame:(()->PlotFrame?)?
+ var visualEvidenceEnabled=false
+ func visualChanged() {guard visualEvidenceEnabled else{return};subtitleChanged("")}
  init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard) {
   self.memory=memory;self.preferences=preferences
   mode=PlotMode(rawValue:preferences.string(forKey:"plot-mode") ?? "") ?? .smart
@@ -105,12 +107,13 @@ struct PlotFrame {
    // every subtitle gap. The normal 20-second sampler and generation pass
    // perform durable saves; disconnect also flushes the last observed batch.
    var saved=await self.memory.load(key)
+   if !self.visualEvidenceEnabled {saved.evidence.removeAll{$0.source=="ondevice-vision"}}
    saved.ingest(snapshot.evidence,cutoff:snapshot.position)
    guard !Task.isCancelled,self.frame?()?.key==key else{return}
    let beat=PlotMomentGate.assess(saved.evidence,position:snapshot.position,minQuietSeconds:0)
    self.latestBeat=beat
    guard beat.isCandidate else {
-    self.autoTriggerStatus="已采集字幕，当前场景未达到剧情提问门槛（线索\(beat.informationChange) · 矛盾\(beat.contradiction) · 悬念\(beat.unresolvedMystery) · 剧情变化\(beat.storyDevelopment)）"
+    self.autoTriggerStatus="已采集字幕，当前场景未达到剧情提问门槛（线索\(beat.informationChange) · 矛盾\(beat.contradiction) · 悬念\(beat.unresolvedMystery) · 剧情变化\(beat.storyDevelopment) · 画面变化\(beat.visualTransitions)）"
     return
    }
    guard key != self.mostRecentAutoKey ||
@@ -124,6 +127,7 @@ struct PlotFrame {
     self.isSubtitleCurrentlyShown?()==false else{return}
    guard let current=self.frame?(),current.key==key,current.evidence.last?.id==last else{return}
    var restored=await self.memory.load(key)
+   if !self.visualEvidenceEnabled {restored.evidence.removeAll{$0.source=="ondevice-vision"}}
    restored.ingest(current.evidence,cutoff:current.position)
    guard !Task.isCancelled,PlotMomentGate.likelyQuestionMoment(restored.evidence,position:current.position) else {
     self.autoTriggerStatus="候选剧情复核未通过，继续观影"
@@ -155,7 +159,8 @@ struct PlotFrame {
  }
  private func run(_ snapshot:PlotFrame,token:Int,manualDeep:Bool,regenerate:Bool,autoMoment:Bool) async {
   do {
-   let state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
+   var state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
+   if !visualEvidenceEnabled {state.evidence.removeAll{$0.source=="ondevice-vision"}}
    requests=state.budget.total;automaticRequests=state.budget.automatic
    if frame?()?.key==snapshot.key {savedSubtitleCount=state.evidence.count}
    let context=state.context(at:snapshot.position)
