@@ -124,8 +124,9 @@ enum PlotStoryStructure {
   // Filter by the current window start so future nodes NEVER enter its prompt.
   let start=context.recent.map(\.start).min() ?? context.cutoff
   let history=previous.filter{$0.end<=start}.suffix(3).map{String($0.recap.prefix(200))}
-  return "仅此前已分析的剧情推测："+history.joined(separator:"\n")+
-   "\n当前分段的有时间标记的字幕证据："+context.localInput
+  let pastRecaps = history.joined(separator: "\n")
+  return "仅此前已分析的剧情推测：" + pastRecaps +
+   "\n当前分段的有时间标记的字幕证据：" + context.localInput
  }
 }
 
