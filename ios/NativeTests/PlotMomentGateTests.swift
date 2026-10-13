@@ -128,8 +128,10 @@ final class PlotMomentGateTests:XCTestCase {
   let values=(0..<12).map{cue(Double(4+$0*4),"关于那天的真相我们仍有一些疑问和没有解释的地方")}
   let context=PlotContext(cutoff:60,recent:values,earlier:[],predictions:[])
   let old=PlotQuestion(text:"这两种线索如何解释？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[0].id])
-  let fresh=PlotQuestion(text:"新发现的线索意味着什么？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
+  let unrelated=PlotQuestion(text:"新发现的线索意味着什么？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
+  let fresh=PlotQuestion(text:"那天的真相为什么仍有疑问？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
   XCTAssertFalse(PlotMomentGate.questionIsTimely(old,context:context))
+  XCTAssertFalse(PlotMomentGate.questionIsTimely(unrelated,context:context),"Valid ID alone must not approve an unrelated plot question")
   XCTAssertTrue(PlotMomentGate.questionIsTimely(fresh,context:context))
  }
  func testAdaptiveSparseRevelationCanQualifyWithoutFourLongSubtitleLines() {
