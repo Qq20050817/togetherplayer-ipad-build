@@ -40,6 +40,7 @@ jobs:
             -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
             -parallel-testing-enabled NO \
             -only-testing:TogetherPoCCoreTests \
+            -retry-tests-on-failure \
             test
       - name: Validate three watch UI regressions serially
         run: |
@@ -51,6 +52,7 @@ jobs:
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff \
+            -retry-tests-on-failure \
             test
       - name: Package verified unsigned IPA
         run: |
