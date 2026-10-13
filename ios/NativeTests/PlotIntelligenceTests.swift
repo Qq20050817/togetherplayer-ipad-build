@@ -283,3 +283,20 @@ final class PlotMemoryTests:XCTestCase {
   controller.cancel();XCTAssertFalse(controller.working)
  }
 }
+
+
+final class PlotVisualFrameClockTests:XCTestCase {
+ func testSamplesCurrentFrameAndNeverLooksAhead() throws {
+  let near=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:CMTime(seconds:30.02,preferredTimescale:600),playhead:30))
+  XCTAssertEqual(near.seconds,30,accuracy:0.002)
+  let behind=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:CMTime(seconds:29.99,preferredTimescale:600),playhead:30))
+  XCTAssertEqual(behind.seconds,29.99,accuracy:0.002)
+  XCTAssertGreaterThan(behind.seconds,29.75,"Video output must not query an old quarter-second offset")
+ }
+ func testInvalidHostClockFallsBackSafelyToKnownPlayhead() throws {
+  let time=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:.invalid,playhead:22))
+  XCTAssertEqual(time.seconds,22,accuracy:0.002)
+  XCTAssertNil(PlotVisualFrameClock.itemTime(host:.invalid,playhead:.nan))
+  XCTAssertNil(PlotVisualFrameClock.itemTime(host:.invalid,playhead:-1))
+ }
+}
