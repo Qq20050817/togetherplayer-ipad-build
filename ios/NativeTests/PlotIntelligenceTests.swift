@@ -124,7 +124,7 @@ final class PlotMemoryTests:XCTestCase {
   defer {try? FileManager.default.removeItem(at:root)}
   let film=PlotMemoryStore.key("room-film-A"),other=PlotMemoryStore.key("room-film-B")
   let cues=(0..<8).map {i in
-   PlotEvidence.cue(start:Double(i*4),end:Double(i*4+2),text:"已播放的第\\(i)句字幕",source:"embedded-subtitle")
+   PlotEvidence.cue(start:Double(i*4),end:Double(i*4+2),text:"已播放的第\(i)句字幕",source:"embedded-subtitle")
   }
   _ = try await PlotMemoryStore(directory:root).ingest(cues,cutoff:50,key:film)
   // A fresh store/controller simulates the reopened transport and player.
@@ -135,7 +135,8 @@ final class PlotMemoryTests:XCTestCase {
   controller.frame={PlotFrame(key:film,position:18,evidence:[])}
   await controller.collect()
   XCTAssertEqual(controller.collectedSubtitleCount,cues.count,"rewind retains local memory while contexts still obey the cutoff")
-  let context=await PlotMemoryStore(directory:root).load(film).context(at:18)
+  let stored=await PlotMemoryStore(directory:root).load(film)
+  let context=stored.context(at:18)
   XCTAssertTrue(context.recent.allSatisfy{$0.end<=18})
   controller.frame={PlotFrame(key:other,position:50,evidence:[])}
   XCTAssertEqual(controller.collectedSubtitleCount,0,"never show another film's evidence before loading")
@@ -147,9 +148,10 @@ final class PlotMemoryTests:XCTestCase {
   let subtitles=ExternalSubtitles(player:player,preferences:UserDefaults(suiteName:UUID().uuidString)!)
   let temp=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".srt")
   defer {try? FileManager.default.removeItem(at:temp)}
-  try Data("1\\n00:00:01,000 --> 00:00:03,000\\n已经观看的字幕\\n".utf8).write(to:temp)
+  try Data("1\n00:00:01,000 --> 00:00:03,000\n已经观看的字幕\n".utf8).write(to:temp)
   subtitles.beginPlotFilm("film-A")
-  XCTAssertTrue(await subtitles.importFile(temp))
+  let imported=await subtitles.importFile(temp)
+  XCTAssertTrue(imported)
   XCTAssertTrue(subtitles.available)
   subtitles.beginPlotFilm("film-A")
   XCTAssertTrue(subtitles.available,"same-film reconnect must not discard imported subtitles")
