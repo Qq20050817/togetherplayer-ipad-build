@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A deliberately opt-in, small-footprint discussion panel. It never pauses
-/// synchronized playback and never sends subtitles/film data to the server.
+/// Question settings survive dismissal. Blocking votes pause playback through
+/// the room protocol; raw film/subtitles are never sent to the room server.
 @MainActor struct PlotPollPanel: View {
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
@@ -12,7 +12,6 @@ import SwiftUI
  @State private var editQuestion=""
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
- @State private var pauseForPoll=false
  init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth}
  var body:some View {
   NavigationStack {
@@ -54,9 +53,11 @@ import SwiftUI
       .foregroundStyle(.secondary)}
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
       Divider()
+      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "未知") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "未知")")
+       .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
       if !model.isConnected {Text("房间已断线：仍可在本机生成问题预览，重新连接后才能发布给好友。").font(.caption).foregroundStyle(.orange)}
-      Toggle("答题后继续播放",isOn:$pauseForPoll).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
-      Text(model.supportsBlockingPolls ? "开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
+      Toggle("答题后继续播放",isOn:$intelligence.pauseForQuestions).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
+      Text(model.supportsBlockingPolls ? "设置会保存，关闭此窗口仍有效。开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
        .font(.caption).foregroundStyle(.secondary)
       if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}}
       Toggle("重要剧情自动暂停并提问",isOn:$intelligence.eventDrivenEnabled)
@@ -101,7 +102,7 @@ import SwiftUI
        Button("重新生成（同片段不会重复调用云端）") {intelligence.generate(regenerate:true)}.disabled(intelligence.working)
        Button("发布问题给两个人") {
         guard intelligence.previewUsable else {return}
-        let edited=PlotQuestion(text:editQuestion.trimmingCharacters(in:.whitespacesAndNewlines),choices:editOptions.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)},source:draft.source,evidenceIDs:draft.evidenceIDs,kind:draft.kind,blocking:pauseForPoll)
+        let edited=PlotQuestion(text:editQuestion.trimmingCharacters(in:.whitespacesAndNewlines),choices:editOptions.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)},source:draft.source,evidenceIDs:draft.evidenceIDs,kind:draft.kind,blocking:intelligence.pauseForQuestions)
         model.publishPlotPoll(edited)
        }.disabled(!model.isConnected || !(5...200).contains(editQuestion.count) || editOptions.contains(where:{$0.isEmpty || $0.count>80}) || Set(editOptions).count != editOptions.count).accessibilityIdentifier("plot-publish")
       }

@@ -187,6 +187,19 @@ final class PlotMemoryTests:XCTestCase {
   XCTAssertTrue(controller.reason.contains("ChatGPT") || controller.reason.contains("设备端模型"))
   XCTAssertEqual(controller.requests,0)
  }
+ func testQuestionPauseSettingPersistsAcrossControllerRecreationAndCancellation() {
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let initial=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  XCTAssertTrue(initial.pauseForQuestions,"answer-before-resume is the default requested behavior")
+  initial.pauseForQuestions=false
+  initial.cancel()
+  let reopened=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  XCTAssertFalse(reopened.pauseForQuestions)
+  reopened.pauseForQuestions=true
+  reopened.cancel()
+  let relaunched=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  XCTAssertTrue(relaunched.pauseForQuestions)
+ }
   func testDefaultsDisableCloudAndLimitIsUserConfigurable() {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
   let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)

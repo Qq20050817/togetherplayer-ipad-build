@@ -9,6 +9,7 @@ struct PlotFrame {
 }
 @MainActor final class PlotIntelligence:ObservableObject {
  @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
+ @Published var pauseForQuestions:Bool {didSet {preferences.set(pauseForQuestions,forKey:"plot-pause-for-questions")}}
  @Published var eventDrivenEnabled:Bool {didSet {preferences.set(eventDrivenEnabled,forKey:"plot-event-driven");if !eventDrivenEnabled {momentTask?.cancel();momentTask=nil}}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
@@ -50,6 +51,7 @@ struct PlotFrame {
  init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard) {
   self.memory=memory;self.preferences=preferences
   mode=PlotMode(rawValue:preferences.string(forKey:"plot-mode") ?? "") ?? .smart
+  pauseForQuestions=preferences.object(forKey:"plot-pause-for-questions") as? Bool ?? true
   eventDrivenEnabled=preferences.object(forKey:"plot-event-driven") as? Bool ?? true
   automaticAllowed=preferences.bool(forKey:"plot-cloud-allowed")
   consent=preferences.bool(forKey:"plot-cloud-consent")

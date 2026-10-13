@@ -1,7 +1,7 @@
 name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [fix/plot-story-turn-ci-complete-20261013]
+    branches: [fix/plot-settings-persistence-20261013]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,22 +15,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Require earlier whole-suite acceptance evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh run download 38363318379 --repo "$GITHUB_REPOSITORY" --name plot-story-turn-test-diagnostics --dir previous-tests
-          python3 - <<'PYCODE'
-          import json,pathlib
-          reports=[json.loads(p.read_text()) for p in pathlib.Path('previous-tests').glob('*.json')]
-          assert any(r.get('totalTestCount')==114 and r.get('failedTests')==0 for r in reports)
-          ui=next(r for r in reports if r.get('totalTestCount')==21)
-          assert ui['passedTests']==19 and ui['failedTests']==2
-          failed={f['testName'] for f in ui['testFailures']}
-          assert len(failed)==2 and all('testPlotIntelligencePreviewKeepsFullscreenAndCloudOff' in n or 'testSetRoomMediaButtonShowsValidationBesideAction' in n for n in failed),failed
-          print('Prior full suite:114 core passed;19/21 UI passed. Retain unchanged cases and rerun every affected case.')
-          PYCODE
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -59,30 +43,26 @@ jobs:
             -only-testing:TogetherPoCCoreTests \
             -retry-tests-on-failure \
             test
-      - name: Validate affected watch UI regressions serially
+      - name: Validate complete watch UI regressions serially
         run: |
           set -euo pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
             -parallel-testing-enabled NO \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSetRoomMediaButtonShowsValidationBesideAction \
-            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment \
+            -only-testing:TogetherPoCUITests \
             -retry-tests-on-failure \
             test
       - name: Package verified unsigned IPA
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.3-StoryTurn-Validated-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-delivery/TogetherPlayer-0.6.3-StoryTurn-Validated-unsigned.ipa > plot-delivery/SHA256SUMS.txt
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.4-PlotSettings-Validated-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-delivery/TogetherPlayer-0.6.4-PlotSettings-Validated-unsigned.ipa > plot-delivery/SHA256SUMS.txt
           printf "Source branch: %s\nSource SHA: %s\nCI: iPad build and regression tests succeeded\n" "$GITHUB_REF_NAME" "$GITHUB_SHA" > plot-delivery/BUILD.txt
-          printf "Requires in-person Apple AI and official ChatGPT OAuth validation before release. No server deployed.\n" >> plot-delivery/BUILD.txt
+          printf "Real-device Apple AI and official ChatGPT OAuth acceptance pending. Compatible 0.6.3 server already deployed.\n" >> plot-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.3-StoryTurn-Validated-candidate
+          name: TogetherPlayer-iPad-v0.6.4-PlotSettings-Validated-candidate
           path: plot-delivery/
           retention-days: 7
 

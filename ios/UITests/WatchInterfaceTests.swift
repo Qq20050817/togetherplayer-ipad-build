@@ -35,6 +35,31 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["完成"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5),"关闭 AI 面板不应退出全屏")
  }
+ func testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
+  app.launch()
+  let open=app.buttons["watch-header-plot-ai-button"].firstMatch
+  XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  let setting=app.switches["plot-blocking-mode"].firstMatch
+  XCTAssertTrue(setting.waitForExistence(timeout:5))
+  XCTAssertTrue(setting.isEnabled)
+  let original=setting.value as? String
+  XCTAssertTrue(original=="0" || original=="1")
+  setting.tap()
+  let changed=original=="1" ? "0" : "1"
+  XCTAssertEqual(setting.value as? String,changed)
+  app.buttons["完成"].firstMatch.tap();open.tap()
+  XCTAssertTrue(setting.waitForExistence(timeout:5))
+  XCTAssertEqual(setting.value as? String,changed,"dismissal must preserve the setting")
+  app.terminate();app.launch()
+  XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  XCTAssertTrue(setting.waitForExistence(timeout:5))
+  XCTAssertEqual(setting.value as? String,changed,"relaunch must preserve the setting")
+  XCTAssertTrue(app.staticTexts["plot-client-version"].exists)
+  setting.tap() // Restore the prior preference for other tests.
+ }
  func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
