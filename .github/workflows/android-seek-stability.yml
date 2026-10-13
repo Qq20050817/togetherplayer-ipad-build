@@ -20,7 +20,11 @@ jobs:
           java-version: '17'
       - name: Use Android SDK preinstalled on GitHub Runner
         run: |
-          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || command -v sdkmanager
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDK_MANAGER="$(find "$SDK_ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f | head -n 1)"
+          test -n "$SDK_MANAGER"
+          echo "$(dirname "$SDK_MANAGER")" >> "$GITHUB_PATH"
       - name: Install Android SDK 35
         run: |
           yes | sdkmanager --licenses >/dev/null || true
