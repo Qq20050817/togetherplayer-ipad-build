@@ -38,6 +38,7 @@ struct PlotFrame {
  @Published private(set) var autoTriggerStatus="等待已播放字幕与剧情转折"
  @Published private(set) var previewCutoff=0.0
  @Published private(set) var autoSuggestion:PlotQuestion?
+ @Published private(set) var fullFilmPreparationStatus="尚未获得完整字幕"
  let auth=ChatGPTAuthProbe()
  private let memory:PlotMemoryStore
  private let preferences:UserDefaults
@@ -51,6 +52,10 @@ struct PlotFrame {
  private var mostRecentAutoKey=""
  private var mostRecentAutoPosition = -Double.infinity
  private var mostRecentPublishedPosition = -Double.infinity
+ private var fullFilmTask:Task<Void,Never>?
+ private var fullFilmPreparedKey=""
+ private var fullFilmPreparedCount=0
+ private var fullFilmQuestions:[Int:PlotQuestion]=[:]
  var mayPublishAutomatically:(()->Bool)?
  var automaticAvailabilityReason:(()->String?)?
  var publishAutomatically:((PlotQuestion)->Void)?
@@ -58,6 +63,53 @@ struct PlotFrame {
  var frame:(()->PlotFrame?)?
  var visualEvidenceEnabled=false
  func visualChanged() {guard visualEvidenceEnabled else{return};subtitleChanged("")}
+ /// Read the whole subtitle timeline to choose key moments. Each local-model
+ /// prompt receives only earlier dialogue, so no future scene can spoil a
+ /// preplanned question. This is best effort and never blocks playback.
+ func prepareFullFilm(_ document:SubtitleDocument,source:String,key:String,checkpoints:[PlotQuestionCheckpoint]) {
+  guard !key.isEmpty,document.cues.count>=6 else{return}
+  let signature="\(key):\(source):\(document.cues.count):\(checkpoints.count)"
+  guard signature != fullFilmPreparedKey else{return}
+  fullFilmTask?.cancel()
+  fullFilmPreparedKey=signature
+  fullFilmQuestions=[:];fullFilmPreparedCount=0
+  guard PlotLocalAI.available else {
+   fullFilmPreparationStatus="全片字幕已建立时间轴；苹果本地 AI 暂不可用，播放时继续实时分析"
+   return
+  }
+  let points=Array(checkpoints.sorted{$0.score>$1.score}.prefix(5)).sorted{$0.at<$1.at}
+  fullFilmPreparationStatus="已读取完整字幕（\(document.cues.count)条），正在提前规划剧情问题…"
+  fullFilmTask=Task(priority:.background) {[weak self] in
+   guard let self else{return}
+   for point in points {
+    if Task.isCancelled || self.fullFilmPreparedKey != signature {return}
+    let rows=Array(document.cues.filter{$0.end<=point.at && $0.end>=point.at-240}.suffix(24))
+    let evidence=rows.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:source)}
+    let context=PlotContext(cutoff:point.at,recent:evidence,earlier:[],predictions:[])
+    guard context.sufficient else{continue}
+    if let answer=await PlotLocalAI.question(context,automatic:true,planned:true),
+       PlotQuality.check(answer,context:context,history:[]),
+       PlotMomentGate.questionIsTimely(answer,context:context),
+       !Task.isCancelled,self.fullFilmPreparedKey==signature {
+      self.fullFilmQuestions[Int(point.at.rounded())]=answer
+      self.fullFilmPreparedCount+=1
+    }
+    self.fullFilmPreparationStatus="全片索引已就绪 · 已规划\(self.fullFilmPreparedCount)/\(points.count)道有证据的问题"
+    await Task.yield()
+   }
+   if !Task.isCancelled,self.fullFilmPreparedKey==signature {
+    self.fullFilmPreparationStatus="全片预分析完成 · \(self.fullFilmPreparedCount)道待复核问题；播放时继续补充"
+   }
+  }
+ }
+ private func preparedQuestion(for snapshot:PlotFrame,context:PlotContext,history:[String])->PlotQuestion? {
+  guard let checkpoint=snapshot.plannedCheckpoint else{return nil}
+  let key=Int(checkpoint.rounded())
+  guard let question=fullFilmQuestions[key],fullFilmPreparedKey.hasPrefix(snapshot.key+":"),
+   PlotQuality.check(question,context:context,history:history),
+   PlotMomentGate.questionIsTimely(question,context:context) else{return nil}
+  return question
+ }
  init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard) {
   self.memory=memory;self.preferences=preferences
   mode=PlotMode(rawValue:preferences.string(forKey:"plot-mode") ?? "") ?? .smart
@@ -201,14 +253,15 @@ struct PlotFrame {
     (!PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position) && !indexedReady)) {
     autoTriggerStatus="本次剧情线索不足，暂不暂停影片";working=false;deadline?.cancel();deadline=nil;return
    }
-   let score=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
+   let prepared=(mode == .smart || mode == .local) ? preparedQuestion(for:snapshot,context:context,history:history) : nil
+   let score:PlotComplexity=prepared != nil ? .uncertain : ((mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain)
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
    var local:PlotQuestion?
    if mode == .smart || mode == .local {
     // Even without subtitles, use the REAL on-device model for an honest
     // context-free question; never claim it analyzed unobserved movie content.
-    local=context.sufficient ? await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment) : await PlotLocalAI.genericQuestion(at:snapshot.position)
+    local=prepared ?? (context.sufficient ? await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment) : await PlotLocalAI.genericQuestion(at:snapshot.position))
    }
    guard valid(snapshot,token:token) else {cancel();return}
    var localGeneric = !context.sufficient
@@ -222,7 +275,7 @@ struct PlotFrame {
     localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:$0.evidenceIDs.isEmpty)} ?? false
    }
    var chosen=localGood ? local : nil
-   var explanation=localGood ? (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题") :
+   var explanation=localGood ? (prepared != nil ? "采用全片预规划问题，已使用实际看过的字幕重新核验" : (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题")) :
      (PlotLocalAI.available ? "本地 AI 回答未通过格式、线索或重复检查" : PlotLocalAI.availabilityDetail)
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
@@ -338,5 +391,5 @@ struct PlotFrame {
   let decision=PlotDecision(timestamp:Date().timeIntervalSince1970,position:snapshot.position,mode:mode.rawValue,selectedModel:question.source,reason:reason,complexityScore:assessment.complexityScore,confidence:assessment.confidence,requests:requests,quality:question.evidenceIDs.isEmpty ? "generic_fallback" : "evidence_checked",misjudgmentReview:"notReviewed")
   Task(priority:.utility) {try? await memory.record(key:snapshot.key,decision:decision)}
  }
- deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel()}
+ deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel();fullFilmTask?.cancel()}
 }
