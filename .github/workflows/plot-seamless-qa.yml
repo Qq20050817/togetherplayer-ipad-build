@@ -116,7 +116,7 @@ jobs:
           test -f verified/BUILD.txt
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           cd verified
-          sed 's|^plot-delivery/||' SHA256SUMS.txt | sha256sum -c -
+          sed 's|plot-delivery/||g' SHA256SUMS.txt | sha256sum -c -
           test -f TogetherPlayer-0.6.13-NativeSubtitleAI-EXPERIMENTAL-unsigned.ipa
       - name: Release direct unsigned IPA after all regressions pass
         env:
