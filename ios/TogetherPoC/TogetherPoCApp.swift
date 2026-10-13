@@ -25,6 +25,9 @@ import UniformTypeIdentifiers
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_PLOT_UI_TEST"]=="1" {
     try? LocalPickerUITestFixture.install(into:model)
+    // The picker fixture only creates a file and a mock room. Use a real
+    // loaded movie for the production "currentItem != nil" generation guard.
+    try? model.installTrackPlaybackFixture()
     model.isRoomHost=true;model.isConnected=true;model.supportsBlockingPolls=true
     model.plotIntelligence.mode = .fallback
     model.plotIntelligence.automaticAllowed=false;model.plotIntelligence.consent=false;model.plotIntelligence.creditsDisabled=false

@@ -45,7 +45,10 @@ final class WatchInterfaceTests: XCTestCase {
   let modePicker=app.descendants(matching:.any)["plot-ai-mode"].firstMatch
   XCTAssertTrue(modePicker.waitForExistence(timeout:8))
   let generate=app.buttons["plot-ai-generate"].firstMatch
-  XCTAssertTrue(generate.waitForExistence(timeout:8));generate.tap()
+  XCTAssertTrue(generate.waitForExistence(timeout:8))
+  let movieLoaded=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:generate)
+  XCTAssertEqual(XCTWaiter.wait(for:[movieLoaded],timeout:30),.completed,"real movie must load before generating")
+  generate.tap()
   let preview=app.descendants(matching:.any)["plot-question-preview"].firstMatch
   let previewAppeared=preview.waitForExistence(timeout:15)
   let diagnostic=app.staticTexts["plot-ai-reason"].firstMatch
@@ -372,9 +375,15 @@ final class WatchInterfaceTests: XCTestCase {
   if !app.buttons["set-room-media"].exists {section.tap()}
   let button=app.buttons["set-room-media"]
   XCTAssertTrue(button.waitForExistence(timeout:5))
-  let start=button.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
-  start.press(forDuration:0.1,thenDragTo:start.withOffset(CGVector(dx:0,dy:-180)),withVelocity:.slow,thenHoldForDuration:0.5)
-  XCTAssertTrue(button.isHittable);XCTAssertTrue(button.isEnabled);button.tap()
+  // Scroll from within the actual viewport, not from an offscreen button.
+  let viewport=app.scrollViews.firstMatch
+  for _ in 0..<4 {
+   if button.isHittable {break}
+   viewport.swipeUp()
+  }
+  let visible=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isHittable == true"),object:button)
+  XCTAssertEqual(XCTWaiter.wait(for:[visible],timeout:8),.completed)
+  XCTAssertTrue(button.isEnabled);button.tap()
   let feedback=app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","片源链接无效或包含账户凭据")).firstMatch
   XCTAssertTrue(feedback.waitForExistence(timeout:5));XCTAssertTrue(feedback.isHittable)
   capture("09-room-media-feedback",app)

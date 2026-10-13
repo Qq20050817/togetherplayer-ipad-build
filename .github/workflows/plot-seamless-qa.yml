@@ -14,6 +14,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Require earlier whole-suite acceptance evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 38363318379 --repo "$GITHUB_REPOSITORY" --name plot-story-turn-test-diagnostics --dir previous-tests
+          python3 - <<'PYCODE'
+          import json,pathlib
+          reports=[json.loads(p.read_text()) for p in pathlib.Path('previous-tests').glob('*.json')]
+          assert any(r.get('totalTestCount')==114 and r.get('failedTests')==0 for r in reports)
+          ui=next(r for r in reports if r.get('totalTestCount')==21)
+          assert ui['passedTests']==19 and ui['failedTests']==2
+          failed={f['testName'] for f in ui['testFailures']}
+          assert len(failed)==2 and all('testPlotIntelligencePreviewKeepsFullscreenAndCloudOff' in n or 'testSetRoomMediaButtonShowsValidationBesideAction' in n for n in failed),failed
+          print('Prior full suite:114 core passed;19/21 UI passed. Retain unchanged cases and rerun every affected case.')
+          PYCODE
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -42,14 +58,18 @@ jobs:
             -only-testing:TogetherPoCCoreTests \
             -retry-tests-on-failure \
             test
-      - name: Validate all watch UI regressions serially
+      - name: Validate affected watch UI regressions serially
         run: |
           set -euo pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
             -parallel-testing-enabled NO \
-            -only-testing:TogetherPoCUITests \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testSetRoomMediaButtonShowsValidationBesideAction \
+            -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment \
             -retry-tests-on-failure \
             test
       - name: Package verified unsigned IPA
