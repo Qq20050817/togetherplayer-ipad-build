@@ -25,6 +25,7 @@ import AVFoundation
  private var document: SubtitleDocument?
  private var plannedQuestions:[PlotQuestionCheckpoint]=[]
  private var fullFilmBeats:[PlotClue]=[]
+ private var fullFilmBeatStarts:[String:Double]=[:]
  private var fullFilmTask:Task<Void,Never>?
  private let player: AVPlayer
  private var observer: Any?
@@ -62,8 +63,9 @@ import AVFoundation
  func watchedStoryBeats(at cutoff:Double,observed:[PlotEvidence])->[PlotClue] {
   guard enabled,cutoff.isFinite else{return []}
   let ids=Set(observed.map(\.id))
-  func fraction(_ end:Double)->Double {
-   let windowStart=max(0,end-720)
+  func fraction(_ beat:PlotClue)->Double {
+   let end=beat.end
+   let windowStart=fullFilmBeatStarts[beat.id] ?? max(0,end-720)
    guard end>windowStart else{return 0}
    var covered=0.0,cursor=windowStart
    for range in plotWatched where range.upperBound>windowStart && range.lowerBound<end {
@@ -74,7 +76,7 @@ import AVFoundation
    return covered/(end-windowStart)
   }
   return Array(fullFilmBeats.filter{
-   PlotFullFilmIndex.visible($0,at:cutoff,evidenceIDs:ids,watchedFraction:fraction($0.end))
+   PlotFullFilmIndex.visible($0,at:cutoff,evidenceIDs:ids,watchedFraction:fraction($0))
   }.suffix(8))
  }
  func plannedQuestionCheckpoint(at position:Double,duration:Double)->Double? {
@@ -125,7 +127,7 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;fullFilmTask?.cancel();fullFilmTask=nil;fullFilmBeats=[];fullFilmAnalysisStatus="";document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;nativeCueCount=0;nativeFirstCueAt=nil;nativeCaptureStatus="";enabled=false;delay=0}
+ func clear() {generation+=1;fullFilmTask?.cancel();fullFilmTask=nil;fullFilmBeats=[];fullFilmBeatStarts=[:];fullFilmAnalysisStatus="";document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;nativeCueCount=0;nativeFirstCueAt=nil;nativeCaptureStatus="";enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
@@ -186,7 +188,7 @@ import AVFoundation
    guard current==generation else {return false}
    document=result
    plannedQuestions=PlotQuestionPlanner.indexed(result.cues)
-   fullFilmTask?.cancel();fullFilmBeats=[]
+   fullFilmTask?.cancel();fullFilmBeats=[];fullFilmBeatStarts=[:]
    let windows=PlotFullFilmIndex.windows(result.cues)
    fullFilmAnalysisStatus=windows.isEmpty ? "字幕量不足，继续边看边分析" : "全片字幕已建立时间索引，正在设备端逐段理解"
    name=url.lastPathComponent;delay=0;enabled=true
@@ -211,6 +213,7 @@ import AVFoundation
     if let beat=await PlotFullFilmAnalyzer.interpret(window) {
      guard !Task.isCancelled,self.generation==current else{return}
      self.fullFilmBeats.append(beat)
+     self.fullFilmBeatStarts[beat.id]=window.start
     }
     self.fullFilmAnalysisStatus="全片本地剧情理解：\(index+1)/\(windows.count) 段；已确认线索 \(self.fullFilmBeats.count) 段"
     await Task.yield()
