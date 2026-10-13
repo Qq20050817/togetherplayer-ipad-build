@@ -6,13 +6,14 @@ import SwiftUI
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
+ @ObservedObject var visuals:PlotVisualSampler
  @Environment(\.dismiss) private var dismiss
  @State private var selected=""
  @State private var custom=""
  @State private var editQuestion=""
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
- init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth}
+ init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth;self.visuals=model.visualSampler}
  var body:some View {
   NavigationStack {
    ScrollView {
@@ -65,13 +66,19 @@ import SwiftUI
        .accessibilityIdentifier("plot-event-driven")
       Text("优先识别新事实、前后矛盾与尚未解开的悬念，避开密集对白；只有可靠的 AI 问题才会暂停双方，答完后同步继续。两次自动暂停至少间隔10分钟，不在固定时间点出题。")
        .font(.caption2).foregroundStyle(.secondary)
+      Toggle("试验：分析已观看电影画面",isOn:$visuals.enabled)
+       .accessibilityIdentifier("plot-visual-experiment")
+      Text(visuals.enabled ? "已开启：设备每约18秒分析一次已播放画面，仅保存粗略场景标签；不保存截图、不向服务器上传图像，关闭可立即停止。" : "默认关闭，避免在闪退原因未确认前增加解码负担；开启后利用本机 Vision 补充无对白画面的线索。")
+       .font(.caption2).foregroundStyle(.secondary)
+      Text("画面识别：\(visuals.status)")
+       .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
       Text("自动提问状态：\(intelligence.autoTriggerStatus)")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-auto-trigger-status")
       if let beat=intelligence.latestBeat {
-       Text("最近字幕信号（非 AI 结论）：新线索 \(beat.informationChange)/3 · 矛盾 \(beat.contradiction)/3 · 悬念 \(beat.unresolvedMystery)/3 · 剧情变化 \(beat.storyDevelopment)/4 · \(beat.isCandidate ? "候选转折" : "继续观影")")
+       Text("最近字幕信号（非 AI 结论）：新线索 \(beat.informationChange)/3 · 矛盾 \(beat.contradiction)/3 · 悬念 \(beat.unresolvedMystery)/3 · 剧情变化 \(beat.storyDevelopment)/4 · 画面变化 \(beat.visualTransitions)/3 · \(beat.isCandidate ? "候选转折" : "继续观影")")
         .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-beat-signal")
       }
-      Text("暂通过已播放字幕判断，不能识别无对白的重要镜头；没有可靠剧情依据时不会自动暂停。")
+      Text("默认通过已播放字幕判断；可选的画面试验只提供场景分类线索，仍无法准确还原动作与人物身份。只有真实 AI 生成有证据支持的问题才暂停。")
        .font(.caption2).foregroundStyle(.secondary)
       if model.isConnected && !model.supportsBlockingPolls {
        Text("当前房间服务端未声明支持同步答题暂停。为避免出现无法自动恢复的情况，自动提问暂不触发；需要升级到已测试的阻塞答题服务端。")
