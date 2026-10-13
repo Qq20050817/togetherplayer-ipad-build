@@ -18,7 +18,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Use Android SDK preinstalled on GitHub Runner
+        run: |
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || command -v sdkmanager
       - name: Install Android SDK 35
         run: |
           yes | sdkmanager --licenses >/dev/null || true
