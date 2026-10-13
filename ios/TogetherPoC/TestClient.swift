@@ -83,6 +83,8 @@ import CoreMedia
  private var remuxAudioLabelsByDisplayName: [String:[String]] = [:]
  private var remuxAudioTrackSummary: [String] = []
  private var trackSelectionGeneration=0
+ private var nativeIndexRequestKey=""
+ private var nativeIndexTask:Task<Void,Never>?
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
  private var currentOriginalURL: URL?
  private var activeLocalSource=""
@@ -330,6 +332,7 @@ import CoreMedia
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
+  nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
   let needsRemux=forceRemux || MKVRemux.needed(url:url,fileName:url==baiduPlaybackURL ? baiduFileName : nil)
@@ -455,7 +458,28 @@ import CoreMedia
      selectedSubtitleIndex = -1
     }
    }
+   if selectedSubtitleIndex>=0 && !externalSubtitles.enabled {
+    prepareNativeSubtitleIndex(item:item,track:selectedSubtitleIndex)
+   }
    diagnostic("subtitleOptionsLoaded")
+  }
+ }
+ private func prepareNativeSubtitleIndex(item:AVPlayerItem,track:Int) {
+  guard track>=0,!externalSubtitles.enabled,let source=(item.asset as? AVURLAsset)?.url,
+        source.pathExtension.lowercased()=="m3u8" else{return}
+  if externalSubtitles.nativeIndexedTrack==track {return}
+  let key="\(mediaLoadGeneration):\(track):\(source.absoluteString)"
+  guard key != nativeIndexRequestKey else{return}
+  nativeIndexTask?.cancel();nativeIndexRequestKey=key
+  nativeIndexTask=Task { [weak self,weak item] in
+   let result=await NativeSubtitleIndexReader.fetch(master:source,track:track)
+   guard !Task.isCancelled,let self,let item,self.nativeIndexRequestKey==key,
+     self.adapter.player.currentItem === item,
+     !self.externalSubtitles.enabled,self.selectedSubtitleIndex==track else{return}
+   if let result {
+    self.externalSubtitles.installNativeIndex(result,track:track)
+    await self.plotIntelligence.collect()
+   } else {self.externalSubtitles.nativeIndexUnavailable()}
   }
  }
  // Keep an explicitly selected built-in subtitle track active across
@@ -479,6 +503,7 @@ import CoreMedia
  }
  func enableExternalSubtitle() {
   guard externalSubtitles.available else {return}
+  nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   if let item=adapter.player.currentItem,let group=subtitleGroup {item.select(nil,in:group)}
   requestedSubtitleIndex = -2
   selectedSubtitleIndex = -2;externalSubtitles.enabled=true
@@ -494,12 +519,14 @@ import CoreMedia
       (index == -1 && active != nil) ||
       (index >= 0 && group.options.indices.contains(index) && active === group.options[index]) {return}
   }
+  nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   externalSubtitles.nativeSelectionChanged(enabled:index != -2);externalSubtitles.enabled=false;selectedSubtitleIndex=index
   guard let item=adapter.player.currentItem,let group=subtitleGroup else {return}
   if index == -1 {item.selectMediaOptionAutomatically(in:group)}
   else if index == -2 {item.select(nil,in:group)}
   else {guard group.options.indices.contains(index) else {return};item.select(group.options[index],in:group)}
   selectedSubtitleIndex=index
+  if index>=0 {prepareNativeSubtitleIndex(item:item,track:index)}
  }
  func chooseAudio(_ index: Int) {
   guard let item=adapter.player.currentItem,let group=audioGroup else {return}
