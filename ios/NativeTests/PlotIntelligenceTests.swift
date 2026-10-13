@@ -119,6 +119,32 @@ final class PlotMemoryTests:XCTestCase {
  }
 }
 @MainActor final class PlotControllerTests:XCTestCase {
+ func testPlannedCheckpointStartsDiscussionReviewEvenWithoutKeywords() async throws {
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  controller.mode = .smart
+  controller.eventDrivenEnabled=true
+  controller.mayPublishAutomatically={true}
+  controller.automaticAvailabilityReason={nil}
+  controller.isSubtitleCurrentlyShown={false}
+  let cues=[
+   PlotEvidence.cue(start:100,end:102,text:"他们走进了房间",source:"embedded-subtitle"),
+   PlotEvidence.cue(start:110,end:112,text:"两个人开始互相交谈",source:"embedded-subtitle"),
+   PlotEvidence.cue(start:120,end:122,text:"刚才那个人好像有所顾虑",source:"embedded-subtitle")
+  ]
+  controller.frame={PlotFrame(key:"scheduled-observed-only",position:130,evidence:cues,plannedCheckpoint:125)}
+  controller.subtitleChanged("")
+  for _ in 0..<30 {
+   if controller.autoTriggerStatus.contains("预规划"){break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
+  XCTAssertTrue(controller.autoTriggerStatus.contains("预规划"),
+   "An evidence-backed scheduled checkpoint should reach real-AI review without keyword triggers")
+  XCTAssertNil(controller.result,"Planning does not fabricate a free-template question")
+  XCTAssertEqual(controller.requests,0,"No cloud inference is dispatched before the natural quiet check")
+  controller.playbackJumped()
+ }
+
  func testSameFilmReconnectRetainsSavedSubtitlesAndNewFilmStaysIsolated() async throws {
   let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   defer {try? FileManager.default.removeItem(at:root)}
