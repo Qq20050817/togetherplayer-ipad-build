@@ -8,14 +8,16 @@ struct PlotBeatAssessment: Equatable {
  let unresolvedMystery:Int
  let narrativeAnchor:Bool
  let storyDevelopment:Int
+ let visualTransitions:Int
  let dialogueBreak:Bool
  let evidenceIDs:[String]
- var importance:Int {min(100,informationChange*15+contradiction*15+unresolvedMystery*10+storyDevelopment*16)}
+ var importance:Int {min(100,informationChange*15+contradiction*15+unresolvedMystery*10+storyDevelopment*16+visualTransitions*28)}
  var isCandidate:Bool {
   dialogueBreak && importance>=55 &&
   ((informationChange>=2 && (contradiction>=1 || unresolvedMystery>=1)) ||
    (storyDevelopment>=2 && (informationChange>=1 || contradiction>=1 || unresolvedMystery>=1)) ||
-   (narrativeAnchor && contradiction>=2 && unresolvedMystery>=2))
+   (narrativeAnchor && contradiction>=2 && unresolvedMystery>=2) ||
+   visualTransitions>=2)
  }
 }
 
@@ -42,7 +44,7 @@ enum PlotMomentGate {
   words.reduce(0){$0+(text.contains($1) ? 1 : 0)}
  }
  static func assess(_ values:[PlotEvidence],position:Double,minQuietSeconds:Double=1.8)->PlotBeatAssessment {
-  let empty=PlotBeatAssessment(informationChange:0,contradiction:0,unresolvedMystery:0,narrativeAnchor:false,storyDevelopment:0,dialogueBreak:false,evidenceIDs:[])
+  let empty=PlotBeatAssessment(informationChange:0,contradiction:0,unresolvedMystery:0,narrativeAnchor:false,storyDevelopment:0,visualTransitions:0,dialogueBreak:false,evidenceIDs:[])
   guard position.isFinite,position>=0 else{return empty}
   // A cue is eligible only after its end and only if it belongs to this
   // actually watched 95-second window. Never read an unplayed future cue.
@@ -67,9 +69,16 @@ enum PlotMomentGate {
   let information=min(3,discoveryCount)
   let mystery=min(3,mysteryCount)
   let thematic=storyThemes.reduce(0){count,group in count+(matchCount(latestText,against:group)>0 ? 1 : 0)}
+  // Several genuinely different *already displayed* scene categories are a
+  // candidate, not proof of any plot event. Only the real AI can publish,
+  // after checking evidence and respecting the normal pause/backoff rules.
+  let visual=Array(recent.filter{$0.source=="ondevice-vision"}.suffix(4))
+  let visualLabels=visual.map{ $0.text }
+  let changes=zip(visualLabels,visualLabels.dropFirst()).filter{$0.0 != $0.1}.count
+  let visualTransitions=visual.count==4 && (visual.last?.end ?? -.infinity)>=position-25 ? min(3,changes) : 0
   let anchor=discoveryCount>0 || matchCount(latestText,against:criticalConflict)>0 || thematic>=2
   return PlotBeatAssessment(informationChange:information,contradiction:contradiction,
-   unresolvedMystery:mystery,narrativeAnchor:anchor,storyDevelopment:thematic,dialogueBreak:true,evidenceIDs:latest.map(\.id))
+   unresolvedMystery:mystery,narrativeAnchor:anchor,storyDevelopment:thematic,visualTransitions:visualTransitions,dialogueBreak:true,evidenceIDs:latest.map(\.id))
  }
  static func likelyQuestionMoment(_ values:[PlotEvidence],position:Double,minQuietSeconds:Double=1.8)->Bool {
   assess(values,position:position,minQuietSeconds:minQuietSeconds).isCandidate
