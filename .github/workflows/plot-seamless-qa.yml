@@ -1,12 +1,12 @@
-name: Verify story-turn prompts and iPad package
+name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [feat/plot-story-turn-awareness-20261013]
+    branches: [fix/plot-story-turn-ci-20261013]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: story-turn-${{ github.ref }}
+  group: story-turn-ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   ipad:
@@ -24,15 +24,30 @@ jobs:
           python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath plot-build
           python3 tools/patch_prism_swift61.py plot-build/SourcePackages/checkouts/PrismCore
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO build
-      - name: Validate plot route, OAuth, event cues, and UI entrances
+      - name: Choose stable iPad simulator
         run: |
           set -euo pipefail
           xcrun simctl list devices available -j > /tmp/plot-simulators.json
           DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/plot-simulators.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
+          echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Validate all native core tests serially
+        run: |
+          set -euo pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
+            -parallel-testing-enabled NO \
             -only-testing:TogetherPoCCoreTests \
+            test
+      - name: Validate three watch UI regressions serially
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO \
+            -parallel-testing-enabled NO \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen \
             -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff \
@@ -40,12 +55,12 @@ jobs:
       - name: Package verified unsigned IPA
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.3-StoryTurn-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.3-StoryTurn-Validated-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           shasum -a 256 plot-delivery/TogetherPlayer-0.6.3-StoryTurn-unsigned.ipa > plot-delivery/SHA256SUMS.txt
           printf "Source branch: %s\nSource SHA: %s\nCI: iPad build and regression tests succeeded\n" "$GITHUB_REF_NAME" "$GITHUB_SHA" > plot-delivery/BUILD.txt
           printf "Requires in-person Apple AI and official ChatGPT OAuth validation before release. No server deployed.\n" >> plot-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.3-StoryTurn-candidate
+          name: TogetherPlayer-iPad-v0.6.3-StoryTurn-Validated-candidate
           path: plot-delivery/
           retention-days: 7
