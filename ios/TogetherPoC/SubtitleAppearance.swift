@@ -33,7 +33,21 @@ struct NativeSubtitleTimeline {
    // presentation time in either callback order. The nonempty cue wins.
    if text.isEmpty && !events[index].text.isEmpty {return}
    events[index]=Event(time:time,text:text)
-  } else {events.append(Event(time:time,text:text));events.sort {$0.time<$1.time}}
+  } else {
+   // Most native callbacks are monotonic, including callbacks delivered ahead
+   // of playback. Avoid sorting the full two-hour history on every subtitle.
+   if events.last.map({$0.time<=time}) ?? true {events.append(Event(time:time,text:text))}
+   else {
+    var low=0,high=events.count
+    while low<high {
+     let middle=(low+high)/2
+     if events[middle].time<time {low=middle+1} else {high=middle}
+    }
+    events.insert(Event(time:time,text:text),at:low)
+   }
+   // Bound long-running sessions without discarding recent subtitle context.
+   if events.count>24_000 {events.removeFirst(events.count-20_000)}
+  }
  }
  // Only completed text intervals can enter plot prompts; ahead-of-playback
  // legible callbacks and an open-ended final cue must never leak future text.
