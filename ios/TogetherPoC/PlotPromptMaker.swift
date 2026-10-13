@@ -8,6 +8,9 @@ struct PlotQuestion:Codable,Equatable {
  let choices:[String]
  let source:String
  var evidenceIDs:[String]=[]
+ // Exact short quote from a recently displayed subtitle, used to validate
+ // that a generated question genuinely refers to what viewers just saw.
+ var anchorQuote:String?=nil
  var kind:String="prediction"
  var blocking=false
 }
@@ -43,6 +46,6 @@ struct PlotQuestion:Codable,Equatable {
   guard text.count>=5 && text.count<=200 && choices.count>=2 else {return nil}
   let requested=obj["kind"] as? String ?? "prediction"
   let kind=["motive","contradiction","timeline","prediction","discussion"].contains(requested) ? requested : "discussion"
-  return PlotQuestion(text:text,choices:choices,source:"Apple 设备端 AI",evidenceIDs:obj["evidenceIDs"] as? [String] ?? [],kind:kind)
+  return PlotQuestion(text:text,choices:choices,source:"Apple 设备端 AI",evidenceIDs:obj["evidenceIDs"] as? [String] ?? [],anchorQuote:(obj["anchorQuote"] as? String)?.trimmingCharacters(in:.whitespacesAndNewlines),kind:kind)
  }
 }
