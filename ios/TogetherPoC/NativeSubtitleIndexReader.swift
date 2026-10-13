@@ -78,9 +78,6 @@ enum NativeSubtitleIndexReader {
   }
   return result.isEmpty ? nil : SubtitleDocument(result)
  }
- static func load(master:URL,track:Int)->SubtitleDocument? {
-  nil
- }
  static func fetch(master:URL,track:Int) async -> SubtitleDocument? {
   guard master.pathExtension.lowercased()=="m3u8",track>=0,
    ["http","https"].contains(master.scheme ?? "") else{return nil}
