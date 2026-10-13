@@ -15,9 +15,9 @@ final class PlotStoryStructureTests:XCTestCase {
   let parts=PlotStoryStructure.windows(document)
   XCTAssertGreaterThanOrEqual(parts.count,8)
   XCTAssertLessThanOrEqual(parts.count,18)
-  XCTAssertEqual(parts,parts.sorted{$0.start<$1.start},
+  XCTAssertEqual(parts.map(\.start),parts.map(\.start).sorted(),
    "Movie story sections must follow chronological order")
-  XCTAssertTrue(parts.allSatisfy{$0.cues.allSatisfy{$0.end<=$0.end && $0.end>$0.start}})
+  XCTAssertTrue(parts.allSatisfy{part in part.cues.allSatisfy{cue in cue.end<=part.end && cue.end>cue.start}})
   let beginning=try? XCTUnwrap(parts.first)
   if let beginning {
    let evidence=PlotStoryStructure.context(beginning,source:"embedded-subtitle")
@@ -69,7 +69,9 @@ final class PlotStoryStructureTests:XCTestCase {
    characters:["警方"],events:["调查"],motivations:[],relationships:[],
    unresolved:[],causalLinks:[],evidenceIDs:["a"],confidence:0.6)
   try await archive.write([node],key:"film-A")
-  XCTAssertEqual(await archive.read(key:"film-A"),[node])
-  XCTAssertEqual(await archive.read(key:"film-B"),[])
+  let restored=await archive.read(key:"film-A")
+  let other=await archive.read(key:"film-B")
+  XCTAssertEqual(restored,[node])
+  XCTAssertEqual(other,[])
  }
 }
