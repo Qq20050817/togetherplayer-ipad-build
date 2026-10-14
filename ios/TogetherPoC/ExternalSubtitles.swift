@@ -12,6 +12,12 @@ import AVFoundation
   preferences.set(convertPGSForAI,forKey:"plot-pgs-ai-srt-enabled")
   onAIOnlyPGSChanged?()
  }}
+ // The raw bitmap decoder is an unverified 4K/HDR experiment. Default OFF
+ // after a field-reported room PLAY crash; the AI OCR index remains independent.
+ @Published var originalPGSBitmapEnabled:Bool {didSet {
+  preferences.set(originalPGSBitmapEnabled,forKey:"plot-original-pgs-experimental-enabled")
+  onOriginalPGSBitmapChanged?()
+ }}
  @Published var delay=0.0 {didSet {refresh()}}
  @Published var fontSize:Double {didSet {preferences.set(SubtitleAppearance.font(fontSize),forKey:"subtitle-font-size")}}
  @Published var bottomFraction:Double {didSet {preferences.set(SubtitleAppearance.position(bottomFraction),forKey:"subtitle-bottom-fraction")}}
@@ -50,6 +56,7 @@ import AVFoundation
  var plotFullSubtitleIndexed:((SubtitleDocument,String,[PlotQuestionCheckpoint])->Void)?
  var plotFullFilmReset:(()->Void)?
  var onAIOnlyPGSChanged:(()->Void)?
+ var onOriginalPGSBitmapChanged:(()->Void)?
  private var plotWatched:[ClosedRange<Double>]=[]
  private var plotFilmKey=""
  private var lastNativeSelectionAuditAt=0.0
@@ -148,6 +155,7 @@ import AVFoundation
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
   self.player=player;self.preferences=preferences
   convertPGSForAI=preferences.object(forKey:"plot-pgs-ai-srt-enabled") as? Bool ?? true
+  originalPGSBitmapEnabled=preferences.object(forKey:"plot-original-pgs-experimental-enabled") as? Bool ?? false
   fontSize=SubtitleAppearance.font(preferences.object(forKey:"subtitle-font-size") as? Double ?? 24)
   bottomFraction=SubtitleAppearance.position(preferences.object(forKey:"subtitle-bottom-fraction") as? Double ?? 0.07)
   fontFamily=SubtitleFontFamily(rawValue:preferences.string(forKey:"subtitle-font-family") ?? "") ?? .system
@@ -197,12 +205,12 @@ import AVFoundation
   originalPGSEventTime = -.infinity
   updateOriginalPGS(at:player.currentTime().seconds)
  }
- private func clearOriginalPGS() {
+ func clearOriginalPGS() {
   originalPGSTrack=nil;originalPGSTimeline.clear()
   originalPGSEventTime = -.infinity;originalPGSFrame=nil
  }
  private func updateOriginalPGS(at time:Double) {
-  guard nativeEnabled,!enabled,originalPGSTrack != nil,
+  guard originalPGSBitmapEnabled,nativeEnabled,!enabled,originalPGSTrack != nil,
         time.isFinite,time>=0 else {
    if originalPGSFrame != nil {originalPGSFrame=nil}
    originalPGSEventTime = -.infinity;return
