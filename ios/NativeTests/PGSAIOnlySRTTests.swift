@@ -50,4 +50,26 @@ final class PGSAIOnlySRTTests:XCTestCase {
   XCTAssertNil(subtitles.nativeAISRT)
   XCTAssertFalse(subtitles.nativeIndexAIOnly)
  }
+ @MainActor func testRoomPlaybackSafetyDefaultsOriginalPGSOffAndLeavesAITextEnabled() {
+  let name="pgs-room-crash-safety-"+UUID().uuidString
+  guard let defaults=UserDefaults(suiteName:name) else {XCTFail("No test preferences");return}
+  defer {defaults.removePersistentDomain(forName:name)}
+  let subtitles=ExternalSubtitles(player:AVPlayer(),preferences:defaults)
+  XCTAssertFalse(subtitles.originalPGSBitmapEnabled,
+                 "Raw PGS extraction must be opt-in until physical iPad acceptance")
+  XCTAssertTrue(subtitles.convertPGSForAI,
+                "Disabling raw PGS must not disable the AI-only OCR transcript")
+  let transcript=SubtitleDocument([SubtitleCue(start:1,end:3,text:"仅供 AI 使用")])
+  subtitles.installNativeIndex(transcript,track:0,forAIOnly:true)
+  XCTAssertTrue(subtitles.nativeAISRT?.contains("仅供 AI 使用") == true)
+  XCTAssertNil(subtitles.originalPGSFrame)
+  subtitles.originalPGSBitmapEnabled=true
+  XCTAssertEqual(defaults.bool(forKey:"plot-original-pgs-experimental-enabled"),true)
+  subtitles.originalPGSBitmapEnabled=false
+  XCTAssertEqual(defaults.bool(forKey:"plot-original-pgs-experimental-enabled"),false)
+  XCTAssertNil(subtitles.originalPGSFrame)
+  XCTAssertTrue(subtitles.nativeAISRT?.contains("仅供 AI 使用") == true)
+  XCTAssertFalse(ExternalSubtitles(player:AVPlayer(),preferences:defaults).originalPGSBitmapEnabled)
+ }
+
 }
