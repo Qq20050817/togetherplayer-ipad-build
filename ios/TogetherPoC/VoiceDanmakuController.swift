@@ -114,6 +114,9 @@ private final class VoiceAudioSink {
   request.requiresOnDeviceRecognition=true;request.shouldReportPartialResults=true;request.taskHint = .dictation;request.addsPunctuation=true
   request.contextualStrings=VoiceVocabulary.hints(vocabularyHints)
   self.request=request;sink.set(request)
+  // The new request can buffer audio before recognition starts. Retire the
+  // old task first, without dropping microphone buffers between requests.
+  previousTask?.cancel()
   task=recognizer.recognitionTask(with:request) { [weak self] result,error in
    Task { @MainActor in
     guard let self=self,self.generation==current,self.recognitionGeneration==segment else {return}
@@ -137,9 +140,6 @@ private final class VoiceAudioSink {
     }
    }
   }
-  // Switch the audio sink first: a completed request must not keep receiving
-  // buffers, and cancelling it must not create a gap in the next request.
-  previousTask?.cancel()
  }
  private func complete(_ current:Int) {
   guard current==generation,state == .finishing else {return}
