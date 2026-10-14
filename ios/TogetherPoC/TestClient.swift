@@ -243,6 +243,15 @@ import CoreMedia
     self.prepareNativeSubtitleIndex(item:item,track:self.selectedSubtitleIndex)
    }
   }
+  externalSubtitles.onOriginalPGSBitmapChanged={ [weak self] in
+   guard let self else{return}
+   if !self.externalSubtitles.originalPGSBitmapEnabled {
+    self.originalPGSDecodeTask?.cancel();self.originalPGSDecodeTask=nil
+    self.externalSubtitles.clearOriginalPGS()
+   } else if self.selectedSubtitleIndex>=0,let item=self.adapter.player.currentItem {
+    self.prepareOriginalPGSBitmap(item:item,track:self.selectedSubtitleIndex)
+   }
+  }
   externalSubtitles.plotFullSubtitleIndexed={ [weak self] document,source,checkpoints in
    guard let self,let key=self.plotIntelligence.frame?()?.key else{return}
    self.plotIntelligence.prepareFullFilm(document,source:source,key:key,checkpoints:checkpoints)
@@ -511,17 +520,20 @@ import CoreMedia
  private func prepareOriginalPGSBitmap(item:AVPlayerItem,track:Int) {
   originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
   guard track==0,!externalSubtitles.enabled,
+        externalSubtitles.originalPGSBitmapEnabled,
         let streamIndex=mkvRemux.uniquePGSStreamIndex,
         let original=currentOriginalURL,original.isFileURL else{return}
   let generation=mediaLoadGeneration
   originalPGSDecodeTask=Task { [weak self,weak item] in
-   let events=await Task.detached(priority:.utility) {
+   let decoder=Task.detached(priority:.utility) {
     OriginalPGSFileExtractor.extract(url:original,streamIndex:streamIndex)
-   }.value
+   }
+   let events=await withTaskCancellationHandler(operation:{await decoder.value},onCancel:{decoder.cancel()})
    guard !Task.isCancelled,!events.isEmpty,let self,let item,
          generation==self.mediaLoadGeneration,
          self.adapter.player.currentItem === item,
          !self.externalSubtitles.enabled,
+         self.externalSubtitles.originalPGSBitmapEnabled,
          self.selectedSubtitleIndex==track else{return}
    self.externalSubtitles.installOriginalPGS(events,track:track)
   }
