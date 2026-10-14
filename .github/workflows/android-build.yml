@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
@@ -52,7 +52,11 @@ jobs:
         if: always()
         run: |
           mkdir -p android-delivery/screenshots
-          cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-Android.apk
+          if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
+            cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-Android-0.6.4-MOVRecovery.apk
+            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.4-MOVRecovery.apk > SHA256SUMS.txt)
+            printf 'Source SHA: %s\nAndroid: 0.6.4\nScope: local content/file malformed MOV container fallback to LibVLC; room PLAY unchanged.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -73,3 +77,39 @@ jobs:
             android/app/build/reports/
             android/app/build/outputs/androidTest-results/
           retention-days: 7
+
+  release-verified-android:
+    name: Publish direct experimental APK (no ZIP)
+    needs: android-build
+    if: ${{ success() && github.ref_name == 'fix/android-local-mov-container-fallback-20261014' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Verify current-run APK checksum and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-phone --dir verified
+          grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
+          (cd verified && sha256sum -c SHA256SUMS.txt)
+          test -s verified/TogetherPlayer-Android-0.6.4-MOVRecovery.apk
+      - name: Release direct APK only after all tests pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v0.6.4-local-mov-recovery-android-preview"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Tag already exists; refusing to overwrite existing assets." >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            verified/TogetherPlayer-Android-0.6.4-MOVRecovery.apk \
+            verified/BUILD.txt verified/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "TogetherPlayer Android 0.6.4 - Local MOV container recovery (experimental)" \
+            --notes "Experimental Android direct APK, no ZIP. For local file/content sources only, ERROR_CODE_PARSING_CONTAINER_MALFORMED now attempts the existing LibVLC compatible playback path rather than stopping at an ExoPlayer parsing error. Does not auto-play before room state allows it, download remote media again, or change room synchronization/server. Original 2160p x265 MOV, two-person playback and iPad crash remain unverified until device tests. Keeps older Android 0.6.3, iPad 0.6.15 and all server/router services intact."
