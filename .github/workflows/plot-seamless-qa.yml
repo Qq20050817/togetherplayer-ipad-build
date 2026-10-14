@@ -1,7 +1,7 @@
 name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013, fix/ipad-embedded-subtitle-selection-20261013, fix/ipad-visual-frame-sampling-20261013, fix/ipad-native-caption-autoprompt-20261014, feat/ipad-story-question-checkpoints-20261014, build/ipad-story-checkpoints-macos15-20261014, fix/ipad-seek-burst-stability-20261014, feat/ipad-native-subtitle-ai-index-20261014, delivery/ipad-0.6.14-story-graph-verified-20261014, feat/ipad-pgs-ai-only-srt-20261014, feat/ipad-pgs-bitmap-overlay-prototype-20261014, feat/ipad-pgs-overlay-view-wiring-20261014, feat/ipad-pgs-original-decoder-local-20261014, feat/ipad-pgs-local-robustness-20261014]
+    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013, fix/ipad-embedded-subtitle-selection-20261013, fix/ipad-visual-frame-sampling-20261013, fix/ipad-native-caption-autoprompt-20261014, feat/ipad-story-question-checkpoints-20261014, build/ipad-story-checkpoints-macos15-20261014, fix/ipad-seek-burst-stability-20261014, feat/ipad-native-subtitle-ai-index-20261014, delivery/ipad-0.6.14-story-graph-verified-20261014, feat/ipad-pgs-ai-only-srt-20261014, feat/ipad-pgs-bitmap-overlay-prototype-20261014, feat/ipad-pgs-overlay-view-wiring-20261014, feat/ipad-pgs-original-decoder-local-20261014, feat/ipad-pgs-local-robustness-20261014, fix/ipad-room-play-crash-isolate-pgs-20261014]
   workflow_dispatch:
 permissions:
   contents: read
@@ -77,13 +77,13 @@ jobs:
       - name: Package verified unsigned IPA
         run: |
           set -euo pipefail
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.15-PGSLocal-EXPERIMENTAL-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          shasum -a 256 plot-delivery/TogetherPlayer-0.6.15-PGSLocal-EXPERIMENTAL-unsigned.ipa > plot-delivery/SHA256SUMS.txt
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.16-RoomPlay-SAFEMODE-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 plot-delivery/TogetherPlayer-0.6.16-RoomPlay-SAFEMODE-unsigned.ipa > plot-delivery/SHA256SUMS.txt
           printf "Source branch: %s\nSource SHA: %s\nCI: iPad build and regression tests succeeded\n" "$GITHUB_REF_NAME" "$GITHUB_SHA" > plot-delivery/BUILD.txt
-          printf "Experimental LOCAL-file-only original PGS bitmap: bounded 256 MiB read and 16M decoded pixels, unique PGS stream, image palette playback overlay, and separate AI-only OCR SRT. Not for remote HTTP, Baidu, SMB or NAS as original PGS overlay. Not verified on a real iPad or with full-length PGS movies; prior 0.6.14 is preserved. No Android/server/router changes.\\n" >> plot-delivery/BUILD.txt
+          printf "Experimental room PLAY crash isolation: original PGS bitmap decoder now defaults OFF and is manually opt-in while paused. AI-only OCR SRT remains available. Host PLAY with two presence members covered in core tests, but real-device playback and original crash cause remain unverified. Movie/room/server unchanged. No ZIP; direct unsigned IPA.\\n" >> plot-delivery/BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-v0.6.15-PGSLocal-EXPERIMENTAL-candidate
+          name: TogetherPlayer-iPad-v0.6.16-RoomPlay-SAFEMODE-candidate
           path: plot-delivery/
           retention-days: 7
 
@@ -105,7 +105,7 @@ jobs:
   publish_direct_ipa:
     name: Publish verified direct IPA (no ZIP)
     needs: ipad
-    if: ${{ success() && github.ref_name == 'feat/ipad-pgs-local-robustness-20261014' }}
+    if: ${{ success() && github.ref_name == 'fix/ipad-room-play-crash-isolate-pgs-20261014' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -117,26 +117,26 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.15-PGSLocal-EXPERIMENTAL-candidate --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-v0.6.16-RoomPlay-SAFEMODE-candidate --dir verified
           test -f verified/BUILD.txt
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           cd verified
           sed 's|plot-delivery/||g' SHA256SUMS.txt | sha256sum -c -
-          test -f TogetherPlayer-0.6.15-PGSLocal-EXPERIMENTAL-unsigned.ipa
+          test -f TogetherPlayer-0.6.16-RoomPlay-SAFEMODE-unsigned.ipa
       - name: Release direct unsigned IPA after all regressions pass
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="v0.6.15-pgs-local-preview-ipad-20261014"
+          tag="v0.6.16-room-play-safe-preview-ipad-20261014"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists; refusing to overwrite existing assets." >&2
             exit 1
           fi
           gh release create "$tag" \
-            verified/TogetherPlayer-0.6.15-PGSLocal-EXPERIMENTAL-unsigned.ipa \
+            verified/TogetherPlayer-0.6.16-RoomPlay-SAFEMODE-unsigned.ipa \
             verified/SHA256SUMS.txt verified/BUILD.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --prerelease \
-            --title "TogetherPlayer iPad 0.6.15 · Local-only original PGS bitmap preview" \
-            --notes "UNSIGNED EXPERIMENTAL direct IPA, no ZIP. Local file PGS original palette bitmap overlay plus separate AI-only OCR SRT path. Original image extraction is bounded (256 MiB input, 16 million pixels): some movie duration may fall back to normal selected native captions. Raw bitmap feature does not yet support Baidu network, router SMB, or remote HTTP source; playback on a physical iPad and all 4K/HDR cases still need user acceptance. No existing 0.6.14 assets, Android, server, router, or active services are changed. Sign with the user\x27s trusted signing method before installing."
+            --title "TogetherPlayer iPad 0.6.16 · Room PLAY safety diagnostic (PGS opt-in)" \
+            --notes "UNSIGNED EXPERIMENTAL iPad 0.6.16 stability diagnosis, direct IPA no ZIP. User reported immediate app exit when the host presses PLAY with two people in the room. This candidate disables additional original bitmap PGS demux by default and adds manual opt-in only while paused, cooperative cancellation and a two-member host PLAY protocol regression. AI OCR SRT remains separate from viewing subtitles. It is not yet proven to fix the iPad crash: true crash logs and two-device 4K playback acceptance are required. Older 0.6.15, 0.6.14, Android and server preserved. Do not enable experimental original PGS bitmaps until confirmed stable. Install by applying your own trusted signature."
