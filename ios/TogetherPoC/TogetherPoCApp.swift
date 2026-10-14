@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
  }
 }
 @MainActor struct TestView: View {
- @ObservedObject var model: TestClient
+ let model: TestClient
  @ObservedObject var chat: ChatEngine
  var body: some View {
   TabView {
@@ -144,9 +144,7 @@ import UniformTypeIdentifiers
   VStack(spacing:12) {
    Picker("侧栏",selection:$sidebar) {Text("聊天").tag(0);Text("成员 \(model.members.count)").tag(1);Text("列表").tag(2)}.pickerStyle(.segmented)
    if sidebar==0 {ChatPanel(model:model,chat:chat)}
-   else if sidebar==1 {ScrollView {VStack(alignment:.leading,spacing:16) {ForEach(model.members) {member in
-    HStack {Image(systemName:"person.crop.circle.fill").font(.title);VStack(alignment:.leading) {Text(member.name);Text(member.buffering ? "缓冲中" : member.online ? "在线" : "离线").font(.caption).foregroundColor(member.online ? .green : .secondary)};Spacer();Text(PlaybackMonitor.time(member.position/1000)).font(.caption.monospaced())}
-   };if model.members.isEmpty {Text("加入房间后显示成员").foregroundStyle(.secondary)}}}}
+   else if sidebar==1 {RoomMemberPanel(roster:model.roster)}
    else {ScrollView {VStack(alignment:.leading,spacing:12) {ForEach(model.library.items) {item in Button {model.playLibraryItem(item)} label:{Label(item.title,systemImage:"film").lineLimit(2)}.disabled(!model.isRoomHost)};if model.library.items.isEmpty {Text("在下方添加影片到播放列表").font(.caption).foregroundStyle(.secondary)}}}}
   }.padding(14).frame(height:height).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20)).overlay {RoundedRectangle(cornerRadius:20).stroke(Color.white.opacity(0.07))}
  }
@@ -701,6 +699,14 @@ struct RoomActionStyle:ButtonStyle {
    .animation(.easeOut(duration:configuration.isPressed ? 0.08 : 0.14),value:configuration.isPressed)
  }
 }
+@MainActor struct RoomMemberPanel:View {
+ @ObservedObject var roster:RoomRosterState
+ var body:some View {
+  ScrollView {LazyVStack(alignment:.leading,spacing:16) {ForEach(roster.members) {member in
+   HStack {Image(systemName:"person.crop.circle.fill").font(.title);VStack(alignment:.leading) {Text(member.name);Text(member.buffering ? "缓冲中" : member.online ? "在线" : "离线").font(.caption).foregroundColor(member.online ? .green : .secondary)};Spacer();Text(PlaybackMonitor.time(member.position/1000)).font(.caption.monospaced())}
+  };if roster.members.isEmpty {Text("加入房间后显示成员").foregroundStyle(.secondary)}}}
+ }
+}
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
@@ -728,7 +734,7 @@ struct RoomActionStyle:ButtonStyle {
      Label(model.playbackTitle,systemImage:"doc").font(.subheadline).lineLimit(3).textSelection(.enabled)
      DisclosureGroup("设置房间影片") {
       VStack(alignment:.leading,spacing:14) {
-       TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder)
+       TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder).accessibilityIdentifier("room-movie-title")
        TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
        RoomMediaAction(model:model,feedback:model.mediaFeedback)
       }.padding(.top,12)

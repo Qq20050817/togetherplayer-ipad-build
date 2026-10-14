@@ -201,6 +201,25 @@ final class WatchInterfaceTests: XCTestCase {
    XCTAssertEqual(app.state,.runningForeground,"第\(cycle+1)次退出全屏后 App 不能退出运行")
   }
  }
+ func testRoomScrollingKeepsExpandedInputsAndNavigationUsable() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let settings=app.buttons["打开房间与片源"].firstMatch
+  XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
+  let expanded=app.buttons["设置房间影片"].firstMatch
+  for _ in 0..<4 {if expanded.isHittable {break};app.swipeUp()}
+  XCTAssertTrue(expanded.isHittable);expanded.tap()
+  let title=app.textFields["room-movie-title"].firstMatch
+  XCTAssertTrue(title.waitForExistence(timeout:5))
+  let original=title.value as? String
+  for _ in 0..<3 {app.swipeUp()}
+  XCTAssertEqual(app.state,.runningForeground)
+  for _ in 0..<5 {if title.isHittable {break};app.swipeDown()}
+  XCTAssertTrue(title.isHittable,"scrolling back must retain expanded inputs")
+  XCTAssertEqual(title.value as? String,original)
+  app.buttons["完成"].firstMatch.tap()
+  XCTAssertTrue(settings.waitForExistence(timeout:5))
+ }
  func testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
