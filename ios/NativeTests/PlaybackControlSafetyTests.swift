@@ -15,6 +15,24 @@ private final class DeferredSeekPlayer:AVPlayer {
 }
 
 @MainActor final class PlaybackControlSafetyTests:XCTestCase {
+ func testBlockedMainActorCoalescesRefreshesAndAcceptsNextPulse() async throws {
+  let pulse=MainActorPulse()
+  var refreshes=0
+  for _ in 0..<1000 {pulse.request {refreshes+=1}}
+  XCTAssertEqual(refreshes,0)
+  try await drainCompletion()
+  XCTAssertEqual(refreshes,1,"stale timer updates must not form a backlog")
+  pulse.request {refreshes+=1}
+  try await drainCompletion()
+  XCTAssertEqual(refreshes,2,"coalescing must not stop future refreshes")
+ }
+ func testRecoveryPrerollRejectsPlayingWaitingAndControlTransitions() {
+  XCTAssertFalse(RecoveryBufferPolicy.canPreroll(prepared:true,pausedIntent:false,nativePaused:true,controlPending:false),"scheduled play is not a safe preroll window")
+  XCTAssertFalse(RecoveryBufferPolicy.canPreroll(prepared:true,pausedIntent:true,nativePaused:false,controlPending:false),"buffering or playing must not enter preroll")
+  XCTAssertFalse(RecoveryBufferPolicy.canPreroll(prepared:true,pausedIntent:true,nativePaused:true,controlPending:true),"a pending seek/pause must settle first")
+  XCTAssertFalse(RecoveryBufferPolicy.canPreroll(prepared:false,pausedIntent:true,nativePaused:true,controlPending:false))
+  XCTAssertTrue(RecoveryBufferPolicy.canPreroll(prepared:true,pausedIntent:true,nativePaused:true,controlPending:false))
+ }
  private func readyPlayer() async throws -> (DeferredSeekPlayer,URL) {
   let url=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".mp4")
   try TestMovieFixture.mp4.write(to:url)

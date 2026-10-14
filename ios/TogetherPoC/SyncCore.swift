@@ -1,6 +1,23 @@
 import Foundation
 import AVFoundation
 
+// Timer callbacks may queue while decoding or a UI transition holds the main
+// actor. Keep one pending refresh, rather than replaying stale refreshes later.
+final class MainActorPulse: @unchecked Sendable {
+ private let lock=NSLock()
+ private var pending=false
+ func request(_ action:@escaping @MainActor @Sendable ()->Void) {
+  lock.lock()
+  if pending {lock.unlock();return}
+  pending=true;lock.unlock()
+  Task {@MainActor [self] in
+   defer {finish()}
+   action()
+  }
+ }
+ private func finish() {lock.lock();pending=false;lock.unlock()}
+}
+
 protocol PlayerAdapter: AnyObject {
  func play(); func pause(); func seekTo(_ milliseconds: Double)
  var position: Double { get }; var duration: Double { get }
@@ -281,6 +298,11 @@ final class SyncEngine {
 
 // A non-empty buffer alone must not trigger a room-wide automatic resume.
 enum RecoveryBufferPolicy {
+ // AVPlayer preroll requires a paused player. A transient rate of zero while
+ // waiting/seeking is not a safe paused state, nor is a scheduled PLAY.
+ static func canPreroll(prepared:Bool,pausedIntent:Bool,nativePaused:Bool,controlPending:Bool)->Bool {
+  prepared && pausedIntent && nativePaused && !controlPending
+ }
  static func ready(prepared: Bool,bufferedMs: Double,positionMs: Double,durationMs: Double,recovering: Bool,preparedFallback: Bool=false) -> Bool {
   guard prepared else {return false}
   guard recovering else {return true}
