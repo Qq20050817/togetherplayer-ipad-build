@@ -167,7 +167,12 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(updatedBrightness.hasPrefix("亮度"))
   XCTAssertTrue(app.buttons["退出全屏"].exists)
   surface.press(forDuration:0.7)
-  app.buttons["退出全屏"].tap()
+  // XCTest can wait for UI idleness beyond the genuine ten-second deadline.
+  // Reveal the idle-hidden controls through the actual movie touch surface.
+  let exit=app.buttons["退出全屏"].firstMatch
+  if !exit.exists {surface.tap()}
+  XCTAssertTrue(exit.waitForExistence(timeout:5))
+  exit.tap()
   XCTAssertTrue(app.buttons["全屏观影"].firstMatch.waitForExistence(timeout:6),"退出全屏后主界面必须恢复")
   XCTAssertEqual(app.state,.runningForeground,"退出全屏不能导致 App 闪退")
   XCTAssertFalse(app.otherElements["fullscreen-gesture-surface"].exists)
