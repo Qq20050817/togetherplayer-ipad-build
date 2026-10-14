@@ -50,6 +50,20 @@ import CoreVideo
   XCTAssertTrue(model.fullFilmPreparationStatus.contains("预备题1道"))
   XCTAssertEqual(model.requests,0,"background local preparation must not spend ChatGPT requests")
  }
+ func testCloudOnlyQuestionWorkDoesNotCancelLocalPreparation() async throws {
+  let model=controller(),past=evidence(),key="cloud-local-parallel-"+UUID().uuidString
+  model.mode = .chatgpt
+  model.frame={PlotFrame(key:key,position:130,evidence:past)}
+  model.storyModelAvailable={true}
+  model.storyInference={_,_ in try await Task.sleep(nanoseconds:50_000_000);return "{}"}
+  let ready=question(past)
+  model.storyQuestionInference={_ in ready}
+  await model.collect()
+  model.generate()
+  for _ in 0..<100 {if model.preparedQuestionCount>0 {break};try await Task.sleep(nanoseconds:10_000_000)}
+  XCTAssertEqual(model.preparedQuestionCount,1,"a cloud-only request must not cancel zero-cost local preparation")
+  XCTAssertEqual(model.requests,0,"no cloud authorization is configured in this regression")
+ }
  func testFullDocumentCannotBypassWatchedEvidenceGate() async throws {
   let model=controller(),past=evidence()
   model.frame={PlotFrame(key:"watched-only-"+past[0].id,position:130,evidence:past)}
