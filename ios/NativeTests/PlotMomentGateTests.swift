@@ -62,20 +62,98 @@ final class PlotMomentGateTests:XCTestCase {
   ]
   XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(isolated,position:28))
  }
+ func testThrillerResearchThreatAndPlanGenerateCandidateWithoutSpoilers() {
+  // Generic, already-watched fictional dialogue from a visually driven thriller.
+  // Avoid any reliance on a specific copyrighted film's transcript.
+  let sample=[
+   cue(4,"研究人员正在整理新的实验样本。"),
+   cue(8,"这项实验和之前的样本完全不同。"),
+   cue(12,"病毒已经扩散到原先隔离的地区。"),
+   cue(16,"公司决定继续进行这个计划。"),
+   cue(20,"那些克隆体的记忆为什么被修改？"),
+   cue(24,"研究小组发现样本仍然存活。")
+  ]
+  let result=PlotMomentGate.assess(sample,position:28)
+  XCTAssertGreaterThanOrEqual(result.storyDevelopment,2)
+  XCTAssertTrue(result.isCandidate,"a credible plot development should reach real AI verification")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(sample,position:24.5),"never interrupt dialogue too early")
+ }
+ func testSingleTopicOrSilentActionDoesNotInventAQuestion() {
+  let ordinary=[
+   cue(4,"今天研究了一个新的咖啡杯。"),
+   cue(8,"我们计划下午一起去公园散步。"),
+   cue(12,"咖啡杯还有漂亮的图案。"),
+   cue(16,"我准备把它送给朋友。"),
+   cue(20,"晚上再看看其他杯子。")
+  ]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(ordinary,position:24))
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment([],position:1200),"no subtitles means no scene-level evidence")
+ }
+ func testOnDeviceSceneChangeOnlyAfterFourAlreadyPlayedSamples() {
+  func scene(_ end:Double,_ category:String)->PlotEvidence {
+   PlotEvidence.cue(start:end-0.2,end:end,
+    text:"本地视觉模型推测：画面可能包含\(category)。仅为画面分类，不能证明情节。",
+    source:"ondevice-vision")
+  }
+  let scenes=[
+   scene(10,"室内环境"),scene(30,"屏幕或设备"),
+   scene(50,"实验或医疗环境"),scene(70,"户外环境")
+  ]
+  let candidate=PlotMomentGate.assess(scenes,position:75)
+  XCTAssertTrue(candidate.isCandidate)
+  XCTAssertGreaterThanOrEqual(candidate.visualTransitions,2)
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(scenes,position:70.3),
+   "never pause before the new visual observation's quiet window")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(scenes,position:65),
+   "future frame labels must be excluded")
+  let staticScene=[
+   scene(10,"室内环境"),scene(30,"室内环境"),
+   scene(50,"室内环境"),scene(70,"室内环境")
+  ]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(staticScene,position:75))
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment([],position:300))
+ }
+ func testVisualClassificationIsConservativeAndNeverUsesActorsOrMovieIdentity() {
+  XCTAssertEqual(PlotSceneTagger.category("hospital_room"),"实验或医疗环境")
+  XCTAssertEqual(PlotSceneTagger.category("city_street"),"户外环境")
+  XCTAssertNil(PlotSceneTagger.category("Alice Project clone 123"))
+  let groups=PlotSceneTagger.candidateLabels([
+   ("hospital_room",0.8),("medical_scene",0.5),
+   ("sky",0.15),("unknown_object",0.9)
+  ])
+  XCTAssertEqual(groups.count,1,"deduplicate categories and require confidence")
+  XCTAssertEqual(groups.first?.0,"实验或医疗环境")
+ }
  func testImportantQuestionMustCiteFreshSubtitleEvidence() {
   let values=(0..<12).map{cue(Double(4+$0*4),"关于那天的真相我们仍有一些疑问和没有解释的地方")}
   let context=PlotContext(cutoff:60,recent:values,earlier:[],predictions:[])
   let old=PlotQuestion(text:"这两种线索如何解释？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[0].id])
-  let fresh=PlotQuestion(text:"新发现的线索意味着什么？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
+  let unrelated=PlotQuestion(text:"新发现的线索意味着什么？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
+  let fresh=PlotQuestion(text:"那天的真相为什么仍有疑问？",choices:["一","二"],source:"ChatGPT",evidenceIDs:[values[11].id])
   XCTAssertFalse(PlotMomentGate.questionIsTimely(old,context:context))
+  XCTAssertFalse(PlotMomentGate.questionIsTimely(unrelated,context:context),"Valid ID alone must not approve an unrelated plot question")
   XCTAssertTrue(PlotMomentGate.questionIsTimely(fresh,context:context))
  }
- func testFailedAttemptsBackOffWithoutBlockingNextRealTurnForTenMinutes() {
+ func testAdaptiveSparseRevelationCanQualifyWithoutFourLongSubtitleLines() {
+  let sparse=[
+   cue(4,"昨天他说自己一直在家"),
+   cue(8,"警方发现新的监控录像"),
+   cue(12,"可是这和他之前说的明显矛盾")
+  ]
+  XCTAssertTrue(PlotMomentGate.likelyQuestionMoment(sparse,position:16),
+   "Three related, finished revelations are enough to ask a real model")
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(sparse,position:12.3),
+   "Never interrupt mid-cue")
+  let ordinary=[cue(4,"今天去买牛奶"),cue(8,"顺路买了一份面包"),cue(12,"我们随后就回家了")]
+  XCTAssertFalse(PlotMomentGate.likelyQuestionMoment(ordinary,position:16),
+   "Short ordinary conversation must never become a forced question")
+ }
+ func testFailedAttemptsAndSuccessfulQuestionsHaveSeparateCooldowns() {
   XCTAssertTrue(PlotMomentGate.canAttempt(position:100,lastAttempt:-.infinity,lastPublished:-.infinity))
-  XCTAssertFalse(PlotMomentGate.canAttempt(position:190,lastAttempt:100,lastPublished:-.infinity))
-  XCTAssertTrue(PlotMomentGate.canAttempt(position:230,lastAttempt:100,lastPublished:-.infinity))
-  XCTAssertFalse(PlotMomentGate.canAttempt(position:630,lastAttempt:100,lastPublished:100))
-  XCTAssertTrue(PlotMomentGate.canAttempt(position:700,lastAttempt:100,lastPublished:100))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:189,lastAttempt:100,lastPublished:-.infinity))
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:190,lastAttempt:100,lastPublished:-.infinity))
+  XCTAssertFalse(PlotMomentGate.canAttempt(position:350,lastAttempt:100,lastPublished:100))
+  XCTAssertTrue(PlotMomentGate.canAttempt(position:400,lastAttempt:100,lastPublished:100))
   XCTAssertFalse(PlotMomentGate.canAttempt(position:50,lastAttempt:230,lastPublished:100))
  }
  func testRapidDialogueAndPastMomentDoNotInterrupt() {

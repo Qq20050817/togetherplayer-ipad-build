@@ -1,19 +1,20 @@
 import SwiftUI
 
-/// A deliberately opt-in, small-footprint discussion panel. It never pauses
-/// synchronized playback and never sends subtitles/film data to the server.
+/// Question settings survive dismissal. Blocking votes pause playback through
+/// the room protocol; raw film/subtitles are never sent to the room server.
 @MainActor struct PlotPollPanel: View {
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
+ @ObservedObject var visuals:PlotVisualSampler
+ @ObservedObject var subtitles:ExternalSubtitles
  @Environment(\.dismiss) private var dismiss
  @State private var selected=""
  @State private var custom=""
  @State private var editQuestion=""
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
- @State private var pauseForPoll=false
- init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth}
+ init(model:TestClient) {self.model=model;self.intelligence=model.plotIntelligence;self.auth=model.plotIntelligence.auth;self.visuals=model.visualSampler;self.subtitles=model.externalSubtitles}
  var body:some View {
   NavigationStack {
    ScrollView {
@@ -25,7 +26,7 @@ import SwiftUI
       VStack(alignment:.leading,spacing:12) {
        Label("正在投票 · \(Int(((poll["positionMs"] as? Double ?? 0)/1000)/60)) 分钟",systemImage:"theatermasks.fill").font(.headline)
        Text(title).font(.title3.bold())
-       if model.plotPollWaiting {Label("请双方回答后继续播放",systemImage:"pause.circle.fill")}
+       if model.plotPollWaiting {Label(poll["solo"] as? Bool == true ? "回答后继续播放" : "请双方回答后继续播放",systemImage:"pause.circle.fill")}
        if !model.plotPollSubmitted {
         ForEach(options,id:\.self) {option in
          Button {selected=option;custom=""} label:{
@@ -41,22 +42,24 @@ import SwiftUI
          .buttonStyle(.borderedProminent)
        } else {Label("你已经回答，答案已锁定",systemImage:"checkmark.seal.fill")}
        if revealed {
-        Text("双方均已回答 · 观点对照").font(.headline)
+        Text(poll["solo"] as? Bool == true ? "回答已提交" : "双方均已回答 · 观点对照").font(.headline)
         ForEach(model.plotPollAnswers.keys.sorted(),id:\.self){userID in
          let name=model.members.first(where:{$0.userId==userID})?.name ?? (userID==model.plotMyUserID ? "我":"好友")
          Text("\(name)：\(model.plotPollAnswers[userID] ?? "")").padding(8)
           .frame(maxWidth:.infinity,alignment:.leading).background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius:8))
         }
-       } else {Text("双方都提交以后才公开答案，避免互相影响。").font(.caption).foregroundStyle(.secondary)}
+       } else {Text(poll["solo"] as? Bool == true ? "提交回答后即可继续观影。" : "双方都提交以后才公开答案，避免互相影响。").font(.caption).foregroundStyle(.secondary)}
       }
       .id(id)
      } else {Text("还没有剧情问题。房主可以根据已播放的字幕出一道题；没有字幕也能使用免费问题模板。")
       .foregroundStyle(.secondary)}
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
       Divider()
+      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "未知") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "未知")")
+       .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
       if !model.isConnected {Text("房间已断线：仍可在本机生成问题预览，重新连接后才能发布给好友。").font(.caption).foregroundStyle(.orange)}
-      Toggle("答题后继续播放",isOn:$pauseForPoll).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
-      Text(model.supportsBlockingPolls ? "开启后发布题目时暂停，双方答完才恢复；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
+      Toggle("答题后继续播放",isOn:$intelligence.pauseForQuestions).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
+      Text(model.supportsBlockingPolls ? "设置会保存，关闭此窗口仍有效。单人答完即可恢复；双人需双方答完；原本已暂停则保持暂停。" : "当前服务器尚未支持此模式；需先部署试验服务端。")
        .font(.caption).foregroundStyle(.secondary)
       if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}}
       Toggle("重要剧情自动暂停并提问",isOn:$intelligence.eventDrivenEnabled)
@@ -64,11 +67,34 @@ import SwiftUI
        .accessibilityIdentifier("plot-event-driven")
       Text("优先识别新事实、前后矛盾与尚未解开的悬念，避开密集对白；只有可靠的 AI 问题才会暂停双方，答完后同步继续。两次自动暂停至少间隔10分钟，不在固定时间点出题。")
        .font(.caption2).foregroundStyle(.secondary)
+      Toggle("试验：分析已观看电影画面",isOn:$visuals.enabled)
+       .accessibilityIdentifier("plot-visual-experiment")
+      Text(visuals.enabled ? "已开启：设备每约18秒分析一次已播放画面，仅保存粗略场景标签；不保存截图、不向服务器上传图像，关闭可立即停止。" : "默认关闭，避免在闪退原因未确认前增加解码负担；开启后利用本机 Vision 补充无对白画面的线索。")
+       .font(.caption2).foregroundStyle(.secondary)
+      Text("画面识别：\(visuals.status)")
+       .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
+      Toggle("PGS 图像字幕 OCR 仅供 AI 使用",isOn:$subtitles.convertPGSForAI)
+       .accessibilityIdentifier("plot-pgs-ai-only-srt")
+      Toggle("试验：原版 PGS 位图显示（默认关闭）",isOn:$subtitles.originalPGSBitmapEnabled)
+       .disabled(model.adapter.player.rate>0)
+       .accessibilityIdentifier("plot-original-pgs-bitmap-experimental")
+      Text("安全模式默认关闭额外的原版 PGS 位图解码，避免与双人播放启动争抢视频解码资源。AI OCR/SRT 不受影响。真机验证前请保持关闭；仅在影片暂停时可切换。")
+       .font(.caption2).foregroundStyle(.secondary)
+      Text("默认开启：OCR 文字生成本机 AI 专用 SRT，不修改电影文件、不切换观看字幕轨道。真正的原版 PGS 位图显示还取决于播放器底层支持。")
+       .font(.caption2).foregroundStyle(.secondary)
+      if !subtitles.nativeIndexStatus.isEmpty {
+       Text("内置字幕：\(subtitles.nativeIndexStatus)")
+        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-native-subtitle-index")
+      }
+      Text("全片 AI 预分析：\(intelligence.fullFilmPreparationStatus)")
+       .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-full-film-preanalysis")
+      Text("自动提问状态：\(intelligence.autoTriggerStatus)")
+       .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-auto-trigger-status")
       if let beat=intelligence.latestBeat {
-       Text("最近字幕信号（非 AI 结论）：新线索 \(beat.informationChange)/3 · 矛盾 \(beat.contradiction)/3 · 悬念 \(beat.unresolvedMystery)/3 · \(beat.isCandidate ? "候选转折" : "继续观影")")
+       Text("最近字幕信号（非 AI 结论）：新线索 \(beat.informationChange)/3 · 矛盾 \(beat.contradiction)/3 · 悬念 \(beat.unresolvedMystery)/3 · 剧情变化 \(beat.storyDevelopment)/4 · 画面变化 \(beat.visualTransitions)/3 · \(beat.isCandidate ? "候选转折" : "继续观影")")
         .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-beat-signal")
       }
-      Text("暂通过已播放字幕判断，不能识别无对白的重要镜头；没有可靠剧情依据时不会自动暂停。")
+      Text("默认通过已播放字幕判断；可选的画面试验只提供场景分类线索，仍无法准确还原动作与人物身份。只有真实 AI 生成有证据支持的问题才暂停。")
        .font(.caption2).foregroundStyle(.secondary)
       if model.isConnected && !model.supportsBlockingPolls {
        Text("当前房间服务端未声明支持同步答题暂停。为避免出现无法自动恢复的情况，自动提问暂不触发；需要升级到已测试的阻塞答题服务端。")
@@ -76,7 +102,7 @@ import SwiftUI
       }
       Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases){mode in Text(mode.title).tag(mode)}}
        .pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
-      Text("苹果本地 AI：\(PlotLocalAI.availabilityDetail) · 已采集字幕线索：\(model.externalSubtitles.observedPlotEvidence().count) 条")
+      Text("苹果本地 AI：\(PlotLocalAI.availabilityDetail) · 本机已采集字幕线索：\(intelligence.collectedSubtitleCount) 条")
        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
       Text("ChatGPT：\(auth.integrationReady ? "已授权" : "未完成本应用授权") · 智能云端调用：\(intelligence.automaticAllowed ? "允许" : "关闭") · 剧情隐私同意：\(intelligence.consent ? "已开启" : "未开启") · Credits 保护确认：\(intelligence.creditsDisabled ? "已确认" : "未确认")")
        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
@@ -99,9 +125,9 @@ import SwiftUI
        TextField("问题预览（可以编辑）",text:$editQuestion,axis:.vertical).textFieldStyle(.roundedBorder).accessibilityIdentifier("plot-question-preview")
        ForEach(editOptions.indices,id:\.self) {index in TextField("候选选项 \(index+1)",text:$editOptions[index]).textFieldStyle(.roundedBorder)}
        Button("重新生成（同片段不会重复调用云端）") {intelligence.generate(regenerate:true)}.disabled(intelligence.working)
-       Button("发布问题给两个人") {
+       Button("发布问题并回答") {
         guard intelligence.previewUsable else {return}
-        let edited=PlotQuestion(text:editQuestion.trimmingCharacters(in:.whitespacesAndNewlines),choices:editOptions.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)},source:draft.source,evidenceIDs:draft.evidenceIDs,kind:draft.kind,blocking:pauseForPoll)
+        let edited=PlotQuestion(text:editQuestion.trimmingCharacters(in:.whitespacesAndNewlines),choices:editOptions.map{$0.trimmingCharacters(in:.whitespacesAndNewlines)},source:draft.source,evidenceIDs:draft.evidenceIDs,kind:draft.kind,blocking:intelligence.pauseForQuestions)
         model.publishPlotPoll(edited)
        }.disabled(!model.isConnected || !(5...200).contains(editQuestion.count) || editOptions.contains(where:{$0.isEmpty || $0.count>80}) || Set(editOptions).count != editOptions.count).accessibilityIdentifier("plot-publish")
       }

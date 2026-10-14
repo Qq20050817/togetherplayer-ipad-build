@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import TogetherPoC
 
 final class PlotMemoryTests:XCTestCase {
@@ -118,6 +119,84 @@ final class PlotMemoryTests:XCTestCase {
  }
 }
 @MainActor final class PlotControllerTests:XCTestCase {
+ func testPlannedCheckpointStartsDiscussionReviewEvenWithoutKeywords() async throws {
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let controller=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  controller.mode = .smart
+  controller.eventDrivenEnabled=true
+  controller.mayPublishAutomatically={true}
+  controller.automaticAvailabilityReason={nil}
+  controller.isSubtitleCurrentlyShown={false}
+  let cues=[
+   PlotEvidence.cue(start:100,end:102,text:"他们走进了房间",source:"embedded-subtitle"),
+   PlotEvidence.cue(start:110,end:112,text:"两个人开始互相交谈",source:"embedded-subtitle"),
+   PlotEvidence.cue(start:120,end:122,text:"刚才那个人好像有所顾虑",source:"embedded-subtitle")
+  ]
+  controller.frame={PlotFrame(key:"scheduled-observed-only",position:130,evidence:cues,plannedCheckpoint:125)}
+  controller.subtitleChanged("")
+  for _ in 0..<30 {
+   if controller.autoTriggerStatus.contains("预规划"){break}
+   try await Task.sleep(nanoseconds:20_000_000)
+  }
+  XCTAssertTrue(controller.autoTriggerStatus.contains("预规划"),
+   "An evidence-backed scheduled checkpoint should reach real-AI review without keyword triggers")
+  XCTAssertNil(controller.result,"Planning does not fabricate a free-template question")
+  XCTAssertEqual(controller.requests,0,"No cloud inference is dispatched before the natural quiet check")
+  controller.playbackJumped()
+ }
+
+ func testSameFilmReconnectRetainsSavedSubtitlesAndNewFilmStaysIsolated() async throws {
+  let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  defer {try? FileManager.default.removeItem(at:root)}
+  let film=PlotMemoryStore.key("room-film-A"),other=PlotMemoryStore.key("room-film-B")
+  var cues:[PlotEvidence]=[]
+  for i in 0..<8 {
+   let start=Double(i)*4
+   let text="已播放的第"+String(i)+"句字幕"
+   cues.append(PlotEvidence.cue(start:start,end:start+2,text:text,source:"embedded-subtitle"))
+  }
+  _ = try await PlotMemoryStore(directory:root).ingest(cues,cutoff:50,key:film)
+  // A fresh store/controller simulates the reopened transport and player.
+  let controller=PlotIntelligence(memory:PlotMemoryStore(directory:root),preferences:UserDefaults(suiteName:UUID().uuidString)!)
+  controller.frame={PlotFrame(key:film,position:50,evidence:[])}
+  await controller.collect()
+  XCTAssertEqual(controller.collectedSubtitleCount,cues.count)
+  controller.frame={PlotFrame(key:film,position:18,evidence:[])}
+  await controller.collect()
+  XCTAssertEqual(controller.collectedSubtitleCount,cues.count,"rewind retains local memory while contexts still obey the cutoff")
+  let stored=await PlotMemoryStore(directory:root).load(film)
+  let context=stored.context(at:18)
+  XCTAssertTrue(context.recent.allSatisfy{$0.end<=18})
+  controller.frame={PlotFrame(key:other,position:50,evidence:[])}
+  XCTAssertEqual(controller.collectedSubtitleCount,0,"never show another film's evidence before loading")
+  await controller.collect()
+  XCTAssertEqual(controller.collectedSubtitleCount,0)
+ }
+ func testSubtitleDocumentSurvivesReconnectButClearsForNewFilm() async throws {
+  let player=AVPlayer()
+  let subtitles=ExternalSubtitles(player:player,preferences:UserDefaults(suiteName:UUID().uuidString)!)
+  let temp=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".srt")
+  defer {try? FileManager.default.removeItem(at:temp)}
+  try Data("1\n00:00:01,000 --> 00:00:03,000\n已经观看的字幕\n".utf8).write(to:temp)
+  subtitles.beginPlotFilm("film-A")
+  let imported=await subtitles.importFile(temp)
+  XCTAssertTrue(imported)
+  XCTAssertTrue(subtitles.available)
+  subtitles.beginPlotFilm("film-A")
+  XCTAssertTrue(subtitles.available,"same-film reconnect must not discard imported subtitles")
+  subtitles.beginPlotFilm("film-B")
+  XCTAssertFalse(subtitles.available,"a genuinely different film must not inherit subtitles")
+ }
+ func testAutoPromptExplainsUnavailableRoomAndFreeModel() {
+  let model=TestClient(automaticallyConnect:false)
+  model.plotIntelligence.eventDrivenEnabled=true
+  model.plotIntelligence.mode = .smart
+  model.plotIntelligence.subtitleChanged("")
+  XCTAssertTrue(model.plotIntelligence.autoTriggerStatus.contains("房间"),"no room must not silently skip")
+  model.plotIntelligence.mode = .fallback
+  model.plotIntelligence.subtitleChanged("")
+  XCTAssertTrue(model.plotIntelligence.autoTriggerStatus.contains("手动"),"free questions require explicit manual request")
+ }
  func testUnansweredBlockingPollRejectsPlaybackLocally() {
   let model=TestClient(automaticallyConnect:false)
   model.plotPoll=["waitingForAnswers":true]
@@ -130,7 +209,12 @@ final class PlotMemoryTests:XCTestCase {
   let store=PlotMemoryStore(directory:nil)
   let controller=PlotIntelligence(memory:store,preferences:preferences)
   controller.mode = .chatgpt;controller.automaticAllowed=false;controller.consent=false;controller.creditsDisabled=false
-  let cues=(0..<3).map{PlotEvidence.cue(start:Double($0*3),end:Double($0*3+2),text:"已经发生的对话\($0)",source:"test")}
+  var cues:[PlotEvidence]=[]
+  for i in 0..<3 {
+   let start=Double(i)*3
+   let phrase="已经发生的对话"+String(i)
+   cues.append(PlotEvidence.cue(start:start,end:start+2,text:phrase,source:"test"))
+  }
   let frame=PlotFrame(key:"guard-test",position:10,evidence:cues)
   controller.frame={frame}
   // A previously cached free-template question must not masquerade as ChatGPT.
@@ -166,7 +250,11 @@ final class PlotMemoryTests:XCTestCase {
   for _ in 0..<80 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
   XCTAssertNil(controller.result)
   XCTAssertEqual(controller.selectedModel,"苹果本地 AI 未出题")
-  XCTAssertTrue(controller.reason.contains("暂不可用"))
+  // Device/OS/model readiness produce different truthful diagnostics on CI.
+  // Require the real availability reason and never accept a template as AI.
+  XCTAssertTrue(controller.reason.contains(PlotLocalAI.availabilityDetail),
+   "Explicit local mode must surface the current device-model availability reason")
+  XCTAssertFalse(controller.reason.contains("免费备用题库"))
  }
  func testSmartModeNeverMasqueradesAsFreeTemplateWithoutAvailableModels() async throws {
   guard !PlotLocalAI.available else {return}
@@ -186,6 +274,19 @@ final class PlotMemoryTests:XCTestCase {
   XCTAssertEqual(controller.selectedModel,"智能模式未出题")
   XCTAssertTrue(controller.reason.contains("ChatGPT") || controller.reason.contains("设备端模型"))
   XCTAssertEqual(controller.requests,0)
+ }
+ func testQuestionPauseSettingPersistsAcrossControllerRecreationAndCancellation() {
+  let preferences=UserDefaults(suiteName:UUID().uuidString)!
+  let initial=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  XCTAssertTrue(initial.pauseForQuestions,"answer-before-resume is the default requested behavior")
+  initial.pauseForQuestions=false
+  initial.cancel()
+  let reopened=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  XCTAssertFalse(reopened.pauseForQuestions)
+  reopened.pauseForQuestions=true
+  reopened.cancel()
+  let relaunched=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:preferences)
+  XCTAssertTrue(relaunched.pauseForQuestions)
  }
   func testDefaultsDisableCloudAndLimitIsUserConfigurable() {
   let preferences=UserDefaults(suiteName:UUID().uuidString)!
@@ -210,5 +311,22 @@ final class PlotMemoryTests:XCTestCase {
   for _ in 0..<30 {if !controller.working {break};try await Task.sleep(nanoseconds:20_000_000)}
   XCTAssertEqual(controller.result?.source,"免费备用题库");XCTAssertEqual(controller.requests,0)
   controller.cancel();XCTAssertFalse(controller.working)
+ }
+}
+
+
+final class PlotVisualFrameClockTests:XCTestCase {
+ func testSamplesCurrentFrameAndNeverLooksAhead() throws {
+  let near=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:CMTime(seconds:30.02,preferredTimescale:600),playhead:30))
+  XCTAssertEqual(near.seconds,30,accuracy:0.002)
+  let behind=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:CMTime(seconds:29.99,preferredTimescale:600),playhead:30))
+  XCTAssertEqual(behind.seconds,29.99,accuracy:0.002)
+  XCTAssertGreaterThan(behind.seconds,29.75,"Video output must not query an old quarter-second offset")
+ }
+ func testInvalidHostClockFallsBackSafelyToKnownPlayhead() throws {
+  let time=try XCTUnwrap(PlotVisualFrameClock.itemTime(host:.invalid,playhead:22))
+  XCTAssertEqual(time.seconds,22,accuracy:0.002)
+  XCTAssertNil(PlotVisualFrameClock.itemTime(host:.invalid,playhead:.nan))
+  XCTAssertNil(PlotVisualFrameClock.itemTime(host:.invalid,playhead:-1))
  }
 }

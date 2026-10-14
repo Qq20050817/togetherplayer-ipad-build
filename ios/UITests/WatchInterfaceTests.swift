@@ -7,10 +7,10 @@ final class WatchInterfaceTests: XCTestCase {
   app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
   app.launchEnvironment["TOGETHER_PLOT_AUTOPAUSE_UI_TEST"]="1"
   app.launch()
-  XCTAssertTrue(app.navigationBars["🎭 剧情推理室"].firstMatch.waitForExistence(timeout:15),
+  XCTAssertTrue(app.otherElements["plot-question-drawer"].firstMatch.waitForExistence(timeout:15),
    "A new blocking room question should open without tapping the plot toolbar")
   XCTAssertTrue(app.staticTexts["刚才的两种解释为何相互矛盾？"].firstMatch.exists)
-  XCTAssertTrue(app.staticTexts["请双方回答后继续播放"].firstMatch.exists)
+  XCTAssertTrue(app.staticTexts["双方回答后继续"].firstMatch.exists)
  }
  func testPlotAIEntrancesRemainVisibleInWatchAndFullscreen() {
   let app=XCUIApplication()
@@ -35,6 +35,31 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["完成"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5),"关闭 AI 面板不应退出全屏")
  }
+ func testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
+  app.launch()
+  let open=app.buttons["watch-header-plot-ai-button"].firstMatch
+  XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  let setting=app.switches["plot-blocking-mode"].firstMatch
+  XCTAssertTrue(setting.waitForExistence(timeout:5))
+  XCTAssertTrue(setting.isEnabled)
+  let original=setting.value as? String
+  XCTAssertTrue(original=="0" || original=="1")
+  setting.tap()
+  let changed=original=="1" ? "0" : "1"
+  XCTAssertEqual(setting.value as? String,changed)
+  app.buttons["完成"].firstMatch.tap();open.tap()
+  XCTAssertTrue(setting.waitForExistence(timeout:5))
+  XCTAssertEqual(setting.value as? String,changed,"dismissal must preserve the setting")
+  app.terminate();app.launch()
+  XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  XCTAssertTrue(setting.waitForExistence(timeout:5))
+  XCTAssertEqual(setting.value as? String,changed,"relaunch must preserve the setting")
+  XCTAssertTrue(app.staticTexts["plot-client-version"].exists)
+  setting.tap() // Restore the prior preference for other tests.
+ }
  func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
@@ -45,7 +70,10 @@ final class WatchInterfaceTests: XCTestCase {
   let modePicker=app.descendants(matching:.any)["plot-ai-mode"].firstMatch
   XCTAssertTrue(modePicker.waitForExistence(timeout:8))
   let generate=app.buttons["plot-ai-generate"].firstMatch
-  XCTAssertTrue(generate.waitForExistence(timeout:8));generate.tap()
+  XCTAssertTrue(generate.waitForExistence(timeout:8))
+  let movieLoaded=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:generate)
+  XCTAssertEqual(XCTWaiter.wait(for:[movieLoaded],timeout:30),.completed,"real movie must load before generating")
+  generate.tap()
   let preview=app.descendants(matching:.any)["plot-question-preview"].firstMatch
   let previewAppeared=preview.waitForExistence(timeout:15)
   let diagnostic=app.staticTexts["plot-ai-reason"].firstMatch
@@ -60,6 +88,40 @@ final class WatchInterfaceTests: XCTestCase {
  // iPadOS 26 can report the old button frame while the first orientation
  // transition is still settling. Confirm the actual fullscreen presentation
  // before querying sliders shared with the ordinary watch screen.
+ func testLocalMKVPlaybackControlsSurviveInterleavedTransportActions() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_TRACK_PLAYBACK_TEST"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  enterFullscreen(app)
+  let progress=app.sliders["movie-progress"].firstMatch
+  let loaded=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:progress)
+  XCTAssertEqual(XCTWaiter.wait(for:[loaded],timeout:30),.completed)
+  let back=app.buttons["后退10秒"].firstMatch
+  let forward=app.buttons["前进10秒"].firstMatch
+  for _ in 0..<5 {
+   if app.buttons["播放"].firstMatch.exists {app.buttons["播放"].firstMatch.tap()}
+   forward.tap();back.tap()
+   if app.buttons["暂停"].firstMatch.exists {app.buttons["暂停"].firstMatch.tap()}
+   progress.adjust(toNormalizedSliderPosition:0.3)
+   XCTAssertEqual(app.state,.runningForeground,"transport actions must not terminate the app")
+  }
+  app.buttons["退出全屏"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["全屏观影"].firstMatch.waitForExistence(timeout:5))
+ }
+ func testFullscreenQuestionRailDoesNotCoverTheMovie() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_AUTOPAUSE_UI_TEST"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  XCTAssertTrue(app.otherElements["plot-question-drawer"].firstMatch.waitForExistence(timeout:15))
+  enterFullscreen(app)
+  let drawer=app.otherElements["plot-question-drawer"].firstMatch, movie=app.otherElements["fullscreen-movie"].firstMatch
+  XCTAssertTrue(drawer.waitForExistence(timeout:8));XCTAssertTrue(movie.exists)
+  XCTAssertLessThanOrEqual(movie.frame.maxX,drawer.frame.minX+1,"question rail must reserve space beside the film")
+  XCTAssertGreaterThan(movie.frame.width,app.windows.firstMatch.frame.width*0.5)
+  app.buttons["收起剧情问题"].firstMatch.tap()
+  XCTAssertFalse(drawer.exists);XCTAssertTrue(movie.exists)
+  XCTAssertTrue(app.buttons["待回答"].firstMatch.exists,"closing must keep the unanswered question reachable")
+ }
  private func enterFullscreen(_ app:XCUIApplication) {
   let full=app.buttons["全屏观影"].firstMatch
   let movie=app.otherElements["fullscreen-movie"].firstMatch
@@ -372,9 +434,15 @@ final class WatchInterfaceTests: XCTestCase {
   if !app.buttons["set-room-media"].exists {section.tap()}
   let button=app.buttons["set-room-media"]
   XCTAssertTrue(button.waitForExistence(timeout:5))
-  let start=button.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
-  start.press(forDuration:0.1,thenDragTo:start.withOffset(CGVector(dx:0,dy:-180)),withVelocity:.slow,thenHoldForDuration:0.5)
-  XCTAssertTrue(button.isHittable);XCTAssertTrue(button.isEnabled);button.tap()
+  // Scroll from within the actual viewport, not from an offscreen button.
+  let viewport=app.scrollViews.containing(.button,identifier:"set-room-media").firstMatch
+  for _ in 0..<4 {
+   if button.isHittable {break}
+   viewport.swipeUp()
+  }
+  let visible=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isHittable == true"),object:button)
+  XCTAssertEqual(XCTWaiter.wait(for:[visible],timeout:8),.completed)
+  XCTAssertTrue(button.isEnabled);button.tap()
   let feedback=app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","片源链接无效或包含账户凭据")).firstMatch
   XCTAssertTrue(feedback.waitForExistence(timeout:5));XCTAssertTrue(feedback.isHittable)
   capture("09-room-media-feedback",app)

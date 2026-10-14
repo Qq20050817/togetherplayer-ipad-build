@@ -82,6 +82,10 @@ import SwiftUI
      Form {
       Picker("录音上限",selection:$voice.maxSeconds) {ForEach([30.0,60.0,120.0],id:\.self) {Text("\(Int($0)) 秒").tag($0)}}
       Picker("文字上限",selection:$voice.maxCharacters) {ForEach([120,300,500],id:\.self) {Text("\($0) 字").tag($0)}}
+      Section("常用词与人名") {
+       TextField("每行一个，例如人物名字或经常识别错的词",text:$voice.vocabularyHints,axis:.vertical).lineLimit(3...6).accessibilityIdentifier("voice-vocabulary-hints")
+       Text("仅用于本地识别提示，最多 100 个词，每词最多 30 字。提示能帮助专有词识别，仍可能出现同音字错误；请检查后确认发送。")
+      }
       Text("收音提示阈值 \(voice.threshold, specifier:"%.3f")")
       Slider(value:$voice.threshold,in:0.001...0.1).accessibilityLabel("收音提示阈值")
       Text("阈值仅用于电平提示，不再切除小声讲话。外放时使用的是 iPad 内置麦克风，请靠近设备说话；电影对白仍可能混入，请检查文字后确认。耳机更可靠。")

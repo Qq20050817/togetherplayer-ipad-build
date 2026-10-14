@@ -25,6 +25,9 @@ import UniformTypeIdentifiers
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_PLOT_UI_TEST"]=="1" {
     try? LocalPickerUITestFixture.install(into:model)
+    // The picker fixture only creates a file and a mock room. Use a real
+    // loaded movie for the production "currentItem != nil" generation guard.
+    try? model.installTrackPlaybackFixture()
     model.isRoomHost=true;model.isConnected=true;model.supportsBlockingPolls=true
     model.plotIntelligence.mode = .fallback
     model.plotIntelligence.automaticAllowed=false;model.plotIntelligence.consent=false;model.plotIntelligence.creditsDisabled=false
@@ -49,13 +52,17 @@ import UniformTypeIdentifiers
  @ObservedObject var chat: ChatEngine
  @State private var fullscreen=false
  @State private var plotPollOpen=false
+ @State private var questionOpen=false
  @State private var settings=false
  @State private var sidebar=0
  var body: some View {
   GeometryReader {geometry in
-   let wide=geometry.size.width>=900 && geometry.size.width>geometry.size.height
-   let sideWidth=wide ? min(320,geometry.size.width*0.26) : 0
-   let movieWidth=geometry.size.width-(wide ? sideWidth+48 : 32)
+   let railWidth=min(340,geometry.size.width*0.32)
+   let availableWidth=geometry.size.width-(questionOpen ? railWidth+12 : 0)
+   let wide=availableWidth>=900 && availableWidth>geometry.size.height
+   let sideWidth=wide ? min(320,availableWidth*0.26) : 0
+   let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
+   HStack(spacing:12) {
    VStack(spacing:12) {
     header
     ScrollView {
@@ -68,7 +75,9 @@ import UniformTypeIdentifiers
       VStack(spacing:12) {watchCard(height:movieWidth * CGFloat(9.0/16.0));sidePanel(height:300);MediaLibraryPanel(model:model,library:model.library);actions}
      }
     }
-   }.padding(16)
+   }
+   if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
+   }.padding(16).animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen)
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
@@ -76,10 +85,10 @@ import UniformTypeIdentifiers
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil,!fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
-    plotPollOpen=true
+    questionOpen=true
    }
    .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
-    if revealed==true && model.plotPoll?["blocking"] as? Bool == true {plotPollOpen=false}
+    if revealed==true && model.plotPoll?["blocking"] as? Bool == true {questionOpen=false}
    }
  }
  private var header: some View {
@@ -91,6 +100,7 @@ import UniformTypeIdentifiers
  private var brand: some View {Button {settings=true} label:{Label("一起看",systemImage:"person.2.fill").font(.title3.bold()).foregroundColor(.white)}.accessibilityLabel("打开房间与片源")}
  private var headerActions: some View {
   HStack(spacing:12) {
+   if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.buttonStyle(.borderedProminent)}
    ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Image(systemName:"link").frame(width:36,height:36)}.disabled(!model.isConnected)
    Button {settings=true} label:{Image(systemName:"gearshape").frame(width:36,height:36)}.accessibilityLabel("房间设置")
    Button {plotPollOpen=true} label:{Label("AI",systemImage:"sparkles").font(.caption.bold()).padding(.horizontal,8).frame(minHeight:36)}
@@ -151,7 +161,7 @@ import UniformTypeIdentifiers
  @ObservedObject var model: TestClient
  @ObservedObject var playback: PlaybackMonitor
  var body: some View {
-  HStack(spacing:8) {Circle().fill(model.isConnected ? (playback.buffering ? .orange : .green) : .gray).frame(width:9,height:9);Text(model.isConnected ? "\(playback.buffering ? "等待缓冲" : playback.playing ? "正在同步播放" : "已暂停") · \(model.members.count)人" : "未连接房间").font(.caption);Image(systemName:"waveform").foregroundColor(.blue)}.padding(.horizontal,14).padding(.vertical,10).background(Color.white.opacity(0.07)).clipShape(Capsule())
+  HStack(spacing:8) {Circle().fill(model.isConnected ? (playback.buffering ? .orange : .green) : .gray).frame(width:9,height:9);Text(model.isConnected ? "\(playback.buffering ? "等待缓冲" : playback.playing ? "播放中" : "已暂停") · \(model.members.count)人" : "未连接房间").font(.caption);Image(systemName:"waveform").foregroundColor(.blue)}.padding(.horizontal,14).padding(.vertical,10).background(Color.white.opacity(0.07)).clipShape(Capsule())
  }
 }
 @MainActor struct MediaLibraryPanel: View {
@@ -201,6 +211,9 @@ import UniformTypeIdentifiers
    ZStack(alignment:.bottom) {
     Color.black
     StableVideo(player:player).equatable().allowsHitTesting(false)
+    if let original=subtitles.originalPGSFrame {
+     OriginalPGSBitmapOverlay(frame:original,container:geometry.size,picture:picture)
+    }
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
     }
@@ -242,18 +255,35 @@ struct SubtitleHeightKey:PreferenceKey {
  }
  private var volumeButton:some View {Button {adjustingVolume=true} label:{Image(systemName:volume>0 ? "speaker.wave.2" : "speaker.slash")}.accessibilityLabel("播放音量").popover(isPresented:$adjustingVolume) {volumeControl.frame(width:220).padding(20)}}
  private var progressRow:some View {
-   HStack(spacing:10) {
-    Text(PlaybackMonitor.time(dragging ? target : playback.position)).font(.caption.monospacedDigit()).frame(minWidth:45)
-    Slider(value:Binding(get:{dragging ? target : playback.position},set:{target=$0;dragging=true}),in:0...max(1,playback.duration),onEditingChanged:{editing in if editing && !dragging {target=playback.position};dragging=editing;if !editing {model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))}}).disabled(playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
-    Text(PlaybackTime.remaining(duration:playback.duration,position:dragging ? target : playback.position)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
-   }
+  let duration=playback.duration.isFinite ? max(1,playback.duration) : 1
+  let current=playback.position.isFinite ? min(duration,max(0,playback.position)) : 0
+  let displayed=dragging ? min(duration,max(0,target)) : current
+  return HStack(spacing:10) {
+   Text(PlaybackMonitor.time(displayed)).font(.caption.monospacedDigit()).frame(minWidth:45)
+   Slider(value:Binding(get:{dragging ? min(duration,max(0,target)) : current},set:{value in
+    target=value.isFinite ? min(duration,max(0,value)) : current
+    dragging=true
+   }),in:0...duration,onEditingChanged:{editing in
+    if editing {
+     if !dragging {target=current}
+     dragging=true
+    } else {
+     let destination=min(duration,max(0,target))
+     dragging=false
+     if playback.duration.isFinite && playback.duration>0 {
+      model.control("SEEK",position:max(0,destination*1000-model.engine.timelineOffset))
+     }
+    }
+   }).disabled(!playback.duration.isFinite || playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
+   Text(PlaybackTime.remaining(duration:playback.duration,position:displayed)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
+  }
  }
  private var transport: some View {
   HStack(spacing:compact ? 12 : 22) {
    Button {model.neighboringMedia(-1)} label:{Image(systemName:"backward.end.fill")}.disabled(!model.canMoveMedia(-1)).accessibilityLabel("上一部影片")
-   Button {model.control("SEEK",position:max(0,model.adapter.position-model.engine.timelineOffset-10000))} label:{Image(systemName:"gobackward.10")}.accessibilityLabel("后退10秒")
+   Button {model.skipBy(-10000)} label:{Image(systemName:"gobackward.10")}.accessibilityLabel("后退10秒")
    Button {model.control(model.requestedPlaying ? "PAUSE" : "PLAY")} label:{Image(systemName:model.requestedPlaying ? "pause.fill" : "play.fill").foregroundColor(.black).frame(width:compact ? 42 : 56,height:compact ? 42 : 56).background(Color.white).clipShape(Circle())}.accessibilityLabel(model.requestedPlaying ? "暂停" : "播放")
-   Button {model.control("SEEK",position:model.adapter.position-model.engine.timelineOffset+10000)} label:{Image(systemName:"goforward.10")}.accessibilityLabel("前进10秒")
+   Button {model.skipBy(10000)} label:{Image(systemName:"goforward.10")}.accessibilityLabel("前进10秒")
    Button {model.neighboringMedia(1)} label:{Image(systemName:"forward.end.fill")}.disabled(!model.canMoveMedia(1)).accessibilityLabel("下一部影片")
   }.font(.title2).foregroundColor(.white).buttonStyle(PlaybackTransportStyle())
  }
@@ -382,11 +412,15 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var adjustingSpeed=false
  @State private var gestureFeedback=""
  @State private var plotPollOpen=false
+ @State private var questionOpen=false
  @State private var plotHintVisible=false
  @State private var plotHintSequence=0
  @State private var screenBrightness=Double(UIScreen.main.brightness)
  var body: some View {
   GeometryReader {geometry in
+  let railWidth=min(340,geometry.size.width*0.30)
+  let playbackWidth=geometry.size.width-(questionOpen ? railWidth+10 : 0)
+  HStack(spacing:10) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
@@ -420,7 +454,7 @@ struct FullscreenToolStyle:ButtonStyle {
       Label("剧情讨论",systemImage:"theatermasks.fill").font(.caption.bold())
       Text(model.plotPoll?["question"] as? String ?? "有一道新问题").lineLimit(2).font(.caption)
      }.frame(maxWidth:340,alignment:.leading)
-     Button("回答") {plotHintVisible=false;plotPollOpen=true}
+     Button("回答") {plotHintVisible=false;questionOpen=true}
       .accessibilityIdentifier("plot-auto-open")
      Button("稍后") {plotHintVisible=false}
     }.font(.caption).padding(.horizontal,12).padding(.vertical,10)
@@ -445,6 +479,7 @@ struct FullscreenToolStyle:ButtonStyle {
       .font(.caption.monospacedDigit())
       .accessibilityIdentifier("fullscreen-brightness-readback")
      FullscreenDeviceStatus()
+     if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.buttonStyle(.borderedProminent)}
      Button {plotPollOpen=true} label:{Label("AI 推理",systemImage:"sparkles").font(.caption.bold())}
       .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("fullscreen-plot-ai-button")
      Button("退出全屏") {dismiss()}
@@ -460,8 +495,8 @@ struct FullscreenToolStyle:ButtonStyle {
      PlaybackControls(model:model,compact:true,modalChanged:{controls.setBusy("volume",$0)})
      // AnyLayout preserves the voice view identity when width changes. Recording
      // must not be cancelled because a fitting-layout candidate disappeared.
-     let layout=geometry.size.width>=1182 ? AnyLayout(HStackLayout(spacing:8)) : AnyLayout(VStackLayout(alignment:.leading,spacing:4))
-     layout {tools.frame(width:min(810,geometry.size.width-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
+     let layout=playbackWidth>=1182 ? AnyLayout(HStackLayout(spacing:8)) : AnyLayout(VStackLayout(alignment:.leading,spacing:4))
+     layout {tools.frame(width:min(810,playbackWidth-24));voiceDock.frame(maxWidth:.infinity,alignment:.trailing)}
     }.padding(.horizontal,12).padding(.vertical,6).background(Color(white:0.06))
      .accessibilityElement(children:.contain).accessibilityIdentifier("fullscreen-control-bar")
      .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
@@ -478,23 +513,23 @@ struct FullscreenToolStyle:ButtonStyle {
   }.background(Color.black).preferredColorScheme(.dark)
    // Do not install an outer tap recognizer over the UIKit movie touch surface.
    // It can cancel touch-ended delivery, leaving controls hidden after a tap.
-   .onAppear {screenBrightness=Double(UIScreen.main.brightness);scheduleHide()}
+   .onAppear {screenBrightness=Double(UIScreen.main.brightness);questionOpen=model.plotPollWaiting && !model.plotPollSubmitted;scheduleHide()}
    .onReceive(NotificationCenter.default.publisher(for:UIScreen.brightnessDidChangeNotification)) {_ in
     screenBrightness=Double(UIScreen.main.brightness)
    }
    .onDisappear {model.setSpeedHold(false);controls.cancel()}
    .onChange(of:composing) {value in
     controls.setBusy("composer",value)
-    if !value && model.plotPollWaiting && !model.plotPollSubmitted {plotHintVisible=false;plotPollOpen=true}
+    if !value && model.plotPollWaiting && !model.plotPollSubmitted {plotHintVisible=false;questionOpen=true}
    }
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
    .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
-    guard id != nil,!plotPollOpen else {return}
+    guard id != nil,!questionOpen else {return}
     if model.plotPollWaiting && !model.plotPollSubmitted && !composing {
      // The server pauses both viewers; open the question without extra taps.
-     plotHintVisible=false;plotPollOpen=true;return
+     plotHintVisible=false;questionOpen=true;return
     }
     // Nonblocking manually created polls retain the small optional hint.
     plotHintVisible=true;plotHintSequence+=1
@@ -507,9 +542,11 @@ struct FullscreenToolStyle:ButtonStyle {
    .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
    .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
     if revealed==true && model.plotPoll?["blocking"] as? Bool == true {
-     plotPollOpen=false;plotHintVisible=false
+     questionOpen=false;plotHintVisible=false
     }
    }
+   if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
+  }.animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen)
   }
  }
  private var tools:some View {

@@ -29,9 +29,12 @@ struct SavedMedia: Codable, Identifiable {
  @Published private(set) var buffering=false
  private let player: AVPlayer
  private var timer: Timer?
+ private let pulse=MainActorPulse()
  init(player: AVPlayer) {
   self.player=player
-  timer=Timer.scheduledTimer(withTimeInterval:0.5,repeats:true) {[weak self] _ in Task {@MainActor in self?.update()}}
+  let pulse=self.pulse
+  let timer=Timer(timeInterval:0.5,repeats:true) {[weak self] _ in pulse.request {[weak self] in self?.update()}}
+  self.timer=timer;RunLoop.main.add(timer,forMode:.common)
  }
  deinit {timer?.invalidate()}
  private func update() {

@@ -28,8 +28,12 @@ struct NativeSubtitleTimeline {
  mutating func clear() {events=[]}
  mutating func receive(text:String,time:Double) {
   guard time.isFinite else {return}
-  if let index=events.firstIndex(where:{abs($0.time-time)<0.001}) {events[index]=Event(time:time,text:text)}
-  else {events.append(Event(time:time,text:text));events.sort {$0.time<$1.time}}
+  if let index=events.firstIndex(where:{abs($0.time-time)<0.001}) {
+   // HLS can deliver a cue-end (empty) and a new cue-start at the same
+   // presentation time in either callback order. The nonempty cue wins.
+   if text.isEmpty && !events[index].text.isEmpty {return}
+   events[index]=Event(time:time,text:text)
+  } else {events.append(Event(time:time,text:text));events.sort {$0.time<$1.time}}
  }
  // Only completed text intervals can enter plot prompts; ahead-of-playback
  // legible callbacks and an open-ended final cue must never leak future text.

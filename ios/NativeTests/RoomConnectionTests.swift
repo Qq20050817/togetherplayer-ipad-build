@@ -91,6 +91,40 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertFalse(model.isSettingRoomMedia)
   XCTAssertEqual(sent.filter {$0["type"] as? String=="ROOM_MEDIA"}.count,2)
  }
+
+ @MainActor func testRapidDuplicatePlayIsSentOnlyOnceUntilAcknowledgement() throws {
+  var sent:[[String:Any]]=[]
+  let model=try client(sender:{sent.append($0)})
+  model.receive(welcome(),t4:0)
+  let now=model.clock.localNow()
+  model.clock.add(now,now,now,now)
+  model.control("PLAY")
+  model.control("PLAY")
+  model.control("PLAY")
+  XCTAssertEqual(sent.filter{($0["type"] as? String)=="PLAY"}.count,1)
+  XCTAssertTrue(model.feedback.playbackAction.contains("处理中"))
+ }
+ @MainActor func testTwoMembersHostPlayQueuesOneControlWithoutResettingRoom() throws {
+  var sent:[[String:Any]]=[]
+  let model=try client(sender:{sent.append($0)})
+  model.receive(welcome(),t4:0)
+  let host=RoomMember(userId:"host",name:"房主",timelineOffset:0,
+   duration:1800000,position:0,ready:true,buffering:false,online:true)
+  let guest=RoomMember(userId:"guest",name:"好友",timelineOffset:0,
+   duration:1800000,position:0,ready:true,buffering:false,online:true)
+  let roster=try JSONSerialization.jsonObject(with:JSONEncoder().encode([host,guest]))
+  model.receive(["type":"PRESENCE","members":roster],t4:0)
+  XCTAssertEqual(model.members.count,2)
+  XCTAssertTrue(model.isRoomHost)
+  let now=model.clock.localNow()
+  model.clock.add(now,now+100,now+100,now+200)
+  XCTAssertTrue(model.clock.ready)
+  model.control("PLAY")
+  let commands=sent.filter {$0["type"] as? String == "PLAY"}
+  XCTAssertEqual(commands.count,1)
+  XCTAssertTrue(model.isConnected)
+  XCTAssertEqual(model.engine.room?.roomId,"connection-test")
+ }
  @MainActor private func client(sender: (([String:Any])->Void)? = nil) throws -> TestClient {
   let credentials:[String:Any]=["roomId":"connection-test","userId":"host","token":String(repeating:"a",count:64)]
   UserDefaults.standard.set(try JSONSerialization.data(withJSONObject:credentials),forKey:"credentials")
