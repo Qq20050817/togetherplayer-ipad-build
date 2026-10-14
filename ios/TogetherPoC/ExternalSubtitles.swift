@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 import AVFoundation
+import CoreMedia
+import CoreFoundation
 
 @MainActor final class ExternalSubtitles: ObservableObject {
  @Published private(set) var name=""
@@ -159,10 +161,9 @@ import AVFoundation
     .filter{$0.end<=cutoff && watched($0.start,$0.end)}
     .map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"embedded-subtitle")}
   }
-  guard nativeTimeline.events.count>1 else{return []}
-  return zip(nativeTimeline.events,nativeTimeline.events.dropFirst())
-   .filter{!$0.0.text.isEmpty && $0.1.time<=cutoff && watched($0.0.time,$0.1.time)}
-   .map{PlotEvidence.cue(start:$0.0.time,end:$0.1.time,text:$0.0.text,source:"embedded-subtitle")}
+  return nativeTimeline.completedIntervals(before:cutoff)
+   .filter{watched($0.start,$0.end)}
+   .map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"embedded-subtitle")}
  }
 
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
@@ -226,7 +227,7 @@ import AVFoundation
  private func updateOriginalPGS(at time:Double) {
   guard originalPGSBitmapEnabled,nativeEnabled,!enabled,originalPGSTrack != nil,
         time.isFinite,time>=0 else {
-   if originalPGSFrame != nil {originalPGSFrame=nil}
+   if originalPGSFrame != nil {originalPGSFrame=nil;noteCaptionBoundary()}
    originalPGSEventTime = -.infinity;return
   }
   let events=originalPGSTimeline.events
@@ -245,10 +246,10 @@ import AVFoundation
   plotCaptionSequence+=1
   plotCaptionBoundaryChanged?()
  }
- fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
+ fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double,end:Double?=nil) {
   guard output === legibleOutput else {return}
   lastNativeCallbackAt=Date().timeIntervalSince1970
-  nativeTimeline.receive(text:text,time:time);updateStreamingIndexStatus();refresh()
+  nativeTimeline.receive(text:text,time:time,end:end);updateStreamingIndexStatus();refresh()
  }
  fileprivate func flushNative(_ output:AVPlayerItemLegibleOutput) {
   guard output === legibleOutput else {return}
@@ -331,7 +332,18 @@ final class SubtitleLegibleDelegate:NSObject,AVPlayerItemLegibleOutputPushDelega
  init(owner:ExternalSubtitles) {self.owner=owner}
  func legibleOutput(_ output:AVPlayerItemLegibleOutput,didOutputAttributedStrings strings:[NSAttributedString],nativeSampleBuffers:[Any],forItemTime itemTime:CMTime) {
   let text=strings.map(\.string).joined(separator:"\n")
-  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds)}
+  // When AVFoundation supplies real legible-sample durations, a caption can
+  // end accurately even if the track omits an explicit empty callback. Never
+  // invent a fixed duration or infer that speech ended merely from a timeout.
+  let durations=nativeSampleBuffers.compactMap {value -> Double? in
+   let reference=value as CFTypeRef
+   guard CFGetTypeID(reference)==CMSampleBufferGetTypeID() else{return nil}
+   let sample=reference as! CMSampleBuffer
+   let duration=CMSampleBufferGetOutputDuration(sample).seconds
+   return duration.isFinite && duration>0 ? duration : nil
+  }
+  let end=durations.max().map{itemTime.seconds+$0}
+  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds,end:end)}
  }
  func outputSequenceWasFlushed(_ output:AVPlayerItemOutput) {
   guard let output=output as? AVPlayerItemLegibleOutput else {return}

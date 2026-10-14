@@ -159,6 +159,25 @@ import XCTest
   XCTAssertFalse(model.publishPendingAutomaticQuestion())
   XCTAssertEqual(published,0)
  }
+ func testKnownCaptionDurationFinishesWithoutAnEmptyCallbackAndIsNotFutureEvidence() {
+  var timeline=NativeSubtitleTimeline()
+  timeline.receive(text:"正在说这一句话",time:10,end:14)
+  XCTAssertEqual(timeline.text(at:13.9),"正在说这一句话")
+  XCTAssertEqual(timeline.text(at:14),"")
+  XCTAssertTrue(timeline.completedText(before:13.9).isEmpty)
+  XCTAssertEqual(timeline.completedText(before:14),["正在说这一句话"])
+  let interval=timeline.completedIntervals(before:15).first
+  XCTAssertEqual(interval?.end,14,"unknown next-cue gaps must not extend the dialogue evidence")
+ }
+ func testUnknownDurationNeverInventsSentenceEndAndDuplicateCallbackRetainsKnownEnd() {
+  var timeline=NativeSubtitleTimeline()
+  timeline.receive(text:"没有可靠的结束时间",time:10)
+  XCTAssertTrue(timeline.completedText(before:20).isEmpty)
+  timeline.receive(text:"已知准确结束时间",time:25,end:28)
+  timeline.receive(text:"已知准确结束时间",time:25)
+  XCTAssertEqual(timeline.text(at:28),"")
+  XCTAssertEqual(timeline.completedIntervals(before:30).last?.end,28)
+ }
  func testLoopbackPlannedHLSIsNotMistakenForAnExistingFullTranscript() throws {
   XCTAssertTrue(NativeSubtitleIndexReader.isDemandDrivenLocal(master:try XCTUnwrap(URL(string:"http://127.0.0.1:8123/movie/master.m3u8"))))
   XCTAssertFalse(NativeSubtitleIndexReader.isDemandDrivenLocal(master:try XCTUnwrap(URL(string:"https://media.example/master.m3u8"))))

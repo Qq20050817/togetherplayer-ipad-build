@@ -23,23 +23,35 @@ struct SubtitleAppearance: Equatable {
 // Legible output supplies both text and empty end events on the player's clock.
 // Keeping upcoming events permits earlier as well as later presentation.
 struct NativeSubtitleTimeline {
- struct Event {let time:Double;let text:String}
+ struct Event {let time:Double;let text:String;var end:Double?=nil}
  private(set) var events:[Event]=[]
  mutating func clear() {events=[]}
- mutating func receive(text:String,time:Double) {
+ mutating func receive(text:String,time:Double,end:Double?=nil) {
   guard time.isFinite else {return}
+  let validEnd=end.flatMap{$0.isFinite && $0>time ? $0 : nil}
   if let index=events.firstIndex(where:{abs($0.time-time)<0.001}) {
    // HLS can deliver a cue-end (empty) and a new cue-start at the same
    // presentation time in either callback order. The nonempty cue wins.
    if text.isEmpty && !events[index].text.isEmpty {return}
-   events[index]=Event(time:time,text:text)
-  } else {events.append(Event(time:time,text:text));events.sort {$0.time<$1.time}}
+   events[index]=Event(time:time,text:text,end:validEnd ?? events[index].end)
+  } else {events.append(Event(time:time,text:text,end:validEnd));events.sort {$0.time<$1.time}}
  }
  // Only completed text intervals can enter plot prompts; ahead-of-playback
  // legible callbacks and an open-ended final cue must never leak future text.
+ func completedIntervals(before cutoff:Double)->[(start:Double,end:Double,text:String)] {
+  guard cutoff.isFinite,cutoff>=0 else{return []}
+  return events.indices.compactMap {index in
+   let event=events[index]
+   guard !event.text.isEmpty else{return nil}
+   let next=index+1<events.count ? events[index+1].time : nil
+   let end:Double?
+   if let known=event.end {end=next.map{min(known,$0)} ?? known} else {end=next}
+   guard let end,end>event.time,end<=cutoff else{return nil}
+   return (event.time,end,event.text)
+  }
+ }
  func completedText(before cutoff:Double,limit:Int=22)->[String] {
-  guard cutoff.isFinite,cutoff>=0,events.count>1 else {return []}
-  return Array(zip(events,events.dropFirst()).filter{!$0.0.text.isEmpty && $0.1.time<=cutoff}.map{$0.0.text}.suffix(max(0,limit)))
+  Array(completedIntervals(before:cutoff).map(\.text).suffix(max(0,limit)))
  }
  mutating func text(at time:Double)->String {
   guard time.isFinite,time>=0 else {return ""}
@@ -50,7 +62,10 @@ struct NativeSubtitleTimeline {
    let middle=(lower+upper)/2
    if events[middle].time<=time {lower=middle+1} else {upper=middle}
   }
-  return lower>0 ? events[lower-1].text : ""
+  guard lower>0 else{return ""}
+  let event=events[lower-1]
+  if let end=event.end,time>=end {return ""}
+  return event.text
  }
 }
 
