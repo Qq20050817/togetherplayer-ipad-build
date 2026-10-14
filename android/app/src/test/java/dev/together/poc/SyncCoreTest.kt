@@ -12,6 +12,31 @@ class SyncCoreTest {
   override fun isBuffering()=buffering;override fun isReady()=ready
   override fun setPlaybackSpeed(speed:Float){rate=speed}
  }
+ @Test fun rateTransitionAllowsFramesToSettleBeforeSeeking() {
+  var now=0.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
+  val p=FakePlayer();p.pos=10000;val engine=SyncEngine(p,clock)
+  val before=JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":10000,"updatedAt":0,"playbackRate":1,"before":{}}""")
+  engine.receive(before);now=100.0
+  engine.receive(JSONObject(before.toString()).put("version",2).put("executeAt",100).put("position",15000).put("updatedAt",100).put("playbackRate",2))
+  now=300.0;engine.tick();assertEquals(2f,p.rate);assertEquals(0,p.seeks)
+  now=2000.0;engine.tick();assertEquals(0,p.seeks)
+  now=3000.0;engine.tick();assertEquals(1,p.seeks)
+ }
+ @Test fun bufferingPreservesRequestedPlayback() {
+  val clock=ClockSync {0.0};clock.add(0.0,0.0,0.0,0.0)
+  val p=FakePlayer();p.buffering=true;p.ready=false;val engine=SyncEngine(p,clock)
+  engine.receive(JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":0,"updatedAt":0,"playbackRate":1,"before":{}}"""))
+  engine.tick();assertTrue(p.playing)
+ }
+ @Test fun stalledPlaybackWakesRebuildsAndPauseDisarms() {
+  val watcher=PlaybackRecovery()
+  assertEquals(PlaybackRecovery.Action.NONE,watcher.observe(0.0,1000,true))
+  assertEquals(PlaybackRecovery.Action.NONE,watcher.observe(4999.0,1000,true))
+  assertEquals(PlaybackRecovery.Action.WAKE,watcher.observe(5000.0,1000,true))
+  assertEquals(PlaybackRecovery.Action.REBUILD,watcher.observe(14000.0,1000,true))
+  assertEquals(PlaybackRecovery.Action.NONE,watcher.observe(16000.0,1000,false))
+  assertEquals(PlaybackRecovery.Action.NONE,watcher.observe(17000.0,1000,true))
+ }
  @Test fun roomDoubleSpeedAppliesOnlyAtSharedExecutionTimeAndRestores() {
   var now=1000.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
   val player=FakePlayer();val engine=SyncEngine(player,clock)

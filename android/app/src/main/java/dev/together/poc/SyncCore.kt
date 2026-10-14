@@ -50,7 +50,12 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  }
  fun receive(next: JSONObject) {
   if (room?.optString("roomId") != next.optString("roomId") || next.getLong("version") >= version) {
-   if(room?.optString("roomId") != next.optString("roomId") || next.getLong("version") != version) {resetCorrection();lastAutoSeekAt=null}
+   val previous=room
+   if(previous?.optString("roomId") != next.optString("roomId") || next.getLong("version") != version) {resetCorrection();lastAutoSeekAt=null}
+   if (previous?.optString("roomId") == next.optString("roomId") && next.optString("state") == "playing") {
+    if (previous.optString("state") == "paused") settleUntil=clock.localNow()+2000
+    else if (previous.optDouble("playbackRate",1.0) != next.optDouble("playbackRate",1.0)) settleUntil=clock.localNow()+2500
+   }
    room=next
   }
  }
@@ -83,7 +88,11 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   if(!player.isReady() || player.isBuffering())wasUnready=true
   else if(wasUnready){wasUnready=false;settleUntil=now+2000}
   if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>200) player.seekTo(position.toLong()); return error }
-  if (!player.isReady() || player.isBuffering()) {excessiveDriftSince=null;return null}
+  if (!player.isReady() || player.isBuffering()) {
+   // Preserve ExoPlayer playWhenReady during 2x rebuffering and poll resume.
+   if (player.isBuffering()) player.play()
+   excessiveDriftSince=null;return null
+  }
   if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if(abs(error)>=500) {if(excessiveDriftSince==null) {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else excessiveDriftSince=null
   var overdue=excessiveDriftSince?.let {now-it>=10000} ?: false
