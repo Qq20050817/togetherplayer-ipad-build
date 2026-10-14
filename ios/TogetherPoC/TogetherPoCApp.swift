@@ -465,7 +465,7 @@ struct FullscreenToolStyle:ButtonStyle {
    }
    if controls.visible && !composing {
     HStack {
-     Text(model.roomTitle).lineLimit(1)
+     Text(model.roomTitle).lineLimit(1).accessibilityIdentifier("fullscreen-movie-title")
      Spacer()
      Image(systemName:"sun.max.fill").accessibilityHidden(true)
      Slider(value:Binding(get:{screenBrightness},set:{level in

@@ -213,7 +213,7 @@ final class WatchInterfaceTests: XCTestCase {
  func testFullscreenVoiceHoldKeepsPreviewAndIndependentTools() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_VOICE_GESTURE_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
-  let full=app.buttons["全屏观影"].firstMatch;XCTAssertTrue(full.waitForExistence(timeout:15));full.tap()
+  enterFullscreen(app)
   let bar=app.otherElements["fullscreen-control-bar"].firstMatch
   let hold=bar.descendants(matching:.any)["hold-voice-danmaku"].firstMatch
   XCTAssertTrue(hold.waitForExistence(timeout:5));XCTAssertTrue(hold.isHittable)
@@ -226,7 +226,13 @@ final class WatchInterfaceTests: XCTestCase {
   capture("16-voice-hold-preview",app)
   bar.buttons["cancel-voice-danmaku"].tap()
   let tools=[bar.buttons["音轨"].firstMatch,bar.buttons["字幕"].firstMatch,bar.buttons["fullscreen-import-subtitle"],bar.buttons["fullscreen-subtitle-adjustments"],bar.buttons["弹幕字号"],bar.buttons["弹幕速度"]]
-  for tool in tools {XCTAssertTrue(tool.isHittable);XCTAssertEqual(tool.frame.width,96,accuracy:1);XCTAssertEqual(tool.frame.height,36,accuracy:1)}
+  for tool in tools {
+   // AX snapshots can outlast the idle timer. Perform a real harmless header
+   // tap between checks, just as a user keeps the controls active by touching.
+   if !bar.exists {app.otherElements["fullscreen-movie"].firstMatch.tap()}
+   app.staticTexts["fullscreen-movie-title"].firstMatch.tap()
+   XCTAssertTrue(tool.isHittable);XCTAssertEqual(tool.frame.width,96,accuracy:1);XCTAssertEqual(tool.frame.height,36,accuracy:1)
+  }
   bar.buttons["后退10秒"].tap()
   let action=bar.staticTexts["playback-action-feedback"].firstMatch
   XCTAssertTrue(action.waitForExistence(timeout:2));XCTAssertFalse(action.label.isEmpty)
