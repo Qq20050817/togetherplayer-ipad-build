@@ -62,6 +62,8 @@ struct PlotFrame {
  private var lastStoryPreparationPosition = -Double.infinity
  var storyModelAvailable:()->Bool={PlotLocalAI.available}
  var storyInference:(String,String) async throws -> String={try await PlotLocalAI.respond(instructions:$0,input:$1)}
+ private var pendingPresentationTask:Task<Void,Never>?
+ var automaticQuestionNow:()->Date={Date()}
  private var pendingAutomatic:(question:PlotQuestion,snapshot:PlotFrame,context:PlotContext,token:Int,created:Date)?
  private var storyNodes:[PlotStoryNode]=[]
  private let storyArchive=PlotStoryArchive()
@@ -198,7 +200,7 @@ struct PlotFrame {
    _ = try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
   }
  }
- func cancel() {pendingAutomatic=nil;generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
+ func cancel() {clearPendingAutomaticQuestion();generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
  func subtitleChanged(_ text:String) {
   momentTask?.cancel();momentTask=nil
   // Only evaluate already-watched subtitles at the end of a caption.
@@ -257,7 +259,7 @@ struct PlotFrame {
  }
  func acknowledgeAutoSuggestion() {autoSuggestion=nil}
  func playbackJumped() {
-  momentTask?.cancel();momentTask=nil;pendingAutomatic=nil;autoSuggestion=nil;latestBeat=nil
+  momentTask?.cancel();momentTask=nil;clearPendingAutomaticQuestion();autoSuggestion=nil;latestBeat=nil
   cancelStoryPreparation()
   guard let current=frame?() else {cancel();result=nil;return}
   if current.key != lastKey || (working && current.position<generationCutoff) {cancel()}
@@ -433,28 +435,41 @@ struct PlotFrame {
  func queueAutomaticQuestion(_ question:PlotQuestion,snapshot:PlotFrame,token:Int,context:PlotContext?=nil) {
   guard token==generation,eventDrivenEnabled else{return}
   let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:true)
-  pendingAutomatic=(safe,snapshot,context ?? PlotContext(cutoff:snapshot.position,recent:snapshot.evidence,earlier:[],predictions:[]),token,Date())
+  clearPendingAutomaticQuestion()
+  pendingAutomatic=(safe,snapshot,context ?? PlotContext(cutoff:snapshot.position,recent:snapshot.evidence,earlier:[],predictions:[]),token,automaticQuestionNow())
   autoTriggerStatus="剧情问题已就绪，等待当前对白结束后自动弹出"
-  _ = publishPendingAutomaticQuestion()
+  if !publishPendingAutomaticQuestion() && pendingAutomatic != nil {
+   pendingPresentationTask=Task { [weak self] in
+    try? await Task.sleep(nanoseconds:8_000_000_000)
+    guard !Task.isCancelled else{return}
+    _ = self?.publishPendingAutomaticQuestion()
+   }
+  }
+ }
+ private func clearPendingAutomaticQuestion() {
+  pendingAutomatic=nil;pendingPresentationTask?.cancel();pendingPresentationTask=nil
  }
  @discardableResult func publishPendingAutomaticQuestion()->Bool {
   guard let pending=pendingAutomatic else{return false}
   guard eventDrivenEnabled,pending.token==generation,
-   Date().timeIntervalSince(pending.created)<=120,let current=frame?(),
+   automaticQuestionNow().timeIntervalSince(pending.created)<=120,let current=frame?(),
    current.key==pending.snapshot.key,current.position>=pending.snapshot.position,
    current.position-pending.snapshot.position<=90 else {
-   pendingAutomatic=nil;autoTriggerStatus="题目对应的剧情已变化，已取消弹出";return false
+   clearPendingAutomaticQuestion();autoTriggerStatus="题目对应的剧情已变化，已取消弹出";return false
   }
-  guard mayPublishAutomatically?()==true,isSubtitleCurrentlyShown?()==false,
-   let publishAutomatically else{return false}
+  guard mayPublishAutomatically?()==true,let publishAutomatically else{return false}
+  // Some native tracks never deliver an empty cue-end callback. Give a
+  // natural gap first chance, then pause with the verified question after a
+  // bounded grace period instead of waiting forever on stale subtitle text.
+  guard isSubtitleCurrentlyShown?()==false || automaticQuestionNow().timeIntervalSince(pending.created)>=8 else{return false}
   let merged=Dictionary(grouping:pending.context.recent+current.evidence,by:\.id).values.compactMap{$0.first}
    .filter{$0.end<=current.position && $0.end>=current.position-240}.sorted{$0.start<$1.start}
   let context=PlotContext(cutoff:current.position,recent:Array(merged.suffix(24)),earlier:pending.context.earlier.filter{$0.end<=current.position},predictions:[])
   guard PlotQuality.check(pending.question,context:context,history:[]),
    PlotMomentGate.questionIsTimely(pending.question,context:context) else {
-   pendingAutomatic=nil;autoTriggerStatus="题目已不符合当前剧情证据，已取消弹出";return false
+   clearPendingAutomaticQuestion();autoTriggerStatus="题目已不符合当前剧情证据，已取消弹出";return false
   }
-  pendingAutomatic=nil
+  clearPendingAutomaticQuestion()
   mostRecentPublishedPosition=current.position
   autoTriggerStatus="已自动发布剧情问题，请回答后继续观影"
   autoSuggestion=pending.question
@@ -471,5 +486,5 @@ struct PlotFrame {
   let decision=PlotDecision(timestamp:Date().timeIntervalSince1970,position:snapshot.position,mode:mode.rawValue,selectedModel:question.source,reason:reason,complexityScore:assessment.complexityScore,confidence:assessment.confidence,requests:requests,quality:question.evidenceIDs.isEmpty ? "generic_fallback" : "evidence_checked",misjudgmentReview:"notReviewed")
   Task(priority:.utility) {try? await memory.record(key:snapshot.key,decision:decision)}
  }
- deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel();fullFilmTask?.cancel();storyDeadline?.cancel()}
+ deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel();fullFilmTask?.cancel();storyDeadline?.cancel();pendingPresentationTask?.cancel()}
 }

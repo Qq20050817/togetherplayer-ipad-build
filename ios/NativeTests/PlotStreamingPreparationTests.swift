@@ -61,6 +61,21 @@ import XCTest
   XCTAssertEqual(published.count,1)
   model.playbackJumped()
  }
+ func testMissingCueEndCallbackCannotHoldAReadyQuestionForever() {
+  let model=controller(),cues=evidence()
+  let frame=PlotFrame(key:"film",position:130,evidence:cues)
+  var now=Date(timeIntervalSince1970:100),published=0
+  model.frame={frame};model.eventDrivenEnabled=true
+  model.automaticQuestionNow={now}
+  model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={true}
+  model.publishAutomatically={_ in published+=1}
+  model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
+  XCTAssertEqual(published,0)
+  now=now.addingTimeInterval(9)
+  XCTAssertTrue(model.publishPendingAutomaticQuestion())
+  XCTAssertEqual(published,1)
+  XCTAssertFalse(model.publishPendingAutomaticQuestion())
+ }
  func testQueuedQuestionCannotLeakAfterFilmChangeOrRewind() {
   for rewind in [false,true] {
    let model=controller(),cues=evidence()
@@ -84,7 +99,8 @@ import XCTest
   model.isSubtitleCurrentlyShown={speaking};model.mayPublishAutomatically={true}
   model.publishAutomatically={_ in published+=1}
   model.queueAutomaticQuestion(question(cues),snapshot:initial,token:0)
-  current=PlotFrame(key:"film",position:150,evidence:[]);speaking=false
+  let newer=(0..<8).map{PlotEvidence.cue(start:130+Double($0)*2,end:131+Double($0)*2,text:"人物已经讨论另一个新事件 \($0)",source:"embedded-subtitle")}
+  current=PlotFrame(key:"film",position:150,evidence:newer);speaking=false
   XCTAssertFalse(model.publishPendingAutomaticQuestion())
   XCTAssertEqual(published,0)
  }
