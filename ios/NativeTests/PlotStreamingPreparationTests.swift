@@ -17,6 +17,7 @@ import XCTest
   let key="streaming-"+UUID().uuidString
   model.frame={PlotFrame(key:key,position:130,evidence:past+[future])}
   model.storyModelAvailable={true}
+  model.storyQuestionInference={_ in nil}
   var inputs:[String]=[]
   model.storyInference={_,input in
    inputs.append(input)
@@ -31,10 +32,27 @@ import XCTest
   await model.collect()
   XCTAssertEqual(inputs.count,1,"ordinary 20-second collection must not repeat background inference")
  }
+ func testPreparationGeneratesAndCountsOnlyAValidatedWatchedQuestion() async throws {
+  let model=controller(),past=evidence(),key="prepared-"+UUID().uuidString
+  model.frame={PlotFrame(key:key,position:130,evidence:past)}
+  model.storyModelAvailable={true}
+  model.storyInference={_,_ in "{}"}
+  var questionInputs:[PlotContext]=[]
+  let ready=question(past)
+  model.storyQuestionInference={context in questionInputs.append(context);return ready}
+  await model.collect()
+  for _ in 0..<100 {if model.preparedQuestionCount>0 {break};try await Task.sleep(nanoseconds:10_000_000)}
+  XCTAssertEqual(model.preparedQuestionCount,1)
+  XCTAssertEqual(questionInputs.count,1)
+  XCTAssertTrue(questionInputs.allSatisfy{$0.cutoff<=130 && $0.recent.allSatisfy{$0.end<=130}})
+  XCTAssertTrue(model.fullFilmPreparationStatus.contains("预备题1道"))
+  XCTAssertEqual(model.requests,0,"background local preparation must not spend ChatGPT requests")
+ }
  func testFullDocumentCannotBypassWatchedEvidenceGate() async throws {
   let model=controller(),past=evidence()
   model.frame={PlotFrame(key:"watched-only-"+past[0].id,position:130,evidence:past)}
   model.storyModelAvailable={true}
+  model.storyQuestionInference={_ in nil}
   var inputs:[String]=[]
   model.storyInference={_,input in inputs.append(input);return "{}"}
   let doc=SubtitleDocument(past.map{SubtitleCue(start:$0.start,end:$0.end,text:$0.text)}+[SubtitleCue(start:200,end:205,text:"尚未观看的反转结局")])
@@ -43,17 +61,17 @@ import XCTest
   XCTAssertEqual(inputs.count,1)
   XCTAssertFalse(try XCTUnwrap(inputs.first).contains("尚未观看的反转"))
  }
- func testAutomaticQuestionSurvivesDialogueAndPublishesExactlyOnceAtNextGap() {
+ func testAutomaticQuestionSurvivesTemporaryRoomUnavailabilityAndPublishesExactlyOnce() {
   let model=controller(),cues=evidence()
   let frame=PlotFrame(key:"film",position:130,evidence:cues)
   model.frame={frame};model.eventDrivenEnabled=true
-  var speaking=true,published:[PlotQuestion]=[]
-  model.isSubtitleCurrentlyShown={speaking};model.mayPublishAutomatically={true}
+  var roomReady=false,published:[PlotQuestion]=[]
+  model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={roomReady}
   model.publishAutomatically={published.append($0)}
   model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
   XCTAssertTrue(published.isEmpty)
-  XCTAssertTrue(model.autoTriggerStatus.contains("等待"))
-  speaking=false
+  XCTAssertTrue(model.autoTriggerStatus.contains("提交"))
+  roomReady=true
   model.subtitleChanged("")
   XCTAssertEqual(published.count,1)
   XCTAssertTrue(published.first?.blocking == true)
@@ -72,32 +90,30 @@ import XCTest
   XCTAssertTrue(model.shouldCancelOnPanelDismissal)
   model.cancel()
  }
- func testMissingCueEndCallbackCannotHoldAReadyQuestionForever() {
+ func testDialogueCannotDelayAReadyQuestion() {
   let model=controller(),cues=evidence()
   let frame=PlotFrame(key:"film",position:130,evidence:cues)
-  var now=Date(timeIntervalSince1970:100),published=0
+  var published=0
   model.frame={frame};model.eventDrivenEnabled=true
-  model.automaticQuestionNow={now}
   model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={true}
   model.publishAutomatically={_ in published+=1}
   model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
-  XCTAssertEqual(published,0)
-  now=now.addingTimeInterval(9)
-  XCTAssertTrue(model.publishPendingAutomaticQuestion())
-  XCTAssertEqual(published,1)
+  XCTAssertEqual(published,1,"validated automatic questions must not wait for a cue-end callback")
+  XCTAssertEqual(model.automaticQuestionCount,1)
+  XCTAssertEqual(model.automaticPublishCount,1)
   XCTAssertFalse(model.publishPendingAutomaticQuestion())
  }
  func testQueuedQuestionCannotLeakAfterFilmChangeOrRewind() {
   for rewind in [false,true] {
    let model=controller(),cues=evidence()
    let initial=PlotFrame(key:"film",position:130,evidence:cues)
-   var current=initial,speaking=true,published=0
+   var current=initial,roomReady=false,published=0
    model.frame={current};model.eventDrivenEnabled=true
-   model.isSubtitleCurrentlyShown={speaking};model.mayPublishAutomatically={true}
+   model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={roomReady}
    model.publishAutomatically={_ in published+=1}
    model.queueAutomaticQuestion(question(cues),snapshot:initial,token:0)
    current=PlotFrame(key:rewind ? "film" : "other",position:rewind ? 100 : 135,evidence:cues)
-   speaking=false
+   roomReady=true
    XCTAssertFalse(model.publishPendingAutomaticQuestion())
    XCTAssertEqual(published,0)
   }
@@ -105,13 +121,13 @@ import XCTest
  func testQueuedQuestionRevalidatesCurrentEvidenceBeforePausing() {
   let model=controller(),cues=evidence()
   let initial=PlotFrame(key:"film",position:130,evidence:cues)
-  var current=initial,speaking=true,published=0
+  var current=initial,roomReady=false,published=0
   model.frame={current};model.eventDrivenEnabled=true
-  model.isSubtitleCurrentlyShown={speaking};model.mayPublishAutomatically={true}
+  model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={roomReady}
   model.publishAutomatically={_ in published+=1}
   model.queueAutomaticQuestion(question(cues),snapshot:initial,token:0)
   let newer=(0..<8).map{PlotEvidence.cue(start:130+Double($0)*2,end:131+Double($0)*2,text:"人物已经讨论另一个新事件 \($0)",source:"embedded-subtitle")}
-  current=PlotFrame(key:"film",position:150,evidence:newer);speaking=false
+  current=PlotFrame(key:"film",position:150,evidence:newer);roomReady=true
   XCTAssertFalse(model.publishPendingAutomaticQuestion())
   XCTAssertEqual(published,0)
  }

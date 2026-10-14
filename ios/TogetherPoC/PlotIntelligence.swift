@@ -40,6 +40,9 @@ struct PlotFrame {
  @Published private(set) var latestBeat:PlotBeatAssessment?
  @Published private(set) var autoTriggerStatus="等待已播放字幕与剧情转折"
  @Published private(set) var previewCutoff=0.0
+ @Published private(set) var automaticQuestionCount=0
+ @Published private(set) var automaticPublishCount=0
+ @Published private(set) var preparedQuestionCount=0
  @Published private(set) var autoSuggestion:PlotQuestion?
  @Published private(set) var fullFilmPreparationStatus="等待已播放字幕，边播放边整理剧情"
  let auth=ChatGPTAuthProbe()
@@ -64,7 +67,8 @@ struct PlotFrame {
  private var lastStoryPreparationPosition = -Double.infinity
  var storyModelAvailable:()->Bool={PlotLocalAI.available}
  var storyInference:(String,String) async throws -> String={try await PlotLocalAI.respond(instructions:$0,input:$1)}
- private var pendingPresentationTask:Task<Void,Never>?
+ var storyQuestionInference:(PlotContext) async -> PlotQuestion?={await PlotLocalAI.question($0,planned:true)}
+ private var preparedWatchedQuestion:(question:PlotQuestion,cutoff:Double,key:String)?
  var automaticQuestionNow:()->Date={Date()}
  private var pendingAutomatic:(question:PlotQuestion,snapshot:PlotFrame,context:PlotContext,token:Int,created:Date)?
  private var storyNodes:[PlotStoryNode]=[]
@@ -88,7 +92,7 @@ struct PlotFrame {
  /// pass, and yields to interactive question generation.
  func resetFullFilmPreparation() {
   cancelStoryPreparation()
-  fullFilmPreparedKey="";storyNodes=[]
+  fullFilmPreparedKey="";storyNodes=[];preparedWatchedQuestion=nil;preparedQuestionCount=0
   lastStoryPreparationPosition = -.infinity
   fullFilmPreparationStatus="等待已播放字幕，边播放边整理剧情"
  }
@@ -107,7 +111,7 @@ struct PlotFrame {
   let seed=PlotMemoryStore.key(watched.prefix(3).map(\.id).joined(separator:":"))
   let signature="\(key):\(first.source):watched-v1:\(seed)"
   if fullFilmPreparedKey != signature {
-   fullFilmPreparedKey=signature;storyNodes=[]
+   fullFilmPreparedKey=signature;storyNodes=[];preparedWatchedQuestion=nil;preparedQuestionCount=0
    lastStoryPreparationPosition = -.infinity
   }
   guard position-lastStoryPreparationPosition>=180 else{return}
@@ -148,6 +152,24 @@ struct PlotFrame {
      try? await self.storyArchive.write(self.storyNodes,key:archiveKey)
      self.fullFilmPreparationStatus="已整理\(self.storyNodes.count)段已观看剧情 · 共\(watched.count)条字幕；新线索到达后继续分析"
     } else {self.fullFilmPreparationStatus="已播放字幕可用于出题；本次分段整理未通过证据检查"}
+    // Prepare one current question, never a question about a future section.
+    // Publishing still applies the selected AI mode and the room protocol.
+    let recent=Array(watched.filter{$0.end>=position-240}.suffix(24))
+    let clues=PlotStoryStructure.observedClues(self.storyNodes,watched:watched,at:position)
+    let questionContext=PlotContext(cutoff:position,recent:recent,earlier:clues,predictions:[])
+    let saved=await self.memory.load(key)
+    let history=saved.questions.filter{$0.cutoff<=position}.map{$0.question.text}
+    guard !Task.isCancelled,self.storyGeneration==storyToken,!self.working else{return}
+    let ready=await self.storyQuestionInference(questionContext)
+    guard !Task.isCancelled,self.storyGeneration==storyToken,!self.working,
+     let display=self.currentDisplayPosition,display.key==key,display.position>=position else{return}
+    if let ready,PlotQuality.check(ready,context:questionContext,history:history),
+     PlotMomentGate.questionIsTimely(ready,context:questionContext) {
+     self.preparedWatchedQuestion=(ready,position,key);self.preparedQuestionCount+=1
+     self.fullFilmPreparationStatus="已整理\(self.storyNodes.count)段已观看剧情 · 本地预备题\(self.preparedQuestionCount)道（仅已看内容）"
+    } else {
+     self.fullFilmPreparationStatus="已整理\(self.storyNodes.count)段已观看剧情 · 本次未生成通过证据/质量检查的预备题；实时出题仍可用"
+    }
    } catch {
     if !Task.isCancelled {self.fullFilmPreparationStatus="已播放字幕仍可用于出题；本次后台整理未完成"}
    }
@@ -180,7 +202,7 @@ struct PlotFrame {
  }
  func collect() async {
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
-  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;autoTriggerStatus="已加载新影片，正在积累字幕";savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;lastKey=snapshot.key}
+  if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;autoTriggerStatus="已加载新影片，正在积累字幕";savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;automaticQuestionCount=0;automaticPublishCount=0;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
   if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic;savedSubtitleCount=state.evidence.count}
@@ -305,7 +327,7 @@ struct PlotFrame {
     if mode == .smart {return item.source=="ChatGPT" || item.source=="Apple 设备端 AI"}
     return true
    }
-   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {autoTriggerStatus="该剧情片段已经生成过问题，为避免重复打断已跳过";working=false;deadline?.cancel();deadline=nil;return}
+   if autoMoment,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {autoTriggerStatus="该剧情片段已经生成过问题，为避免重复打断已跳过";reason=autoTriggerStatus;working=false;deadline?.cancel();deadline=nil;return}
    if !regenerate,!manualDeep,let cached=state.reusable(at:snapshot.position),matchesSelection(cached) {
     complete(cached,reason:"复用该模型在同片段已生成的问题，没有再次消耗额度",frame:snapshot,token:token);return
    }
@@ -313,16 +335,23 @@ struct PlotFrame {
     PlotQuestionPlanner.hasWatchedEvidence(context.recent,at:snapshot.position)
    if autoMoment && (!context.sufficient ||
     (!PlotMomentGate.likelyQuestionMoment(context.recent,position:snapshot.position) && !indexedReady)) {
-    autoTriggerStatus="本次剧情线索不足，暂不暂停影片";working=false;deadline?.cancel();deadline=nil;return
+    autoTriggerStatus="本次剧情线索不足，暂不暂停影片";reason=autoTriggerStatus;working=false;deadline?.cancel();deadline=nil;return
    }
-   let score:PlotComplexity=(mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain
+   let prepared=preparedWatchedQuestion.flatMap {value -> PlotQuestion? in
+    guard value.key==snapshot.key,value.cutoff<=snapshot.position,snapshot.position-value.cutoff<=90,
+     PlotQuality.check(value.question,context:context,history:history),
+     PlotMomentGate.questionIsTimely(value.question,context:context) else{return nil}
+    return value.question
+   }
+   let score:PlotComplexity=prepared != nil && (mode == .smart || mode == .local) ? .uncertain : ((mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain)
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
    var local:PlotQuestion?
    if mode == .smart || mode == .local {
     // Even without subtitles, use the REAL on-device model for an honest
     // context-free question; never claim it analyzed unobserved movie content.
-    if context.sufficient {local=await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment)}
+    if let prepared {local=prepared}
+    else if context.sufficient {local=await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment)}
     else {local=await PlotLocalAI.genericQuestion(at:snapshot.position)}
    }
    guard valid(snapshot,token:token) else {cancel();return}
@@ -337,7 +366,7 @@ struct PlotFrame {
     localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:$0.evidenceIDs.isEmpty)} ?? false
    }
    var chosen=localGood ? local : nil
-   var explanation=localGood ? (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题") :
+   var explanation=localGood ? (prepared != nil ? "使用已观看剧情的本地预备题，已按当前进度重新核验" : (localGeneric ? "苹果本地 AI 已生成通用讨论题；未编造影片细节" : "苹果本地 AI 已根据已观看字幕出题")) :
      (PlotLocalAI.available ? "本地 AI 回答未通过格式、线索或重复检查" : PlotLocalAI.availabilityDetail)
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
@@ -414,7 +443,7 @@ struct PlotFrame {
    // Avoid popping up an unrelated generic question mid-film.
    if autoMoment && (chosen == nil || chosen?.evidenceIDs.isEmpty == true || !PlotMomentGate.questionIsTimely(chosen!,context:context)) {
     autoTriggerStatus=chosen == nil ? "剧情候选有效，但真实 AI 未生成合格问题：\(explanation)" : "AI 问题缺乏当前剧情证据，已避免打断"
-    working=false;deadline?.cancel();deadline=nil;return
+    reason=autoTriggerStatus;working=false;deadline?.cancel();deadline=nil;return
    }
    let question=chosen ?? PlotFallback.question(context:context,history:history)
    guard chosen != nil || PlotQuality.check(question,context:context,history:history,allowGeneric:true) else {
@@ -433,48 +462,43 @@ struct PlotFrame {
    cancel();reason="本地剧情记忆保存失败；没有消耗新的云端请求，请稍后再试"
   }
  }
- // Generation may finish during a new line of movie dialogue. Keep the
- // validated result for the next quiet gap rather than silently losing it.
+ // Present a validated result immediately. Only transient room unavailability
+ // may retain it briefly; revalidate against current evidence before sending.
  func queueAutomaticQuestion(_ question:PlotQuestion,snapshot:PlotFrame,token:Int,context:PlotContext?=nil) {
   guard token==generation,eventDrivenEnabled else{return}
   let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:true)
   clearPendingAutomaticQuestion()
   pendingAutomatic=(safe,snapshot,context ?? PlotContext(cutoff:snapshot.position,recent:snapshot.evidence,earlier:[],predictions:[]),token,automaticQuestionNow())
-  autoTriggerStatus="剧情问题已就绪，等待当前对白结束后自动弹出"
-  if !publishPendingAutomaticQuestion() && pendingAutomatic != nil {
-   pendingPresentationTask=Task { [weak self] in
-    try? await Task.sleep(nanoseconds:8_000_000_000)
-    guard !Task.isCancelled else{return}
-    _ = self?.publishPendingAutomaticQuestion()
-   }
-  }
+  automaticQuestionCount+=1
+  autoTriggerStatus="有效剧情题已生成，正在提交房间并打开答题栏"
+  _ = publishPendingAutomaticQuestion()
  }
- private func clearPendingAutomaticQuestion() {
-  pendingAutomatic=nil;pendingPresentationTask?.cancel();pendingPresentationTask=nil
- }
+ private func clearPendingAutomaticQuestion() {pendingAutomatic=nil}
  @discardableResult func publishPendingAutomaticQuestion()->Bool {
   guard let pending=pendingAutomatic else{return false}
   guard eventDrivenEnabled,pending.token==generation,
-   automaticQuestionNow().timeIntervalSince(pending.created)<=120,let current=frame?(),
+   automaticQuestionNow().timeIntervalSince(pending.created)<=20,let current=frame?(),
    current.key==pending.snapshot.key,current.position>=pending.snapshot.position,
    current.position-pending.snapshot.position<=90 else {
    clearPendingAutomaticQuestion();autoTriggerStatus="题目对应的剧情已变化，已取消弹出";return false
   }
   guard mayPublishAutomatically?()==true,let publishAutomatically else{return false}
-  // Some native tracks never deliver an empty cue-end callback. Give a
-  // natural gap first chance, then pause with the verified question after a
-  // bounded grace period instead of waiting forever on stale subtitle text.
-  guard isSubtitleCurrentlyShown?()==false || automaticQuestionNow().timeIntervalSince(pending.created)>=8 else{return false}
-  let merged=Dictionary(grouping:pending.context.recent+current.evidence,by:\.id).values.compactMap{$0.first}
-   .filter{$0.end<=current.position && $0.end>=current.position-240}.sorted{$0.start<$1.start}
-  let context=PlotContext(cutoff:current.position,recent:Array(merged.suffix(24)),earlier:pending.context.earlier.filter{$0.end<=current.position},predictions:[])
+  let combined:[PlotEvidence]=pending.context.recent+current.evidence
+  var byID:[String:PlotEvidence]=[:]
+  for value in combined where value.end<=current.position && value.end>=current.position-240 {
+   byID[value.id]=value
+  }
+  let recent:[PlotEvidence]=Array(byID.values).sorted {a,b in a.start<b.start}
+  let earlier:[PlotClue]=pending.context.earlier.filter{$0.end<=current.position}
+  let context=PlotContext(cutoff:current.position,recent:Array(recent.suffix(24)),earlier:earlier,predictions:[])
   guard PlotQuality.check(pending.question,context:context,history:[]),
    PlotMomentGate.questionIsTimely(pending.question,context:context) else {
    clearPendingAutomaticQuestion();autoTriggerStatus="题目已不符合当前剧情证据，已取消弹出";return false
   }
   clearPendingAutomaticQuestion()
   mostRecentPublishedPosition=current.position
-  autoTriggerStatus="已自动发布剧情问题，请回答后继续观影"
+  automaticPublishCount+=1
+  autoTriggerStatus="已提交房间，等待同步答题栏；请回答后继续观影"
   autoSuggestion=pending.question
   publishAutomatically(pending.question)
   return true
@@ -489,5 +513,5 @@ struct PlotFrame {
   let decision=PlotDecision(timestamp:Date().timeIntervalSince1970,position:snapshot.position,mode:mode.rawValue,selectedModel:question.source,reason:reason,complexityScore:assessment.complexityScore,confidence:assessment.confidence,requests:requests,quality:question.evidenceIDs.isEmpty ? "generic_fallback" : "evidence_checked",misjudgmentReview:"notReviewed")
   Task(priority:.utility) {try? await memory.record(key:snapshot.key,decision:decision)}
  }
- deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel();fullFilmTask?.cancel();storyDeadline?.cancel();pendingPresentationTask?.cancel()}
+ deinit {timer?.invalidate();operation?.cancel();deadline?.cancel();momentTask?.cancel();fullFilmTask?.cancel();storyDeadline?.cancel()}
 }

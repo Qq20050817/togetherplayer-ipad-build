@@ -98,6 +98,7 @@ import SwiftUI
    Toggle("答题后继续播放",isOn:$intelligence.pauseForQuestions).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
    Text(model.supportsBlockingPolls ? "设置自动保存。单人答完继续，双人需双方答完；原本暂停则保持暂停。" : "当前房间未支持同步答题暂停。").font(.caption).foregroundStyle(.secondary)
    Text(intelligence.autoTriggerStatus).font(.caption).foregroundStyle(.secondary).lineLimit(3).accessibilityIdentifier("plot-auto-trigger-status")
+   Text("本次观影：有效自动题 \(intelligence.automaticQuestionCount) · 提交房间 \(intelligence.automaticPublishCount)。请求次数包含失败，不等于已弹出的题数。").font(.caption2).foregroundStyle(.secondary)
    if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}.font(.caption)}
   }
  }
