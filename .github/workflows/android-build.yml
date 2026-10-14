@@ -94,9 +94,15 @@ jobs:
           set -euo pipefail
           mkdir -p verified
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-phone --dir verified
-          grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
-          (cd verified && sha256sum -c SHA256SUMS.txt)
-          test -s verified/TogetherPlayer-Android-0.6.4-MOVRecovery.apk
+          # Artifact upload keeps its android-delivery/ subdirectory on some runners.
+          build_report="$(find verified -type f -name BUILD.txt -print -quit)"
+          test -n "$build_report"
+          archive_dir="$(dirname "$build_report")"
+          grep -Fx "Source SHA: $GITHUB_SHA" "$build_report"
+          (cd "$archive_dir" && sha256sum -c SHA256SUMS.txt)
+          test -s "$archive_dir/TogetherPlayer-Android-0.6.4-MOVRecovery.apk"
+          mkdir -p release-files
+          cp "$archive_dir/TogetherPlayer-Android-0.6.4-MOVRecovery.apk" "$archive_dir/BUILD.txt" "$archive_dir/SHA256SUMS.txt" release-files/
       - name: Release direct APK only after all tests pass
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,8 +114,8 @@ jobs:
             exit 1
           fi
           gh release create "$tag" \
-            verified/TogetherPlayer-Android-0.6.4-MOVRecovery.apk \
-            verified/BUILD.txt verified/SHA256SUMS.txt \
+            release-files/TogetherPlayer-Android-0.6.4-MOVRecovery.apk \
+            release-files/BUILD.txt release-files/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "TogetherPlayer Android 0.6.4 - Local MOV container recovery (experimental)" \
             --notes "Experimental Android direct APK, no ZIP. For local file/content sources only, ERROR_CODE_PARSING_CONTAINER_MALFORMED now attempts the existing LibVLC compatible playback path rather than stopping at an ExoPlayer parsing error. Does not auto-play before room state allows it, download remote media again, or change room synchronization/server. Original 2160p x265 MOV, two-person playback and iPad crash remain unverified until device tests. Keeps older Android 0.6.3, iPad 0.6.15 and all server/router services intact."
