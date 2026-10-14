@@ -281,7 +281,7 @@ class MainActivity: Activity() {
  private fun send(obj: JSONObject){if(connected)ws?.send(obj.toString())}
  private fun pingBurst(){repeat(5){i->val g=generation;main.postDelayed({if(g==generation)send(JSONObject().put("type","PING").put("t1",clock.localNow()))},i*200L)}}
  private fun receive(obj: JSONObject,t4: Double) {
-  if(obj.has("poll") && obj.optString("type")!="PLOT_POLL_STATE")plotPoll=obj.optJSONObject("poll")
+  if(obj.has("poll") && obj.optString("type")!="PLOT_POLL_STATE"){plotPoll=obj.optJSONObject("poll");if(plotPoll==null)plotDrawer?.dismiss()}
   val type=obj.optString("type");if(type=="PONG"){clock.add(obj.getDouble("t1"),obj.getDouble("t2"),obj.getDouble("t3"),t4);return}
   if(type=="WELCOME"){instantControls=obj.optInt("instantControlVersion")>=1;optimisticPlaying=null;optimisticUntil=0.0;sequence=obj.optLong("lastSequence");connected=true;attempt=0;pingBurst()}
   obj.optJSONObject("room")?.let {r->
@@ -441,7 +441,7 @@ class MainActivity: Activity() {
   val deviceStatus=TextView(this).apply {textSize=11f;setTextColor(-1);setPadding(dp(8),dp(4),dp(8),dp(4));setBackgroundColor(0x66000000);contentDescription="当前时间和电池电量"}
   videoBox.addView(deviceStatus,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.TOP or android.view.Gravity.END).apply{setMargins(0,dp(8),dp(8),0)})
   val refreshDevice=object:Runnable {override fun run(){val battery=registerReceiver(null,android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));val level=battery?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1) ?: -1;val scale=battery?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100) ?: 100;val percent=if(level>=0 && scale>0)"${level*100/scale}%"else "—";deviceStatus.text="${java.text.SimpleDateFormat("HH:mm",java.util.Locale.getDefault()).format(java.util.Date())}  电量 $percent";main.postDelayed(this,15000)}};refreshDevice.run()
-  dialog.setContentView(content);dialog.setOnDismissListener {setSpeedHold(false);main.removeCallbacks(refreshDevice);videoBox.removeView(gestureSurface);videoBox.removeView(deviceStatus);if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
+  dialog.setContentView(content);dialog.setOnDismissListener {plotDrawer?.dismiss();fullscreenContent=null;setSpeedHold(false);main.removeCallbacks(refreshDevice);videoBox.removeView(gestureSurface);videoBox.removeView(deviceStatus);if(voice.busy)voice.cancel();voiceViews.remove(fullVoice);main.removeCallbacks(hideControls);fullscreenDialog=null;fullscreenControls=null;fullscreenTime=null;fullscreenAction=null;danmakuPending.clear();removeDanmaku();videoBox.setOnClickListener(null);content.removeView(videoBox);parent.addView(videoBox,index,layout);adaptOrientation()};dialog.show();dialog.window?.let {window->
    val original=window.callback
    window.callback=object:android.view.Window.Callback by original {
     override fun dispatchTouchEvent(event:android.view.MotionEvent):Boolean {
