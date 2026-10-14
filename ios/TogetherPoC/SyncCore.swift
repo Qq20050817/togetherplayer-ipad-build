@@ -29,6 +29,18 @@ struct SeekRequestBuffer {
  }
  mutating func clear() {pending=nil}
 }
+// AVPlayer may report .paused for several ticks while transitioning to a new
+// decoder item. A room tick every 100 ms must never issue a play storm.
+struct PlaybackStartGate {
+ private(set) var requested=false
+ private var lastStartAt = -Double.infinity
+ mutating func shouldStart(now:Double,prepared:Bool,paused:Bool)->Bool {
+  guard prepared,now.isFinite else {return false}
+  if requested && (!paused || now-lastStartAt<750) {return false}
+  requested=true;lastStartAt=now;return true
+ }
+ mutating func reset() {requested=false;lastStartAt = -.infinity}
+}
 final class AVPlayerAdapter: PlayerAdapter {
  let player: AVPlayer
  init(player: AVPlayer = AVPlayer()) {self.player=player}
@@ -36,7 +48,7 @@ final class AVPlayerAdapter: PlayerAdapter {
  private var seekEpoch = 0
  private var seekBuffer = SeekRequestBuffer()
  private var speed: Float = 1
- private var playRequested=false
+ private var startGate=PlaybackStartGate()
  var position: Double { let n = player.currentTime().seconds*1000; return n.isFinite ? n : 0 }
  var duration: Double { let n=(player.currentItem?.duration.seconds ?? 0)*1000;return n.isFinite && n>0 ? n : 0 }
  // Only contiguous data at the playhead can cover playback; later disjoint ranges cannot.
@@ -54,11 +66,25 @@ final class AVPlayerAdapter: PlayerAdapter {
  }
  var buffering: Bool { player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
  var ready: Bool { player.currentItem?.status == .readyToPlay && !seeking }
- func play() { if !playRequested || player.timeControlStatus == .paused { player.defaultRate=speed;player.play() };playRequested=true }
- func pause() { if playRequested || player.rate != 0 {player.pause()};playRequested=false }
+ func play() {
+  guard let item=player.currentItem,item.status == .readyToPlay,
+        item.error == nil,player.error == nil else {return}
+  guard startGate.shouldStart(now:ProcessInfo.processInfo.systemUptime*1000,
+        prepared:true,paused:player.timeControlStatus == .paused) else {return}
+  if abs(player.defaultRate-speed)>0.001 {player.defaultRate=speed}
+  player.play()
+ }
+ func pause() {
+  if startGate.requested || player.rate != 0 {player.pause()}
+  startGate.reset()
+ }
  func setPlaybackSpeed(_ value: Float) {
-  speed = value;player.defaultRate=value
-  if player.timeControlStatus == .playing && player.rate != value { player.rate = value }
+  guard value.isFinite,value>0,value<=2.5 else {return}
+  speed=value
+  // Avoid rewriting defaultRate/rate on every 100 ms sync tick: AVFoundation
+  // can briefly reconfigure audio/video decoding on repeated rate writes.
+  if abs(player.defaultRate-value)>0.001 {player.defaultRate=value}
+  if player.timeControlStatus == .playing && abs(player.rate-value)>0.001 {player.rate=value}
  }
  // Called before replacing a movie. A delayed completion must not seek its replacement.
  func resetPendingSeeks() {
@@ -66,6 +92,7 @@ final class AVPlayerAdapter: PlayerAdapter {
   seekBuffer.clear()
   seeking=false
   player.currentItem?.cancelPendingSeeks()
+  startGate.reset()
  }
  func seekTo(_ milliseconds: Double) {
   guard player.currentItem != nil,seekBuffer.replace(milliseconds,duration:duration) else {return}

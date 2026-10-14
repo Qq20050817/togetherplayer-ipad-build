@@ -823,6 +823,21 @@ import CoreMedia
    playbackNeedsRecovery=false;feedback.showPlaybackAction("已尝试恢复当前影片播放")
    return
   }
+  // A rapid second tap before the first PLAY acknowledgement must not queue
+  // another start (or run another media preparation while one is in flight).
+  if type == "PLAY" && (inFlight?["type"] as? String == "PLAY" ||
+      queuedOperations.contains(where:{($0["type"] as? String)=="PLAY"})) {
+   feedback.showPlaybackAction("播放指令处理中")
+   return
+  }
+  // Failed AVPlayerItem instances cannot safely accept a new play command.
+  // Rebuild the *same* source while keeping subtitle and film identity.
+  if type == "PLAY",let item=adapter.player.currentItem,item.status == .failed {
+   guard let original=currentOriginalURL else {requestStatus="当前影片加载失败，请检查片源";return}
+   requestStatus="播放器需要恢复，正在重新准备当前影片"
+   loadMedia(original)
+   return
+  }
   var operation: [String:Any]=["type":type,"position":max(0,position)]
   if isHost {
    // Keep only the last pending jump while preserving pause/play and media actions.

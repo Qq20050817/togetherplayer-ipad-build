@@ -92,6 +92,18 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertEqual(sent.filter {$0["type"] as? String=="ROOM_MEDIA"}.count,2)
  }
 
+ @MainActor func testRapidDuplicatePlayIsSentOnlyOnceUntilAcknowledgement() throws {
+  var sent:[[String:Any]]=[]
+  let model=try client(sender:{sent.append($0)})
+  model.receive(welcome(),t4:0)
+  let now=model.clock.localNow()
+  model.clock.add(now,now,now,now)
+  model.control("PLAY")
+  model.control("PLAY")
+  model.control("PLAY")
+  XCTAssertEqual(sent.filter{($0["type"] as? String)=="PLAY"}.count,1)
+  XCTAssertTrue(model.feedback.playbackAction.contains("处理中"))
+ }
  @MainActor func testTwoMembersHostPlayQueuesOneControlWithoutResettingRoom() throws {
   var sent:[[String:Any]]=[]
   let model=try client(sender:{sent.append($0)})

@@ -6,6 +6,17 @@ final class FullscreenSpeedTests:XCTestCase {
   var rate:Float=1;var playing=false;var seeks=0
   func play(){playing=true};func pause(){playing=false};func seekTo(_ ms:Double){seeks += 1;position=ms};func setPlaybackSpeed(_ speed:Float){rate=speed}
  }
+ func testAVPlayerStartGatePreventsPlayStormAndResetsOnPause() {
+  var gate=PlaybackStartGate()
+  XCTAssertFalse(gate.shouldStart(now:0,prepared:false,paused:true))
+  XCTAssertTrue(gate.shouldStart(now:1000,prepared:true,paused:true))
+  XCTAssertFalse(gate.shouldStart(now:1100,prepared:true,paused:true))
+  XCTAssertFalse(gate.shouldStart(now:1600,prepared:true,paused:true))
+  XCTAssertTrue(gate.shouldStart(now:1800,prepared:true,paused:true),"stuck pause may retry after cooldown")
+  XCTAssertFalse(gate.shouldStart(now:3000,prepared:true,paused:false),"playing or buffering retains the original intent")
+  gate.reset()
+  XCTAssertTrue(gate.shouldStart(now:3010,prepared:true,paused:true),"explicit pause then play is immediate")
+ }
  func testScheduledRoomPlayStartsOnceWithoutFirstSecondHardSeek() {
   var now=0.0
   let clock=ClockSync{now};clock.add(0,0,0,0)
