@@ -25,7 +25,7 @@ enum OriginalPGSFileExtractor {
   }
   guard avformat_find_stream_info(format,nil)>=0,
    Int(format.pointee.nb_streams)>streamIndex,
-   let source= format.pointee.streams[streamIndex] else{return []}
+   let source=format.pointee.streams[streamIndex] else{return []}
   let parameters=source.pointee.codecpar
   guard parameters?.pointee.codec_id==AV_CODEC_ID_HDMV_PGS_SUBTITLE,
    let codec=avcodec_find_decoder(AV_CODEC_ID_HDMV_PGS_SUBTITLE),
