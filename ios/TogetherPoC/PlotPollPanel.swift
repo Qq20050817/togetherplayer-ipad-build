@@ -60,6 +60,7 @@ import SwiftUI
    Image(systemName:"sparkles").font(.title2).foregroundStyle(.white).frame(width:42,height:42).background(Color.indigo).clipShape(RoundedRectangle(cornerRadius:12))
    VStack(alignment:.leading,spacing:5) {
     Text(intelligence.selectedModel).font(.headline)
+    if !auth.modelName.isEmpty && (intelligence.selectedModel.contains("ChatGPT") || !auth.requestPhase.isEmpty || !auth.lastFailure.isEmpty) {Text("本次选用："+auth.modelName).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-cloud-model-name")}
     Text(intelligence.working && !auth.requestPhase.isEmpty ? auth.requestPhase : intelligence.reason)
      .font(.caption).foregroundStyle(intelligence.reason.contains("失败") || intelligence.reason.contains("超时") ? Color.orange : Color.secondary).lineLimit(5).accessibilityIdentifier("plot-ai-reason")
    }.frame(maxWidth:.infinity,alignment:.leading)
@@ -159,6 +160,7 @@ import SwiftUI
     PlotPanelCard(title:"ChatGPT 连接",icon:"link") {
      Label(auth.connected ? "本机授权已保存" : "尚未连接",systemImage:auth.connected ? "checkmark.circle" : "person.crop.circle").font(.headline)
      Text(auth.status).font(.caption).foregroundStyle(.secondary)
+     if !auth.modelName.isEmpty {Text("最近选用的订阅模型："+auth.modelName).font(.caption).foregroundStyle(.secondary)}
      if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange)}
      Button("Continue with ChatGPT") {auth.connect()}.buttonStyle(.borderedProminent).disabled(auth.working)
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary)
