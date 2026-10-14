@@ -526,6 +526,7 @@ struct FullscreenToolStyle:ButtonStyle {
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
    .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
+   .onChange(of:questionOpen) {controls.setBusy("question",$0)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;plotHintVisible=false;return}
     guard !questionOpen else {return}
