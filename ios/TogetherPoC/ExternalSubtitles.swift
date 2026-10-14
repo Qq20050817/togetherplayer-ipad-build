@@ -290,7 +290,11 @@ import AVFoundation
   let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
    (nativeEnabled ? (nativeIndexAIOnly ? live : (nativeIndexedDocument?.text(at:time) ?? live)) : "")
-  if next != text {text=next;plotCaptionChanged?(next)}
+  // When a genuine PGS composition is visible, never draw OCR/WebVTT on top.
+  // Missing original frame falls back to the selected native track rather than
+  // dropping captions during partial extraction or at a later movie position.
+  let visibleText=originalPGSFrame != nil ? "" : next
+  if visibleText != text {text=visibleText;plotCaptionChanged?(visibleText)}
  }
 }
 
