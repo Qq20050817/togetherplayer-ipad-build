@@ -199,7 +199,7 @@ import AVFoundation
  /// Decoder injection seam: ONLY original PGS bitmap events may enter here.
  /// Track changes and new films clear it; OCR stays in nativeAISRT.
  func installOriginalPGS(_ events:[PGSBitmapEvent],track:Int) {
-  guard track>=0 else{return}
+  guard originalPGSBitmapEnabled,track>=0 else{return}
   originalPGSTrack=track
   originalPGSTimeline.replace(with:events)
   originalPGSEventTime = -.infinity
