@@ -116,6 +116,11 @@ enum OriginalPGSFileExtractor {
      frame:PGSBitmapFrame(videoWidth:width,videoHeight:height,objects:objects)))
    }
   }
+  // A bounded scan can stop between a show and its natural clear packet.
+  // Never leave the final composition on screen for the rest of the movie.
+  if let last=output.last,last.frame != nil {
+   output.append(PGSBitmapEvent(time:last.time+10,frame:nil))
+  }
   return output
  }
 }
