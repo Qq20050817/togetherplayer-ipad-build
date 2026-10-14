@@ -224,7 +224,13 @@ import UniformTypeIdentifiers
    }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
   #if DEBUG
-  .accessibilityIdentifier("playback-canvas-instance").accessibilityValue(canvasIdentity.uuidString)
+  .overlay(alignment:.topLeading) {
+   // A separate child keeps the identity observable when a caller supplies
+   // its own accessibility container/identifier for the whole movie.
+   Text("Playback canvas identity").font(.system(size:1)).foregroundColor(.clear)
+    .accessibilityIdentifier("playback-canvas-instance").accessibilityValue(canvasIdentity.uuidString)
+    .allowsHitTesting(false)
+  }
   #endif
  }
 }
