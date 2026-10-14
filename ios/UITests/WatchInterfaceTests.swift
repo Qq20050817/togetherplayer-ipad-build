@@ -65,6 +65,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
   let setting=app.switches["plot-blocking-mode"].firstMatch
   let panelScroll=app.scrollViews["plot-settings-scroll"].firstMatch
+  XCTAssertTrue(panelScroll.waitForExistence(timeout:5))
   for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertTrue(setting.isEnabled)
@@ -73,12 +74,17 @@ final class WatchInterfaceTests: XCTestCase {
   setting.tap()
   let changed=original=="1" ? "0" : "1"
   XCTAssertEqual(setting.value as? String,changed)
-  app.buttons["plot-settings-close"].firstMatch.tap();open.tap()
+  app.buttons["plot-settings-close"].firstMatch.tap()
+  let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:panelScroll)
+  XCTAssertEqual(XCTWaiter.wait(for:[closed],timeout:5),.completed)
+  open.tap()
+  XCTAssertTrue(panelScroll.waitForExistence(timeout:5))
   for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertEqual(setting.value as? String,changed,"dismissal must preserve the setting")
   app.terminate();app.launch()
   XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  XCTAssertTrue(panelScroll.waitForExistence(timeout:5))
   for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertEqual(setting.value as? String,changed,"relaunch must preserve the setting")
@@ -124,9 +130,9 @@ final class WatchInterfaceTests: XCTestCase {
   let back=app.buttons["后退10秒"].firstMatch
   let forward=app.buttons["前进10秒"].firstMatch
   for _ in 0..<5 {
-   if app.buttons["播放"].firstMatch.exists {app.buttons["播放"].firstMatch.tap()}
+   app.buttons["playback-toggle"].firstMatch.tap()
    forward.tap();back.tap()
-   if app.buttons["暂停"].firstMatch.exists {app.buttons["暂停"].firstMatch.tap()}
+   app.buttons["playback-toggle"].firstMatch.tap()
    progress.adjust(toNormalizedSliderPosition:0.3)
    XCTAssertEqual(app.state,.runningForeground,"transport actions must not terminate the app")
   }
@@ -228,7 +234,7 @@ final class WatchInterfaceTests: XCTestCase {
  func testRoomScrollingKeepsExpandedInputsAndNavigationUsable() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
-  let roomTab=app.tabBars.buttons["房间与片源"].firstMatch
+  let roomTab=app.buttons["房间与片源"].firstMatch
   XCTAssertTrue(roomTab.waitForExistence(timeout:15));roomTab.tap()
   let scroll=app.scrollViews["room-page-scroll"].firstMatch
   XCTAssertTrue(scroll.waitForExistence(timeout:5))
@@ -243,7 +249,7 @@ final class WatchInterfaceTests: XCTestCase {
   for _ in 0..<5 {if title.isHittable {break};scroll.swipeDown()}
   XCTAssertTrue(title.isHittable,"scrolling back must retain expanded inputs")
   XCTAssertEqual(title.value as? String,original)
-  app.tabBars.buttons["观影"].firstMatch.tap()
+  app.buttons["观影"].firstMatch.tap()
   XCTAssertTrue(app.buttons["watch-header-plot-ai-button"].waitForExistence(timeout:5))
  }
  func testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent() {
