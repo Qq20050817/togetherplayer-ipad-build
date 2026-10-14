@@ -48,7 +48,16 @@ import SwiftUI
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
     .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {if let onClose {onClose()} else {dismiss()}}.accessibilityIdentifier("plot-settings-close")}}
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
-    .onAppear {if let value=intelligence.result {editQuestion=value.text;editOptions=value.choices}}
+    .onAppear {
+     if let value=intelligence.result {editQuestion=value.text;editOptions=value.choices}
+     #if DEBUG
+     if ProcessInfo.processInfo.environment["TOGETHER_PLOT_AUTOPAUSE_IN_SETTINGS_UI_TEST"]=="1" {
+      DispatchQueue.main.asyncAfter(deadline:.now()+0.5) {
+       model.plotPoll=["id":"qa-question-over-settings","question":"警方找到的钥匙为什么与证词矛盾？","options":["证人隐瞒来源","有人交换钥匙","还需核实时间"],"positionMs":42000.0,"blocking":true,"waitingForAnswers":true,"revealed":false,"submitted":[String](),"answers":[String:String]()]
+      }
+     }
+     #endif
+    }
     .onChange(of:intelligence.result) {value in if let value {editQuestion=value.text;editOptions=value.choices}}
     .onChange(of:model.plotPoll?["id"] as? String) {_ in selected="";custom=""}
     .onDisappear {if intelligence.working {intelligence.cancel()}}

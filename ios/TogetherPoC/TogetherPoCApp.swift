@@ -88,7 +88,7 @@ import UniformTypeIdentifiers
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;return}
     guard !fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
-    questionOpen=true
+    plotPollOpen=false;questionOpen=true
    }
    .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
     if revealed==true && model.plotPoll?["blocking"] as? Bool == true {questionOpen=false}
@@ -544,7 +544,7 @@ struct FullscreenToolStyle:ButtonStyle {
     guard !questionOpen else {return}
     if model.plotPollWaiting && !model.plotPollSubmitted && !composing {
      // The server pauses both viewers; open the question without extra taps.
-     plotHintVisible=false;questionOpen=true;return
+     plotPollOpen=false;plotHintVisible=false;questionOpen=true;return
     }
     // Nonblocking manually created polls retain the small optional hint.
     plotHintVisible=true;plotHintSequence+=1

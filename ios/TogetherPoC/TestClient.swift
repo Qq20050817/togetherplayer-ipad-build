@@ -548,6 +548,13 @@ import CoreMedia
   if mkvRemux.pgsOCRRendition && !externalSubtitles.convertPGSForAI {
    externalSubtitles.nativeIndexDisabledForAI();return
   }
+  // PrismCore publishes a complete planned playlist before its subtitle files
+  // exist. Probing every VTT ahead can wait minutes or re-anchor its producer,
+  // competing with the actual movie. Analyze observed legible cues instead.
+  if NativeSubtitleIndexReader.isDemandDrivenLocal(master:source) {
+   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
+   externalSubtitles.nativeIndexStreamingStarted();return
+  }
   if externalSubtitles.nativeIndexedTrack==track {return}
   let key="\(mediaLoadGeneration):\(track):\(source.absoluteString)"
   guard key != nativeIndexRequestKey else{return}

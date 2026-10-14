@@ -42,6 +42,7 @@ import AVFoundation
  private var nativeIndexedQuestions:[PlotQuestionCheckpoint]=[]
  private(set) var nativeIndexedTrack:Int?
  // Bitmap OCR projection is for AI only. It never becomes the displayed caption.
+ private var nativeIndexStreaming=false
  private(set) var nativeIndexAIOnly=false
  private(set) var nativeAISRT:String?
  @Published private(set) var nativeIndexStatus=""
@@ -90,6 +91,16 @@ import AVFoundation
   plotFullSubtitleIndexed?(document,"embedded-subtitle",nativeIndexedQuestions)
   refresh()
  }
+ func nativeIndexStreamingStarted() {
+  nativeIndexStreaming=true
+  updateStreamingIndexStatus()
+ }
+ private func updateStreamingIndexStatus() {
+  guard nativeIndexStreaming else{return}
+  let count=nativeTimeline.events.filter{!$0.text.isEmpty}.count
+  let value="按播放进度采集内置字幕（已收到\(count)条）；剧情分析不等待完整索引"
+  if nativeIndexStatus != value {nativeIndexStatus=value}
+ }
  func nativeIndexStarted() {if nativeIndexedDocument == nil {nativeIndexStatus="正在读取内置字幕的 AI 文字索引…"}}
  func nativeIndexDisabledForAI() {nativeIndexStatus="已关闭 PGS 转文字供 AI 使用；观看字幕未改变"}
  func clearAIOnlyOCRIndex() {
@@ -103,7 +114,7 @@ import AVFoundation
  }
  private func clearNativeIndex() {
   nativeIndexedDocument=nil;nativeIndexedQuestions=[];nativeIndexedTrack=nil
-  nativeIndexAIOnly=false;nativeAISRT=nil;nativeIndexStatus=""
+  nativeIndexStreaming=false;nativeIndexAIOnly=false;nativeAISRT=nil;nativeIndexStatus=""
  }
  func plannedQuestionCheckpoint(at position:Double,duration:Double)->Double? {
   // A complete imported subtitle can be indexed without sending the future
@@ -230,7 +241,7 @@ import AVFoundation
  fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
   guard output === legibleOutput else {return}
   lastNativeCallbackAt=Date().timeIntervalSince1970
-  nativeTimeline.receive(text:text,time:time);refresh()
+  nativeTimeline.receive(text:text,time:time);updateStreamingIndexStatus();refresh()
  }
  fileprivate func flushNative(_ output:AVPlayerItemLegibleOutput) {
   guard output === legibleOutput else {return}

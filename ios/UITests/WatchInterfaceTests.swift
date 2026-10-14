@@ -81,6 +81,23 @@ final class WatchInterfaceTests: XCTestCase {
   check("fullscreen-plot-ai-button")
   capture("31-stable-canvas-after-ai-open",app)
  }
+ func testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen() {
+  for fullscreen in [false,true] {
+   let app=XCUIApplication()
+   app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
+   app.launchEnvironment["TOGETHER_PLOT_AUTOPAUSE_IN_SETTINGS_UI_TEST"]="1"
+   app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+   if fullscreen {enterFullscreen(app)}
+   let button=app.buttons[fullscreen ? "fullscreen-plot-ai-button" : "watch-header-plot-ai-button"].firstMatch
+   XCTAssertTrue(button.waitForExistence(timeout:15));button.tap()
+   let drawer=app.otherElements[fullscreen ? "fullscreen-plot-question-drawer" : "plot-question-drawer"].firstMatch
+   XCTAssertTrue(drawer.waitForExistence(timeout:10),"AI settings must not mask a newly published blocking question")
+   XCTAssertTrue(app.staticTexts["警方找到的钥匙为什么与证词矛盾？"].firstMatch.exists)
+   XCTAssertFalse(app.scrollViews["plot-settings-scroll"].firstMatch.exists)
+   XCTAssertTrue(app.buttons["plot-drawer-submit"].firstMatch.exists)
+   app.terminate()
+  }
+ }
  func testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch() {
   let app=XCUIApplication()
   app.launchEnvironment["TOGETHER_UI_TEST"]="1"

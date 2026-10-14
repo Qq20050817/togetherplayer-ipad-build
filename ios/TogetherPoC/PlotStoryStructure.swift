@@ -52,6 +52,20 @@ enum PlotStoryStructure {
    return PlotStoryWindow(start:start,end:end,cues:cues)
   }
  }
+ // Fixed intervals retain stable completed sections as the watched prefix
+ // grows. The incomplete tail is safe, but background updates are throttled.
+ static func watchedWindows(_ evidence:[PlotEvidence],at cutoff:Double)->[PlotStoryWindow] {
+  let valid=evidence.filter{$0.start.isFinite && $0.end.isFinite && $0.start>=0 &&
+   $0.end>$0.start && $0.end<=cutoff && $0.source != "ondevice-vision"}.sorted{$0.start<$1.start}
+  guard valid.count>=3,let first=valid.first,let last=valid.last else{return []}
+  let firstBucket=Int(first.start/600),lastBucket=Int(last.end/600)
+  return (firstBucket...lastBucket).prefix(18).compactMap {index in
+   let start=Double(index)*600,end=min(cutoff,start+600)
+   let cues=valid.filter{$0.start>=start && $0.end<=end}.map{SubtitleCue(start:$0.start,end:$0.end,text:$0.text)}
+   guard cues.count>=3 else{return nil}
+   return PlotStoryWindow(start:start,end:end,cues:cues)
+  }
+ }
  static func context(_ window:PlotStoryWindow,source:String)->PlotContext {
   // Sample across the section to include the opening and turning point,
   // keeping input bounded for Apple's small on-device model.
