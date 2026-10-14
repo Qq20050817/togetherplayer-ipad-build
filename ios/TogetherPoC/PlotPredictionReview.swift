@@ -18,7 +18,7 @@ struct PlotPendingReview {
  var isReady:Bool {choices.count>=2 && choices.count<=4 && !answers.isEmpty && at.isFinite && at>=0}
  func canReview(position:Double)->Bool {isReady && position>=at+180 && position<=at+480}
  func observed(_ values:[PlotEvidence],position:Double)->[PlotEvidence] {
-  values.filter{$0.source != "ondevice-vision" && $0.start>=at && $0.end<=position && $0.end<=at+480}.suffix(25)
+  Array(values.filter{$0.source != "ondevice-vision" && $0.start>=at && $0.end<=position && $0.end<=at+480}.suffix(25))
  }
 }
 struct PlotPredictionVerdict {
