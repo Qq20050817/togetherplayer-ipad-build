@@ -335,15 +335,17 @@ final class SubtitleLegibleDelegate:NSObject,AVPlayerItemLegibleOutputPushDelega
   // When AVFoundation supplies real legible-sample durations, a caption can
   // end accurately even if the track omits an explicit empty callback. Never
   // invent a fixed duration or infer that speech ended merely from a timeout.
-  let durations=nativeSampleBuffers.compactMap {value -> Double? in
+  let end=Self.nativeDuration(nativeSampleBuffers).map{itemTime.seconds+$0}
+  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds,end:end)}
+ }
+ static func nativeDuration(_ buffers:[Any])->Double? {
+  buffers.compactMap {value -> Double? in
    let reference=value as CFTypeRef
    guard CFGetTypeID(reference)==CMSampleBufferGetTypeID() else{return nil}
    let sample=reference as! CMSampleBuffer
    let duration=CMSampleBufferGetOutputDuration(sample).seconds
    return duration.isFinite && duration>0 ? duration : nil
-  }
-  let end=durations.max().map{itemTime.seconds+$0}
-  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds,end:end)}
+  }.max()
  }
  func outputSequenceWasFlushed(_ output:AVPlayerItemOutput) {
   guard let output=output as? AVPlayerItemLegibleOutput else {return}

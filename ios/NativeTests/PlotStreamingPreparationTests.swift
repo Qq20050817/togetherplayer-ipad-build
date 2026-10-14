@@ -1,4 +1,6 @@
 import XCTest
+import CoreMedia
+import CoreVideo
 @testable import TogetherPoC
 
 @MainActor final class PlotStreamingPreparationTests:XCTestCase {
@@ -158,6 +160,18 @@ import XCTest
   current=PlotFrame(key:"film",position:150,evidence:newer);roomReady=true
   XCTAssertFalse(model.publishPendingAutomaticQuestion())
   XCTAssertEqual(published,0)
+ }
+ func testNativeSampleTimingIsReadWithoutUnsafeAssumptionsAboutAnEmptyCallback() throws {
+  var pixel:CVPixelBuffer?
+  XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault,2,2,kCVPixelFormatType_32BGRA,nil,&pixel),kCVReturnSuccess)
+  let image=try XCTUnwrap(pixel)
+  var format:CMVideoFormatDescription?
+  XCTAssertEqual(CMVideoFormatDescriptionCreateForImageBuffer(allocator:kCFAllocatorDefault,imageBuffer:image,formatDescriptionOut:&format),noErr)
+  var timing=CMSampleTimingInfo(duration:CMTime(seconds:4,preferredTimescale:600),presentationTimeStamp:CMTime(seconds:10,preferredTimescale:600),decodeTimeStamp:.invalid)
+  var buffer:CMSampleBuffer?
+  XCTAssertEqual(CMSampleBufferCreateReadyWithImageBuffer(allocator:kCFAllocatorDefault,imageBuffer:image,formatDescription:try XCTUnwrap(format),sampleTiming:&timing,sampleBufferOut:&buffer),noErr)
+  XCTAssertEqual(SubtitleLegibleDelegate.nativeDuration([try XCTUnwrap(buffer)]),4)
+  XCTAssertNil(SubtitleLegibleDelegate.nativeDuration([]))
  }
  func testKnownCaptionDurationFinishesWithoutAnEmptyCallbackAndIsNotFutureEvidence() {
   var timeline=NativeSubtitleTimeline()
