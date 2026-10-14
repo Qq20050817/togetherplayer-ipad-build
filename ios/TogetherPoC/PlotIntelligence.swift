@@ -333,7 +333,7 @@ struct PlotFrame {
     // A person pressing Generate in Smart mode may request an honest,
     // context-free ChatGPT question when subtitle evidence is missing.
     // Automatic moments still require evidence before any cloud request.
-    let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working &&
+    let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working && !auth.loadingModels &&
        (context.sufficient || explicitlyCloud || (!autoMoment && mode == .smart)) &&
        (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
     if allowed {

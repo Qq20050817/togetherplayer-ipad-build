@@ -27,6 +27,21 @@ final class ChatGPTRequestSupportTests:XCTestCase {
   XCTAssertEqual(ChatGPTModelCache.select(body),ChatGPTAvailableModel(id:"first",name:"第一项"))
   XCTAssertNil(ChatGPTModelCache.select(["data":[["id":"api-key-model"]]]))
  }
+ func testExplicitModelSelectionNeverSilentlyFallsBack() {
+  let catalog=[ChatGPTAvailableModel(id:"default",name:"默认"),ChatGPTAvailableModel(id:"deep",name:"深度")]
+  XCTAssertEqual(ChatGPTModelCache.resolve(catalog,preferred:"deep")?.id,"deep")
+  XCTAssertEqual(ChatGPTModelCache.resolve(catalog,preferred:"")?.id,"default")
+  XCTAssertNil(ChatGPTModelCache.resolve(catalog,preferred:"removed"))
+  XCTAssertTrue(ChatGPTRequestFailure(stage:.models,serviceCode:"selected_model_not_available").localizedDescription.contains("指定模型"))
+ }
+ func testCatalogFiltersHiddenAndDuplicateModelsWhileCachingEntireList() {
+  let body:[String:Any] = ["models":[["slug":"hidden","visibility":"hidden"],["slug":"first","visibility":"list"],["slug":"second","visibility":"list"],["slug":"first","visibility":"list"]]]
+  let catalog=ChatGPTModelCache.parse(body)
+  XCTAssertEqual(catalog.map(\.id),["first","second"])
+  var cache=ChatGPTModelCache();cache.store(catalog,account:"a",now:10)
+  XCTAssertEqual(cache.catalog(account:"a",now:11),catalog)
+  XCTAssertNil(cache.catalog(account:"b",now:11))
+ }
  func testOnlyTerminalRefreshCodesRequireCredentialRemoval() {
   for code in ["invalid_grant","refresh_token_expired","refresh_token_reused"] {XCTAssertTrue(ChatGPTRequestFailure.unusableRefresh(code))}
   for code in ["invalid_client","subscription_sharing_usage_unavailable","insufficient_scopes"] {XCTAssertFalse(ChatGPTRequestFailure.unusableRefresh(code))}

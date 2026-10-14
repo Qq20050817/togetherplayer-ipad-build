@@ -37,7 +37,9 @@ struct ChatGPTRequestFailure:LocalizedError {
    case 500...599:detail="OpenAI 服务暂不可用（HTTP \(httpCode)）"
    default:detail="接口返回 HTTP \(httpCode)"
    }
-  } else {detail="没有收到完整的有效结果"}
+  } else if serviceCode=="selected_model_not_available" {detail="指定模型不在当前账号的可用列表中，请重新获取列表并选择"}
+  else if serviceCode=="unsupported_subscription_catalog" {detail="没有获取到可用的订阅模型"}
+  else {detail="没有收到完整的有效结果"}
   let code=serviceCode.map {"；服务代码 \($0)"} ?? ""
   let caution=stage == .stream ? "；已开始的请求可能计入用量，不会自动重发" : "；不会自动重试或更换付费渠道"
   return "\(stage.title)：\(detail)\(code)\(caution)"
@@ -62,18 +64,25 @@ struct ChatGPTRequestFailure:LocalizedError {
 struct ChatGPTAvailableModel:Equatable {let id:String;let name:String}
 struct ChatGPTModelCache {
  private var account=""
- private var model:ChatGPTAvailableModel?
+ private var models:[ChatGPTAvailableModel]=[]
  private var expiresAt=0.0
- mutating func clear() {account="";model=nil;expiresAt=0}
- func value(account:String,now:Double)->ChatGPTAvailableModel? {self.account==account && now<expiresAt ? model : nil}
- mutating func store(_ model:ChatGPTAvailableModel,account:String,now:Double) {self.model=model;self.account=account;expiresAt=now+300}
- static func select(_ body:[String:Any])->ChatGPTAvailableModel? {
+ mutating func clear() {account="";models=[];expiresAt=0}
+ func catalog(account:String,now:Double)->[ChatGPTAvailableModel]? {self.account==account && now<expiresAt && !models.isEmpty ? models : nil}
+ func value(account:String,now:Double)->ChatGPTAvailableModel? {catalog(account:account,now:now)?.first}
+ mutating func store(_ model:ChatGPTAvailableModel,account:String,now:Double) {store([model],account:account,now:now)}
+ mutating func store(_ models:[ChatGPTAvailableModel],account:String,now:Double) {self.models=models;self.account=account;expiresAt=now+300}
+ static func parse(_ body:[String:Any])->[ChatGPTAvailableModel] {
   // This is the documented ChatGPT PLAN catalog, not the API-key catalog.
   // Keep the server's ordering and never silently switch billing paths.
-  guard let models=body["models"] as? [[String:Any]],let first=models.first(where:{$0["visibility"] as? String=="list"}),
-        let id=first["slug"] as? String,!id.isEmpty,id.count<=160 else{return nil}
-  return ChatGPTAvailableModel(id:id,name:first["display_name"] as? String ?? id)
+  guard let models=body["models"] as? [[String:Any]] else{return []}
+  var seen=Set<String>()
+  return models.compactMap {item in
+   guard item["visibility"] as? String=="list",let id=item["slug"] as? String,!id.isEmpty,id.count<=160,seen.insert(id).inserted else{return nil}
+   return ChatGPTAvailableModel(id:id,name:item["display_name"] as? String ?? id)
+  }
  }
+ static func select(_ body:[String:Any])->ChatGPTAvailableModel? {parse(body).first}
+ static func resolve(_ models:[ChatGPTAvailableModel],preferred:String)->ChatGPTAvailableModel? {preferred.isEmpty ? models.first : models.first(where:{$0.id==preferred})}
 }
 
 struct ChatGPTConnectivityResult:Equatable {

@@ -71,10 +71,10 @@ import SwiftUI
    Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases) {mode in Text(mode.title).tag(mode)}}.pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
    Button {intelligence.generate()} label:{
     HStack {if intelligence.working {ProgressView().tint(.white)} else {Image(systemName:"sparkles")};Text(intelligence.working ? "正在分析…" : "生成问题");Spacer()}.frame(maxWidth:.infinity,minHeight:30)
-   }.buttonStyle(.borderedProminent).disabled(intelligence.working || model.adapter.player.currentItem == nil).accessibilityIdentifier("plot-ai-generate")
+   }.buttonStyle(.borderedProminent).disabled(intelligence.working || auth.loadingModels || model.adapter.player.currentItem == nil).accessibilityIdentifier("plot-ai-generate")
    HStack {
     if intelligence.working {Button("取消分析") {intelligence.cancel()}}
-    else {Button("深度推理一次") {intelligence.generate(manualDeep:true)}.disabled(model.adapter.player.currentItem == nil || !auth.connected)}
+    else {Button("深度推理一次") {intelligence.generate(manualDeep:true)}.disabled(model.adapter.player.currentItem == nil || !auth.connected || auth.loadingModels)}
     Spacer()
     Button(auth.connected ? "连接与隐私" : "连接 ChatGPT") {authOpen=true}.accessibilityIdentifier("plot-chatgpt-settings")
    }.font(.caption).buttonStyle(.bordered)
@@ -143,6 +143,15 @@ import SwiftUI
      Text("位图显示默认关闭；仅在影片暂停时切换，可能增加解码负担。OCR 不会修改影片或切换观看字幕。").font(.caption).foregroundStyle(.secondary)
      if !subtitles.nativeIndexStatus.isEmpty {Text("内置字幕：\(subtitles.nativeIndexStatus)").font(.caption2).accessibilityIdentifier("plot-native-subtitle-index")}
      Text("预分析：\(intelligence.fullFilmPreparationStatus)").font(.caption2).accessibilityIdentifier("plot-full-film-preanalysis")
+     if auth.connected {
+      Picker("推理模型",selection:$auth.preferredModelID) {
+       Text("自动选择（按账号可用列表）").tag("")
+       ForEach(auth.availableModels,id:\.id) {model in Text(model.name).tag(model.id)}
+       if !auth.preferredModelID.isEmpty && !auth.availableModels.contains(where:{$0.id==auth.preferredModelID}) {Text("已保存的选择（请刷新列表）").tag(auth.preferredModelID)}
+      }.pickerStyle(.menu).disabled(intelligence.working || auth.loadingModels || auth.working).accessibilityIdentifier("plot-model-selector")
+      Button(auth.loadingModels ? "正在获取模型…" : "获取可用模型") {auth.refreshModels()}.disabled(auth.loadingModels || auth.working || intelligence.working).accessibilityIdentifier("plot-model-refresh")
+      Text("只列出当前账号支持的订阅模型。获取列表不发起推理；指定模型不可用时会提示，不会擅自替换。").font(.caption).foregroundStyle(.secondary)
+     }
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "")").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
     }.padding(.top,14)
@@ -162,7 +171,7 @@ import SwiftUI
      Text(auth.status).font(.caption).foregroundStyle(.secondary)
      if !auth.modelName.isEmpty {Text("最近选用的订阅模型："+auth.modelName).font(.caption).foregroundStyle(.secondary)}
      if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange)}
-     Button("Continue with ChatGPT") {auth.connect()}.buttonStyle(.borderedProminent).disabled(auth.working)
+     Button("Continue with ChatGPT") {auth.connect()}.buttonStyle(.borderedProminent).disabled(auth.working || auth.loadingModels || intelligence.working)
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary)
     }
     PlotPanelCard(title:"隐私与用量",icon:"hand.raised") {
@@ -178,7 +187,7 @@ import SwiftUI
      DisclosureGroup("调用诊断") {
       VStack(alignment:.leading,spacing:12) {
        Text("下面会使用本机授权执行一次真实调用，消耗一次请求；连接检查本身不消耗推理额度。").font(.caption)
-       Button("执行一次调用诊断") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || intelligence.working || !intelligence.consent || !intelligence.creditsDisabled)
+       Button("执行一次调用诊断") {auth.testRepeatedCall()}.disabled(!auth.connected || auth.working || auth.loadingModels || intelligence.working || !intelligence.consent || !intelligence.creditsDisabled)
        Text("诊断请求 \(auth.diagnosticRequests)/6").font(.caption)
        if !auth.testText.isEmpty {Text(auth.testText).font(.caption)}
       }.padding(.top,12)

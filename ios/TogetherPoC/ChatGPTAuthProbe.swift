@@ -32,6 +32,11 @@ import CryptoKit
  @Published private(set) var requestPhase=""
  @Published private(set) var lastFailure=""
  @Published private(set) var modelName=""
+ @Published private(set) var availableModels:[ChatGPTAvailableModel]=[]
+ @Published private(set) var loadingModels=false
+ @Published var preferredModelID="" {didSet {if let key=modelPreferenceKey {UserDefaults.standard.set(preferredModelID,forKey:key)}}}
+ private var catalogTask:Task<Void,Never>?
+ private var modelPreferenceKey:String? {guard let c=ChatGPTLocalKeychain.read() else{return nil};return "plot-chatgpt-model-"+PlotMemoryStore.key(c.clientID+":"+c.subject)}
  @Published private(set) var checkingConnection=false
  @Published private(set) var connectionResults:[ChatGPTConnectivityResult]=[]
  private var connectivityTask:Task<Void,Never>?
@@ -41,7 +46,7 @@ import CryptoKit
  private var sessionEpoch=0
  private var diagnosticTask:Task<Void,Never>?
  private func invalidateUsage() {
-  modelCache.clear()
+  modelCache.clear();availableModels=[];modelName=""
   let key=verificationKey
   ChatGPTLocalKeychain.delete() // Invalid or revoked access must not revive after restart.
   integrationReady=false;connected=false;UserDefaults.standard.set(false,forKey:key+"-restart")
@@ -55,6 +60,7 @@ import CryptoKit
   // Successful OAuth authorization, not optional QA diagnostics, gates use.
   integrationReady=connected
   if integrationReady {verificationStatus="登录授权已完成；实际调用状态以出题结果为准"}
+  if let key=modelPreferenceKey {preferredModelID=UserDefaults.standard.string(forKey:key) ?? ""}
   diagnosticRequests=UserDefaults.standard.integer(forKey:verificationKey+"-diagnostics")
   usagePaused=UserDefaults.standard.bool(forKey:verificationKey+"-usage-paused")
  }
@@ -72,9 +78,9 @@ import CryptoKit
   return value
  }
  func connect() {
-  guard !working,!inferenceActive else{return}
+  guard !working,!inferenceActive,!loadingModels else{return}
   sessionEpoch+=1
-  modelCache.clear()
+  modelCache.clear();availableModels=[];modelName=""
   integrationReady=false
   working=true;status="正在启动 iPad 本地授权回调…";testText=""
   authorizationTimeout?.cancel()
@@ -225,6 +231,7 @@ import CryptoKit
   }
   UserDefaults.standard.set(issued,forKey:"plot-chatgpt-client-id")
   connected=true;integrationReady=true
+  if let key=modelPreferenceKey {preferredModelID=UserDefaults.standard.string(forKey:key) ?? ""}
   UserDefaults.standard.removeObject(forKey:verificationKey+"-acceptance")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-diagnostics");diagnosticRequests=0
   UserDefaults.standard.removeObject(forKey:verificationKey+"-run")
@@ -260,29 +267,13 @@ import CryptoKit
   catch {lastFailure=error.localizedDescription;throw error}
  }
  private func requestInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
-  guard !inferenceActive else {throw CancellationError()}
+  guard !inferenceActive,!loadingModels else {throw CancellationError()}
   inferenceActive=true;defer {inferenceActive=false;requestPhase=""}
   let epoch=sessionEpoch
   try Task.checkCancellation()
   let c=try await credentials()
-  let account=c.clientID+":"+c.subject
-  let selected:ChatGPTAvailableModel
-  if let cached=modelCache.value(account:account,now:Date().timeIntervalSince1970) {selected=cached}
-  else {
-   requestPhase=ChatGPTRequestStage.models.title
-   var models=URLRequest(url:URL(string:"https://api.openai.com/v1/models")!);models.timeoutInterval=20
-   models.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization")
-   let data:Data,response:URLResponse
-   do {(data,response)=try await apiSession.data(for:models)}
-   catch {throw ChatGPTRequestFailure.network(error,stage:.models)}
-   guard sessionEpoch==epoch,!Task.isCancelled else {throw CancellationError()}
-   let code=(response as? HTTPURLResponse)?.statusCode ?? 0
-   let body=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] ?? [:]
-   if code==429 {pauseUsage()}
-   guard code==200 else {throw ChatGPTRequestFailure(stage:.models,httpCode:code,serviceCode:ChatGPTRequestFailure.code(in:body))}
-   guard let model=ChatGPTModelCache.select(body) else {throw ChatGPTRequestFailure(stage:.models,serviceCode:"unsupported_subscription_catalog")}
-   selected=model;modelCache.store(model,account:account,now:Date().timeIntervalSince1970)
-  }
+  let catalog=try await availableCatalog(credentials:c,epoch:epoch)
+  guard let selected=ChatGPTModelCache.resolve(catalog,preferred:preferredModelID) else {throw ChatGPTRequestFailure(stage:.models,serviceCode:"selected_model_not_available")}
   if modelName != selected.name {modelName=selected.name}
   guard canSend() else {throw CancellationError()}
   var req=URLRequest(url:URL(string:"https://api.openai.com/v1/responses")!);req.timeoutInterval=60
@@ -319,6 +310,37 @@ import CryptoKit
   guard sessionEpoch==epoch else {throw CancellationError()}
   guard completed,!answer.isEmpty else {throw ChatGPTRequestFailure(stage:.stream,serviceCode:"stream_ended_before_completion")}
   return answer
+ }
+ private func availableCatalog(credentials c:ChatGPTLocalCredentials,epoch:Int,force:Bool=false) async throws ->[ChatGPTAvailableModel] {
+  let account=c.clientID+":"+c.subject
+  if !force,let cached=modelCache.catalog(account:account,now:Date().timeIntervalSince1970) {return cached}
+  requestPhase=ChatGPTRequestStage.models.title
+  var request=URLRequest(url:URL(string:"https://api.openai.com/v1/models")!);request.timeoutInterval=20
+  request.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization")
+  let data:Data,response:URLResponse
+  do {(data,response)=try await apiSession.data(for:request)}
+  catch {throw ChatGPTRequestFailure.network(error,stage:.models)}
+  guard sessionEpoch==epoch,!Task.isCancelled else {throw CancellationError()}
+  let code=(response as? HTTPURLResponse)?.statusCode ?? 0
+  let body=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] ?? [:]
+  if code==429 {pauseUsage()}
+  guard code==200 else {throw ChatGPTRequestFailure(stage:.models,httpCode:code,serviceCode:ChatGPTRequestFailure.code(in:body))}
+  let catalog=ChatGPTModelCache.parse(body)
+  guard !catalog.isEmpty else {throw ChatGPTRequestFailure(stage:.models,serviceCode:"unsupported_subscription_catalog")}
+  modelCache.store(catalog,account:account,now:Date().timeIntervalSince1970)
+  if availableModels != catalog {availableModels=catalog}
+  return catalog
+ }
+ func refreshModels() {
+  guard connected,!loadingModels,!inferenceActive,!working else{return}
+  loadingModels=true;lastFailure="";let epoch=sessionEpoch
+  catalogTask=Task { [weak self] in
+   guard let self else{return}
+   do {let c=try await self.credentials();_ = try await self.availableCatalog(credentials:c,epoch:epoch,force:true)}
+   catch is CancellationError {}
+   catch {if self.sessionEpoch==epoch {self.lastFailure=error.localizedDescription}}
+   if self.sessionEpoch==epoch {self.loadingModels=false;self.requestPhase=""}
+  }
  }
  private func pauseUsage() {usagePaused=true;UserDefaults.standard.set(true,forKey:verificationKey+"-usage-paused");status="ChatGPT 额度受限，已暂停云端调用；可在官方用量设置查看"}
  @Published private(set) var diagnosticRequests=0
@@ -368,11 +390,12 @@ import CryptoKit
   }
  }
  func disconnect() {
-  modelCache.clear();modelName="";lastFailure="";requestPhase=""
+  modelCache.clear();modelName="";availableModels=[];lastFailure="";requestPhase=""
+  catalogTask?.cancel();loadingModels=false
   connectivityTask?.cancel();checkingConnection=false;connectionResults=[]
   sessionEpoch+=1;diagnosticTask?.cancel();apiSession.invalidateAndCancel();apiSession=URLSession(configuration:.ephemeral)
   listener?.cancel();listener=nil;pending=nil
-  authorizationTimeout?.cancel();authorizationURL=nil;ChatGPTLocalKeychain.delete();connected=false;integrationReady=false;working=false;testText=""
+  authorizationTimeout?.cancel();authorizationURL=nil;ChatGPTLocalKeychain.delete();preferredModelID="";connected=false;integrationReady=false;working=false;testText=""
   status="已清除本机授权。若需要取消远端授权，请到 ChatGPT 设置中断开 TogetherPlayer。"
  }
  func cancelAuthorization() {
