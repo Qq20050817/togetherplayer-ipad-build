@@ -3,6 +3,59 @@ import AVFoundation
 @testable import TogetherPoC
 
 final class VoiceDanmakuTests:XCTestCase {
+ func testVocabularyHintsAreBoundedUniqueAndPreserveUserNames() {
+  let hints=VoiceVocabulary.hints("张三\n李四，张三;不在场证明\n"+String(repeating:"字",count:31))
+  XCTAssertEqual(Array(hints.prefix(3)),["张三","李四","不在场证明"])
+  XCTAssertEqual(hints.filter {$0=="张三"}.count,1)
+  XCTAssertFalse(hints.contains(String(repeating:"字",count:31)))
+  XCTAssertTrue(hints.contains("生化危机"))
+  XCTAssertLessThanOrEqual(VoiceVocabulary.hints((0..<200).map {"人名\($0)"}.joined(separator:"\n")).count,100)
+ }
+ func testCumulativeFinalReplacesAlreadyCommittedAudioRanges() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("我觉得他在说谎",final:false,start:0.2,end:2,window:1)
+  draft.accept("因为前后矛盾",final:false,start:4,end:5,window:1)
+  XCTAssertEqual(draft.text,"我觉得他在说谎 因为前后矛盾")
+  draft.accept("我觉得他在说谎，因为前后矛盾",final:true,start:0.2,end:5,window:1)
+  XCTAssertEqual(draft.text,"我觉得他在说谎，因为前后矛盾")
+  draft.accept("我觉得他在说谎，因为前后矛盾",final:true,start:0.2,end:5,window:1)
+  XCTAssertEqual(draft.text,"我觉得他在说谎，因为前后矛盾")
+ }
+ func testTimestampResetAfterPausePreservesPreviousPhrase() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("我觉得这个人不太对",final:false,start:0.2,end:3,window:1)
+  draft.accept("另外他没有回答",final:false,start:0.1,end:0.8,window:1)
+  draft.accept("另外他没有回答那个问题",final:true,start:0.1,end:2,window:1)
+  XCTAssertEqual(draft.text,"我觉得这个人不太对 另外他没有回答那个问题")
+ }
+ func testRealRepeatedPhraseInNewRequestIsNotDeleted() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("快跑",final:false,start:0,end:1,window:1)
+  draft.accept("快跑",final:true,start:0,end:1,window:1)
+  draft.accept("快跑",final:true,start:0,end:1,window:2)
+  XCTAssertEqual(draft.text,"快跑 快跑")
+ }
+ func testBlankFinalRetainsBothPhrasesAfterSilence() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("第一段话",final:false,start:0,end:2,window:1)
+  draft.accept("接着说第二段",final:false,start:4,end:6,window:1)
+  draft.accept("",final:true,window:1)
+  XCTAssertEqual(draft.text,"第一段话 接着说第二段")
+ }
+ func testCumulativeFinalWithoutTimesDoesNotDuplicatePriorPhrase() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("我觉得",final:false,start:0,end:1,window:1)
+  draft.accept("他在说谎",final:false,start:3,end:4,window:1)
+  draft.accept("我觉得他在说谎",final:true,window:1)
+  XCTAssertEqual(draft.text,"我觉得他在说谎")
+ }
+ func testTimestampShiftedCorrectionDoesNotCreateAnExtraSentence() {
+  var draft=VoiceRecognitionDraft()
+  draft.accept("我觉得这人不对",final:false,start:0,end:2,window:1)
+  draft.accept("我觉得这个人不对",final:true,start:3,end:5,window:1)
+  XCTAssertEqual(draft.text,"我觉得这个人不对")
+ }
+
  func testReissuedSameHypothesisDoesNotAppendAfterTimestampShift() {
   var draft=VoiceRecognitionDraft()
   draft.accept("他在说谎",final:false,start:0,end:1,window:1)

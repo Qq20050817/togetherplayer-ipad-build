@@ -17,6 +17,9 @@ private final class VoiceAudioSink {
  @Published var maxSeconds=60.0
  @Published var maxCharacters=300
  @Published var threshold=0.003
+ @Published var vocabularyHints=UserDefaults.standard.string(forKey:"voice-vocabulary-hints") ?? "" {
+  didSet {UserDefaults.standard.set(String(vocabularyHints.prefix(4000)),forKey:"voice-vocabulary-hints")}
+ }
  #if DEBUG
  private var gestureFixture=false
  func installGestureFixture() {gestureFixture=true;state = .ready;status="按住说话，松开预览"}
@@ -96,7 +99,7 @@ private final class VoiceAudioSink {
   // A short finalization window keeps the last spoken syllables and corrections.
   // Preserve partials rather than waiting three seconds when text is already present.
   preview=draft.text
-  let wait:UInt64=draft.text.isEmpty ? 3_000_000_000 : 700_000_000
+  let wait:UInt64=draft.text.isEmpty ? 3_000_000_000 : 1_500_000_000
   finalDeadline=Task { [weak self] in
    try? await Task.sleep(nanoseconds:wait)
    guard !Task.isCancelled,let self=self,self.generation==current else {return}
@@ -105,9 +108,11 @@ private final class VoiceAudioSink {
  }
  private func startRecognition(_ current:Int) {
   guard let recognizer=recognizer else {return}
+  let previousTask=task
   recognitionGeneration += 1;let segment=recognitionGeneration
   let request=SFSpeechAudioBufferRecognitionRequest()
-  request.requiresOnDeviceRecognition=true;request.shouldReportPartialResults=true;request.taskHint = .dictation
+  request.requiresOnDeviceRecognition=true;request.shouldReportPartialResults=true;request.taskHint = .dictation;request.addsPunctuation=true
+  request.contextualStrings=VoiceVocabulary.hints(vocabularyHints)
   self.request=request;sink.set(request)
   task=recognizer.recognitionTask(with:request) { [weak self] result,error in
    Task { @MainActor in
@@ -132,6 +137,9 @@ private final class VoiceAudioSink {
     }
    }
   }
+  // Switch the audio sink first: a completed request must not keep receiving
+  // buffers, and cancelling it must not create a gap in the next request.
+  previousTask?.cancel()
  }
  private func complete(_ current:Int) {
   guard current==generation,state == .finishing else {return}
