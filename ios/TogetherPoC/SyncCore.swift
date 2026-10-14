@@ -136,7 +136,14 @@ final class SyncEngine {
  }
  func receive(_ next: Room) {
   if next.roomId != room?.roomId || next.version >= (room?.version ?? 0) {
-   if next.roomId != room?.roomId || next.version != room?.version {lastAutoSeekAt=nil;resetCorrection()}
+   let previous=room
+   if next.roomId != previous?.roomId || next.version != previous?.version {lastAutoSeekAt=nil;resetCorrection()}
+   // Give a newly scheduled PLAY time to render its first frames before
+   // making any speed change / hard seek. Normal seek commands while already
+   // playing remain immediate and are not given this startup grace period.
+   if next.state == "playing" && previous?.roomId == next.roomId && previous?.state == "paused" {
+    settleUntil=clock.localNow()+2000
+   }
    room=next
   }
  }

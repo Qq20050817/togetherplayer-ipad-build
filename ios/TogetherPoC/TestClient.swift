@@ -1137,13 +1137,16 @@ extension TestClient {
  private func applyOptimisticPlayback(_ type:String,position:Double) {
   guard isHost,connected,engine.room != nil,variantDurationCheck == .compatible,
         adapter.player.currentItem?.status == .readyToPlay,!plotPollWaiting else {return}
+  // The server schedules room PLAY 750 ms ahead so both devices start together.
+  // Starting the host AVPlayer now plays ~750 ms ahead, then the next room
+  // snapshot forces correction (and can stall decoding at the 1 s mark).
+  // Preserve the immediate UI acknowledgement, but let the synced room clock
+  // start the video once; never optimistically start or rewind a PLAY.
+  if type == "PLAY" {clearOptimisticPlayback();return}
   optimisticRoomID=engine.room?.roomId ?? ""
   optimisticUntil=clock.localNow()+1800
   switch type {
   case "PAUSE":optimisticPlaying=false;adapter.pause()
-  case "PLAY":
-   guard adapter.ready else {return}
-   optimisticPlaying=true;adapter.play()
   case "SEEK":adapter.seekTo(position+engine.timelineOffset)
   default:break
   }

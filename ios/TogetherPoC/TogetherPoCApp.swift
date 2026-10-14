@@ -154,7 +154,7 @@ import UniformTypeIdentifiers
  @ObservedObject var model: TestClient
  @ObservedObject var playback: PlaybackMonitor
  var body: some View {
-  HStack(spacing:8) {Circle().fill(model.isConnected ? (playback.buffering ? .orange : .green) : .gray).frame(width:9,height:9);Text(model.isConnected ? "\(playback.buffering ? "等待缓冲" : playback.playing ? "正在同步播放" : "已暂停") · \(model.members.count)人" : "未连接房间").font(.caption);Image(systemName:"waveform").foregroundColor(.blue)}.padding(.horizontal,14).padding(.vertical,10).background(Color.white.opacity(0.07)).clipShape(Capsule())
+  HStack(spacing:8) {Circle().fill(model.isConnected ? (playback.buffering ? .orange : .green) : .gray).frame(width:9,height:9);Text(model.isConnected ? "\(playback.buffering ? "等待缓冲" : playback.playing ? "播放中" : "已暂停") · \(model.members.count)人" : "未连接房间").font(.caption);Image(systemName:"waveform").foregroundColor(.blue)}.padding(.horizontal,14).padding(.vertical,10).background(Color.white.opacity(0.07)).clipShape(Capsule())
  }
 }
 @MainActor struct MediaLibraryPanel: View {
