@@ -106,6 +106,7 @@ class MainActivity: Activity() {
     details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
     format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
     diagnostic("playerError",details)
+    if(tryRecoverMalformedLocalContainer(error.errorCode))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
@@ -522,6 +523,15 @@ class MainActivity: Activity() {
   pendingLocalMovie=null
   if(r.optString("roomId")!=pendingLocalRoom || r.optString("mediaUrl")!=pendingLocalMedia){requestStatus.text="房间或影片已改变，请重新选择本地影片";return}
   useLocalMovie(selection.first,selection.second)
+ }
+ private fun tryRecoverMalformedLocalContainer(errorCode:Int):Boolean {
+  val uri=player.currentMediaItem?.localConfiguration?.uri ?: return false
+  if(!LocalContainerRecovery.shouldTry(errorCode,uri.scheme,playback.compatibleActive))return false
+  val position=playback.currentPosition.coerceAtLeast(0L)
+  if(!playback.activateCompatibility(uri.toString(),position))return false
+  requestStatus.text="本地影片封装解析异常，已尝试独立兼容播放器；正在读取真实画面。不会自动开始播放，仍以房间状态为准。"
+  diagnostic("localContainerFallback",JSONObject().put("errorCode",errorCode).put("sourceScheme",uri.scheme ?: ""))
+  return true
  }
  private fun tryRecoverVideoDecoder(format:androidx.media3.common.Format?,failed:String):Boolean {
   if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending)return false
