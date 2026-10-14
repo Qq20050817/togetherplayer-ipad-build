@@ -22,8 +22,8 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(headerAI.waitForExistence(timeout:15),"普通观影页应有常驻 AI 入口")
   XCTAssertTrue(headerAI.isHittable,"AI 入口不能藏在可横向滚动的工具栏内")
   headerAI.tap()
-  XCTAssertTrue(app.navigationBars["🎭 剧情推理室"].firstMatch.waitForExistence(timeout:5))
-  app.buttons["完成"].firstMatch.tap()
+  XCTAssertTrue(app.navigationBars["剧情推理室"].firstMatch.waitForExistence(timeout:5))
+  app.buttons["plot-settings-close"].firstMatch.tap()
   let cardAI=app.buttons["watch-plot-ai-button"].firstMatch
   XCTAssertTrue(cardAI.exists,"播放器控制区应展示 AI 剧情推理")
   enterFullscreen(app)
@@ -31,9 +31,30 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(fullscreenAI.waitForExistence(timeout:5),"全屏控制条顶部应固定显示 AI 入口")
   XCTAssertTrue(fullscreenAI.isHittable)
   fullscreenAI.tap()
-  XCTAssertTrue(app.navigationBars["🎭 剧情推理室"].firstMatch.waitForExistence(timeout:5))
-  app.buttons["完成"].firstMatch.tap()
+  XCTAssertTrue(app.navigationBars["剧情推理室"].firstMatch.waitForExistence(timeout:5))
+  app.buttons["plot-settings-close"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5),"关闭 AI 面板不应退出全屏")
+ }
+ func testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  enterFullscreen(app)
+  app.buttons["fullscreen-plot-ai-button"].tap()
+  let panel=app.descendants(matching:.any)["plot-settings-panel"].firstMatch
+  XCTAssertTrue(panel.waitForExistence(timeout:5))
+  let movie=app.otherElements["fullscreen-movie"].firstMatch
+  XCTAssertGreaterThan(movie.frame.width,app.frame.width*0.5)
+  XCTAssertGreaterThanOrEqual(panel.frame.minX,movie.frame.maxX-2,"settings must reserve their own area")
+  capture("30-ai-settings-rail",app)
+  app.buttons["plot-chatgpt-settings"].firstMatch.tap()
+  XCTAssertTrue(app.navigationBars["ChatGPT 连接与隐私"].waitForExistence(timeout:5))
+  let check=app.buttons["plot-connectivity-check"].firstMatch
+  for _ in 0..<5 {if check.isHittable {break};app.swipeUp()}
+  XCTAssertTrue(check.exists)
+  XCTAssertTrue(app.staticTexts["不发送授权信息或剧情内容，不发起推理请求。网络可达不代表授权或额度已通过验证。"].exists)
+  app.buttons["plot-auth-close"].tap()
+  app.buttons["plot-settings-close"].tap()
+  XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
  }
  func testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch() {
   let app=XCUIApplication()
@@ -43,6 +64,8 @@ final class WatchInterfaceTests: XCTestCase {
   let open=app.buttons["watch-header-plot-ai-button"].firstMatch
   XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
   let setting=app.switches["plot-blocking-mode"].firstMatch
+  let panelScroll=app.scrollViews["plot-settings-scroll"].firstMatch
+  for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertTrue(setting.isEnabled)
   let original=setting.value as? String
@@ -50,14 +73,15 @@ final class WatchInterfaceTests: XCTestCase {
   setting.tap()
   let changed=original=="1" ? "0" : "1"
   XCTAssertEqual(setting.value as? String,changed)
-  app.buttons["完成"].firstMatch.tap();open.tap()
+  app.buttons["plot-settings-close"].firstMatch.tap();open.tap()
+  for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertEqual(setting.value as? String,changed,"dismissal must preserve the setting")
   app.terminate();app.launch()
   XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertEqual(setting.value as? String,changed,"relaunch must preserve the setting")
-  XCTAssertTrue(app.staticTexts["plot-client-version"].exists)
   setting.tap() // Restore the prior preference for other tests.
  }
  func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
@@ -82,7 +106,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(app.buttons["plot-publish"].exists)
   XCTAssertTrue(app.staticTexts["免费备用题库"].firstMatch.exists)
   capture("21-plot-intelligence-preview",app)
-  app.buttons["完成"].firstMatch.tap()
+  app.buttons["plot-settings-close"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5))
  }
  // iPadOS 26 can report the old button frame while the first orientation
@@ -200,6 +224,27 @@ final class WatchInterfaceTests: XCTestCase {
    XCTAssertTrue(full.waitForExistence(timeout:6),"第\(cycle+1)次退出后必须返回主界面")
    XCTAssertEqual(app.state,.runningForeground,"第\(cycle+1)次退出全屏后 App 不能退出运行")
   }
+ }
+ func testRoomScrollingKeepsExpandedInputsAndNavigationUsable() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  let roomTab=app.tabBars.buttons["房间与片源"].firstMatch
+  XCTAssertTrue(roomTab.waitForExistence(timeout:15));roomTab.tap()
+  let scroll=app.scrollViews["room-page-scroll"].firstMatch
+  XCTAssertTrue(scroll.waitForExistence(timeout:5))
+  let expanded=app.buttons["设置房间影片"].firstMatch
+  for _ in 0..<4 {if expanded.isHittable {break};scroll.swipeUp()}
+  XCTAssertTrue(expanded.isHittable);expanded.tap()
+  let title=app.textFields["room-movie-title"].firstMatch
+  XCTAssertTrue(title.waitForExistence(timeout:5))
+  let original=title.value as? String
+  for _ in 0..<3 {scroll.swipeUp()}
+  XCTAssertEqual(app.state,.runningForeground)
+  for _ in 0..<5 {if title.isHittable {break};scroll.swipeDown()}
+  XCTAssertTrue(title.isHittable,"scrolling back must retain expanded inputs")
+  XCTAssertEqual(title.value as? String,original)
+  app.tabBars.buttons["观影"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["watch-header-plot-ai-button"].waitForExistence(timeout:5))
  }
  func testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()

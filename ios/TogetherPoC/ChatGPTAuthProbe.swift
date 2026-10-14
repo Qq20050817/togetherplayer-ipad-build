@@ -29,11 +29,19 @@ import CryptoKit
  @Published private(set) var integrationReady=false
  @Published private(set) var usagePaused=false
  @Published private(set) var verificationStatus="首次授权后即可使用；连续调用和重启检查为可选诊断"
+ @Published private(set) var requestPhase=""
+ @Published private(set) var lastFailure=""
+ @Published private(set) var modelName=""
+ @Published private(set) var checkingConnection=false
+ @Published private(set) var connectionResults:[ChatGPTConnectivityResult]=[]
+ private var connectivityTask:Task<Void,Never>?
+ private var modelCache=ChatGPTModelCache()
  private var inferenceActive=false
  private var apiSession=URLSession(configuration:.ephemeral)
  private var sessionEpoch=0
  private var diagnosticTask:Task<Void,Never>?
  private func invalidateUsage() {
+  modelCache.clear()
   let key=verificationKey
   ChatGPTLocalKeychain.delete() // Invalid or revoked access must not revive after restart.
   integrationReady=false;connected=false;UserDefaults.standard.set(false,forKey:key+"-restart")
@@ -43,10 +51,10 @@ import CryptoKit
  private var verificationKey:String {guard let c=ChatGPTLocalKeychain.read() else {return "plot-auth-unconnected"};return "plot-auth-check-"+PlotMemoryStore.key(c.clientID+c.subject)}
  init() {
   connected=ChatGPTLocalKeychain.read()?.scopes.split(separator:" ").contains("chatgpt.tokens.use.direct")==true
-  status=connected ? "已保存授权，可直接测试 ChatGPT，不用再跳转" : "尚未授权，需要首次登录"
+  status=connected ? "已保存本机授权，实际调用仍需验证" : "尚未授权，需要首次登录"
   // Successful OAuth authorization, not optional QA diagnostics, gates use.
   integrationReady=connected
-  if integrationReady {verificationStatus="已授权，可直接出题；连续调用及重启检查是可选诊断"}
+  if integrationReady {verificationStatus="登录授权已完成；实际调用状态以出题结果为准"}
   diagnosticRequests=UserDefaults.standard.integer(forKey:verificationKey+"-diagnostics")
   usagePaused=UserDefaults.standard.bool(forKey:verificationKey+"-usage-paused")
  }
@@ -66,6 +74,7 @@ import CryptoKit
  func connect() {
   guard !working,!inferenceActive else{return}
   sessionEpoch+=1
+  modelCache.clear()
   integrationReady=false
   working=true;status="正在启动 iPad 本地授权回调…";testText=""
   authorizationTimeout?.cancel()
@@ -178,12 +187,16 @@ import CryptoKit
   request.httpMethod="POST";request.timeoutInterval=25
   request.setValue("application/x-www-form-urlencoded",forHTTPHeaderField:"Content-Type")
   request.httpBody=Data(body.utf8)
-  let (data,response)=try await apiSession.data(for:request)
+  let data:Data,response:URLResponse
+  requestPhase=ChatGPTRequestStage.authorization.title
+  do {(data,response)=try await apiSession.data(for:request)}
+  catch {throw ChatGPTRequestFailure.network(error,stage:.authorization)}
   let code=(response as? HTTPURLResponse)?.statusCode ?? 0
-  guard (200..<300).contains(code),
-   let result=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else {
-    if [400,401,403].contains(code) {invalidateUsage()}
-    throw NSError(domain:"ChatGPTAuth",code:code,userInfo:[NSLocalizedDescriptionKey:"OpenAI 返回 HTTP \(code)"])
+  let result=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] ?? [:]
+  guard (200..<300).contains(code),!result.isEmpty else {
+    let serviceCode=ChatGPTRequestFailure.code(in:result)
+    if fields["grant_type"]=="refresh_token",ChatGPTRequestFailure.unusableRefresh(serviceCode) {invalidateUsage()}
+    throw ChatGPTRequestFailure(stage:.authorization,httpCode:code,serviceCode:serviceCode)
   }
   return result
  }
@@ -217,7 +230,7 @@ import CryptoKit
   UserDefaults.standard.removeObject(forKey:verificationKey+"-run")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-calls")
   UserDefaults.standard.removeObject(forKey:verificationKey+"-restart")
-  status="身份和调用权限已验证，可直接出题；无需重复登录或强制测试"
+  status="身份和授权范围已验证；实际推理调用尚待验证"
  }
  private func credentials() async throws -> ChatGPTLocalCredentials {
   guard var current=ChatGPTLocalKeychain.read(),current.scopes.split(separator:" ").contains("chatgpt.tokens.use.direct") else {
@@ -241,52 +254,70 @@ import CryptoKit
  }
  func performInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
   guard connected,integrationReady,!usagePaused else {throw NSError(domain:"ChatGPTAuth",code:13,userInfo:[NSLocalizedDescriptionKey:"ChatGPT 授权已失效或额度暂停，请检查账号状态"])}
-  return try await requestInference(instructions:instructions,input:input,canSend:canSend)
+  lastFailure=""
+  do {let answer=try await requestInference(instructions:instructions,input:input,canSend:canSend);recordSuccessfulCall();return answer}
+  catch is CancellationError {throw CancellationError()}
+  catch {lastFailure=error.localizedDescription;throw error}
  }
  private func requestInference(instructions:String,input:String,canSend:()->Bool={true}) async throws -> String {
   guard !inferenceActive else {throw CancellationError()}
-  inferenceActive=true;defer {inferenceActive=false}
+  inferenceActive=true;defer {inferenceActive=false;requestPhase=""}
   let epoch=sessionEpoch
   try Task.checkCancellation()
   let c=try await credentials()
-  var models=URLRequest(url:URL(string:"https://api.openai.com/v1/models")!);models.timeoutInterval=20
-  models.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization")
-  let (data,response)=try await apiSession.data(for:models)
-  guard sessionEpoch==epoch,!Task.isCancelled else {throw CancellationError()}
-  let modelCode=(response as? HTTPURLResponse)?.statusCode ?? 0
-  if modelCode==401 || modelCode==403 {invalidateUsage()}
-  if modelCode==429 {pauseUsage()}
-  guard modelCode==200,let body=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],let items=body["models"] as? [[String:Any]],let selected=items.first(where:{$0["visibility"] as? String=="list"})?["slug"] as? String else {
-   throw NSError(domain:"ChatGPTAuth",code:7,userInfo:[NSLocalizedDescriptionKey:"模型列表不可用"])
+  let account=c.clientID+":"+c.subject
+  let selected:ChatGPTAvailableModel
+  if let cached=modelCache.value(account:account,now:Date().timeIntervalSince1970) {selected=cached}
+  else {
+   requestPhase=ChatGPTRequestStage.models.title
+   var models=URLRequest(url:URL(string:"https://api.openai.com/v1/models")!);models.timeoutInterval=20
+   models.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization")
+   let data:Data,response:URLResponse
+   do {(data,response)=try await apiSession.data(for:models)}
+   catch {throw ChatGPTRequestFailure.network(error,stage:.models)}
+   guard sessionEpoch==epoch,!Task.isCancelled else {throw CancellationError()}
+   let code=(response as? HTTPURLResponse)?.statusCode ?? 0
+   let body=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] ?? [:]
+   if code==429 {pauseUsage()}
+   guard code==200 else {throw ChatGPTRequestFailure(stage:.models,httpCode:code,serviceCode:ChatGPTRequestFailure.code(in:body))}
+   guard let model=ChatGPTModelCache.select(body) else {throw ChatGPTRequestFailure(stage:.models,serviceCode:"unsupported_subscription_catalog")}
+   selected=model;modelCache.store(model,account:account,now:Date().timeIntervalSince1970)
   }
+  if modelName != selected.name {modelName=selected.name}
   guard canSend() else {throw CancellationError()}
-  var req=URLRequest(url:URL(string:"https://api.openai.com/v1/responses")!);req.timeoutInterval=40
+  var req=URLRequest(url:URL(string:"https://api.openai.com/v1/responses")!);req.timeoutInterval=60
   req.httpMethod="POST";req.setValue("Bearer "+c.accessToken,forHTTPHeaderField:"Authorization");req.setValue("application/json",forHTTPHeaderField:"Content-Type")
-  req.httpBody=try JSONSerialization.data(withJSONObject:["model":selected,"instructions":instructions,"input":[["role":"user","content":input]],"store":false,"stream":true] as [String:Any])
-  let (bytes,res)=try await apiSession.bytes(for:req)
+  req.httpBody=try JSONSerialization.data(withJSONObject:["model":selected.id,"instructions":instructions,"input":[["role":"user","content":input]],"store":false,"stream":true] as [String:Any])
+  requestPhase=ChatGPTRequestStage.response.title
+  let bytes:URLSession.AsyncBytes,res:URLResponse
+  do {(bytes,res)=try await apiSession.bytes(for:req)}
+  catch {throw ChatGPTRequestFailure.network(error,stage:.response)}
   let code=(res as? HTTPURLResponse)?.statusCode ?? 0
   guard code==200 else {
-   if code==401 || code==403 {invalidateUsage()}
+   modelCache.clear()
    if code==429 {pauseUsage()}
-   throw NSError(domain:"ChatGPTAuth",code:code,userInfo:[NSLocalizedDescriptionKey:"授权或额度不可用（HTTP \(code)），不会更换付费渠道"])
+   throw ChatGPTRequestFailure(stage:.response,httpCode:code)
   }
   var answer="",completed=false
-  for try await line in bytes.lines {
+  requestPhase=ChatGPTRequestStage.stream.title
+  do {streamLoop: for try await line in bytes.lines {
    try Task.checkCancellation()
    guard sessionEpoch==epoch else {throw CancellationError()}
    guard line.hasPrefix("data: "),let data=String(line.dropFirst(6)).data(using:.utf8),let event=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else {continue}
    switch event["type"] as? String {
    case "response.output_text.delta":answer+=event["delta"] as? String ?? "";if answer.count>6000 {throw CancellationError()}
-   case "response.completed":completed=true
+   case "response.completed":completed=true;break streamLoop
    case "response.failed","response.incomplete","error":
     let responseError=(event["response"] as? [String:Any])?["error"] as? [String:Any] ?? event["error"] as? [String:Any]
-    if responseError?["code"] as? String=="subscription_sharing_usage_limit_exceeded" {pauseUsage()}
-    throw NSError(domain:"ChatGPTAuth",code:11,userInfo:[NSLocalizedDescriptionKey:"请求未完成或额度受限，已停止"])
+    let serviceCode=responseError?["code"] as? String
+    if serviceCode=="subscription_sharing_usage_limit_exceeded" {pauseUsage()}
+    throw ChatGPTRequestFailure(stage:.stream,serviceCode:serviceCode.flatMap {ChatGPTRequestFailure.code(in:["error":["code":$0]])})
    default:break
    }
   }
+  } catch {throw ChatGPTRequestFailure.network(error,stage:.stream)}
   guard sessionEpoch==epoch else {throw CancellationError()}
-  guard completed,!answer.isEmpty else {throw NSError(domain:"ChatGPTAuth",code:12,userInfo:[NSLocalizedDescriptionKey:"未收到完整结果"])}
+  guard completed,!answer.isEmpty else {throw ChatGPTRequestFailure(stage:.stream,serviceCode:"stream_ended_before_completion")}
   return answer
  }
  private func pauseUsage() {usagePaused=true;UserDefaults.standard.set(true,forKey:verificationKey+"-usage-paused");status="ChatGPT 额度受限，已暂停云端调用；可在官方用量设置查看"}
@@ -316,7 +347,29 @@ import CryptoKit
    if sessionEpoch==epoch {working=false}
   }
  }
+ private func recordSuccessfulCall() {
+  let key=verificationKey
+  var check=UserDefaults.standard.data(forKey:key+"-acceptance").flatMap {try? JSONDecoder().decode(PlotAuthAcceptance.self,from:$0)} ?? PlotAuthAcceptance()
+  check.success(run:launchID)
+  UserDefaults.standard.set(try? JSONEncoder().encode(check),forKey:key+"-acceptance")
+  verificationStatus=check.ready ? "连续调用和重启后调用已验证" : "本次推理调用成功"
+ }
+ func checkConnection() {
+  guard !checkingConnection,!inferenceActive,!working else {return}
+  checkingConnection=true;connectionResults=[]
+  let config=URLSessionConfiguration.ephemeral
+  config.httpShouldSetCookies=false;config.httpCookieStorage=nil
+  let session=URLSession(configuration:config)
+  connectivityTask=Task { [weak self] in
+   let results=await ChatGPTConnectivity.check(session:session)
+   session.invalidateAndCancel()
+   guard !Task.isCancelled,let self else {return}
+   self.connectionResults=results;self.checkingConnection=false
+  }
+ }
  func disconnect() {
+  modelCache.clear();modelName="";lastFailure="";requestPhase=""
+  connectivityTask?.cancel();checkingConnection=false;connectionResults=[]
   sessionEpoch+=1;diagnosticTask?.cancel();apiSession.invalidateAndCancel();apiSession=URLSession(configuration:.ephemeral)
   listener?.cancel();listener=nil;pending=nil
   authorizationTimeout?.cancel();authorizationURL=nil;ChatGPTLocalKeychain.delete();connected=false;integrationReady=false;working=false;testText=""

@@ -14,7 +14,14 @@ import CoreMedia
  @Published var localMediaURL=""
  @Published var localFileName=""
  let chatDraft=ChatDraftState()
- @Published var members: [RoomMember]=[]
+ let roster=RoomRosterState()
+ var members:[RoomMember] {
+  get {roster.members}
+  set {
+   if !RoomRosterState.samePresentation(roster.members,newValue) {objectWillChange.send()}
+   roster.update(newValue)
+  }
+ }
  @Published var waitForPeer=true
  @Published var roomTitle="一起看电影"
  @Published var roomNotice=""
@@ -366,7 +373,7 @@ import CoreMedia
  private func loadMedia(_ url: URL,forceRemux: Bool=false) {
   // Rebuilding the same AVPlayerItem retains the film identity, selected
   // subtitle track and existing plot evidence. The room clock stays intact.
-  playbackRecovery.reset();playbackNeedsRecovery=false
+  playbackRecovery.reset();setPlaybackRecoveryVisible(false)
   // Room media identity remains stable across WebSocket reconnects and
   // refreshed signed playback URLs. Only a genuinely different film resets
   // watched subtitle evidence and imported subtitle state.
@@ -699,7 +706,7 @@ import CoreMedia
    plotIntelligence.preserveCurrentFilmEvidence()
   // Invalidate both send and receive callbacks before scheduling one retry.
   generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil
-  connected=false;engine.resetSession();playbackRecovery.reset();playbackNeedsRecovery=false;attempt += 1
+  connected=false;engine.resetSession();playbackRecovery.reset();setPlaybackRecoveryVisible(false);attempt += 1
   disconnectCount += 1;lastDisconnectReason=reason
   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
   clearOptimisticPlayback();lastStepTarget=nil
@@ -731,6 +738,8 @@ import CoreMedia
   if let raw=obj["room"] as? [String:Any],let data=try? JSONSerialization.data(withJSONObject:raw),let room=try? JSONDecoder().decode(Room.self,from:data) {
    if outboxRoom != room.roomId {outbox=[:];outboxRoom=room.roomId}
    if !optimisticRoomID.isEmpty && optimisticRoomID != room.roomId {clearOptimisticPlayback()}
+   if (room.roomId != engine.room?.roomId || room.version >= (engine.room?.version ?? 0)),
+      engine.room.map(RoomPresentationState.init) != RoomPresentationState(room) {objectWillChange.send()}
    engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
    if plotPollWaiting {clearOptimisticPlayback()}
    if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
@@ -766,7 +775,7 @@ import CoreMedia
    // A blocking question must always release the active 2x lease, even if
    // the user is still pressing the fullscreen gesture surface.
    if incoming?["waitingForAnswers"] as? Bool == true && speedHoldID != nil {setSpeedHold(false)}
-   plotPoll=incoming
+   if !PlotPollPresentation.same(plotPoll,incoming) {plotPoll=incoming}
    // Capture an answered prediction only AFTER the server has revealed both
    // votes. Its correct outcome is deliberately unknown until future scenes
    // have actually played. Replay of WELCOME/STATE cannot duplicate a review.
@@ -851,7 +860,7 @@ import CoreMedia
   if type != "SEEK" {lastStepTarget=nil}
   let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
   feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
-  playbackRecovery.reset();playbackNeedsRecovery=false
+  playbackRecovery.reset();setPlaybackRecoveryVisible(false)
   controlSettleUntil=clock.localNow()+2500
   if localVideoTest {
    switch type {case "PLAY":adapter.play();case "PAUSE":adapter.pause();case "SEEK":adapter.seekTo(position);default:break};return
@@ -881,7 +890,7 @@ import CoreMedia
   if type == "PLAY",engine.target()?.1 == "playing",adapter.ready,
      inFlight == nil,queuedOperations.isEmpty,!holdingLocalPause {
    playbackRecovery.reset();adapter.play()
-   playbackNeedsRecovery=false;feedback.showPlaybackAction("已尝试恢复当前影片播放")
+   setPlaybackRecoveryVisible(false);feedback.showPlaybackAction("已尝试恢复当前影片播放")
    return
   }
   // A rapid second tap before the first PLAY acknowledgement must not queue
@@ -921,6 +930,9 @@ import CoreMedia
   prerollGeneration += 1;prerolling=false;prerollPrepared=false
   adapter.player.cancelPendingPrerolls()
  }
+ private func setPlaybackRecoveryVisible(_ value:Bool) {
+  if playbackNeedsRecovery != value {playbackNeedsRecovery=value}
+ }
  private func monitorPlaybackRecovery() {
   let current=engine.room
   let now=clock.localNow()
@@ -934,22 +946,21 @@ import CoreMedia
   switch action {
   case .none:break
   case .wake:
-   playbackNeedsRecovery=true
+   setPlaybackRecoveryVisible(true)
    // Re-arm AVPlayer's internal play intent without replacing the film.
    adapter.pause();adapter.setPlaybackSpeed(current?.playbackRate == 2 ? 2 : 1);adapter.play()
    diagnostic("resumeAfterStall")
   case .rebuild:
    guard let original=currentOriginalURL else {return}
    guard recoveryRebuilds < 2 else {requestStatus="自动恢复未成功，请检查原片源或网络";return}
-   playbackNeedsRecovery=true
+   setPlaybackRecoveryVisible(true)
    recoveryResumePosition=engine.target()?.0 ?? adapter.position
    recoveryRebuilds += 1
    diagnostic("rebuildStalledPlayerItem")
    loadMedia(original)
   }
   if action == .none {
-   if !shouldPlay {playbackNeedsRecovery=false}
-   else {playbackNeedsRecovery=now-(playbackRecovery.stalledSince ?? now)>=5000}
+   setPlaybackRecoveryVisible(shouldPlay && now-(playbackRecovery.stalledSince ?? now)>=5000)
   }
   if current?.target(clock.serverNow()).1 == "paused" {recoveryRebuilds=0}
  }

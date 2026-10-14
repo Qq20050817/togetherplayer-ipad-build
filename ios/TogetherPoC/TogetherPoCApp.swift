@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
  }
 }
 @MainActor struct TestView: View {
- @ObservedObject var model: TestClient
+ let model: TestClient
  @ObservedObject var chat: ChatEngine
  var body: some View {
   TabView {
@@ -58,7 +58,7 @@ import UniformTypeIdentifiers
  var body: some View {
   GeometryReader {geometry in
    let railWidth=min(340,geometry.size.width*0.32)
-   let availableWidth=geometry.size.width-(questionOpen ? railWidth+12 : 0)
+   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen) ? railWidth+12 : 0)
    let wide=availableWidth>=900 && availableWidth>geometry.size.height
    let sideWidth=wide ? min(320,availableWidth*0.26) : 0
    let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
@@ -76,12 +76,12 @@ import UniformTypeIdentifiers
      }
     }
    }
-   if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
-   }.padding(16).animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen)
+   if plotPollOpen {PlotPollPanel(model:model,onClose:{plotPollOpen=false}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
+   else if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
+   }.padding(16).animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen).animation(.spring(response:0.32,dampingFraction:0.9),value:plotPollOpen)
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
-   .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;return}
@@ -144,9 +144,7 @@ import UniformTypeIdentifiers
   VStack(spacing:12) {
    Picker("侧栏",selection:$sidebar) {Text("聊天").tag(0);Text("成员 \(model.members.count)").tag(1);Text("列表").tag(2)}.pickerStyle(.segmented)
    if sidebar==0 {ChatPanel(model:model,chat:chat)}
-   else if sidebar==1 {ScrollView {VStack(alignment:.leading,spacing:16) {ForEach(model.members) {member in
-    HStack {Image(systemName:"person.crop.circle.fill").font(.title);VStack(alignment:.leading) {Text(member.name);Text(member.buffering ? "缓冲中" : member.online ? "在线" : "离线").font(.caption).foregroundColor(member.online ? .green : .secondary)};Spacer();Text(PlaybackMonitor.time(member.position/1000)).font(.caption.monospaced())}
-   };if model.members.isEmpty {Text("加入房间后显示成员").foregroundStyle(.secondary)}}}}
+   else if sidebar==1 {RoomMemberPanel(roster:model.roster)}
    else {ScrollView {VStack(alignment:.leading,spacing:12) {ForEach(model.library.items) {item in Button {model.playLibraryItem(item)} label:{Label(item.title,systemImage:"film").lineLimit(2)}.disabled(!model.isRoomHost)};if model.library.items.isEmpty {Text("在下方添加影片到播放列表").font(.caption).foregroundStyle(.secondary)}}}}
   }.padding(14).frame(height:height).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20)).overlay {RoundedRectangle(cornerRadius:20).stroke(Color.white.opacity(0.07))}
  }
@@ -420,7 +418,7 @@ struct FullscreenToolStyle:ButtonStyle {
  var body: some View {
   GeometryReader {geometry in
   let railWidth=min(340,geometry.size.width*0.30)
-  let playbackWidth=geometry.size.width-(questionOpen ? railWidth+10 : 0)
+  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen) ? railWidth+10 : 0)
   HStack(spacing:10) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
@@ -542,14 +540,14 @@ struct FullscreenToolStyle:ButtonStyle {
      if plotHintSequence==sequence {plotHintVisible=false}
     }
    }
-   .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
    .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
     if revealed==true && model.plotPoll?["blocking"] as? Bool == true {
      questionOpen=false;plotHintVisible=false
     }
    }
-   if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
-  }.animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen)
+   if plotPollOpen {PlotPollPanel(model:model,onClose:{plotPollOpen=false}).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
+   else if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
+  }.animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen).animation(.spring(response:0.32,dampingFraction:0.9),value:plotPollOpen)
   }
  }
  private var tools:some View {
@@ -701,6 +699,14 @@ struct RoomActionStyle:ButtonStyle {
    .animation(.easeOut(duration:configuration.isPressed ? 0.08 : 0.14),value:configuration.isPressed)
  }
 }
+@MainActor struct RoomMemberPanel:View {
+ @ObservedObject var roster:RoomRosterState
+ var body:some View {
+  ScrollView {LazyVStack(alignment:.leading,spacing:16) {ForEach(roster.members) {member in
+   HStack {Image(systemName:"person.crop.circle.fill").font(.title);VStack(alignment:.leading) {Text(member.name);Text(member.buffering ? "缓冲中" : member.online ? "在线" : "离线").font(.caption).foregroundColor(member.online ? .green : .secondary)};Spacer();Text(PlaybackMonitor.time(member.position/1000)).font(.caption.monospaced())}
+  };if roster.members.isEmpty {Text("加入房间后显示成员").foregroundStyle(.secondary)}}}
+ }
+}
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
@@ -728,7 +734,7 @@ struct RoomActionStyle:ButtonStyle {
      Label(model.playbackTitle,systemImage:"doc").font(.subheadline).lineLimit(3).textSelection(.enabled)
      DisclosureGroup("设置房间影片") {
       VStack(alignment:.leading,spacing:14) {
-       TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder)
+       TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder).accessibilityIdentifier("room-movie-title")
        TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
        RoomMediaAction(model:model,feedback:model.mediaFeedback)
       }.padding(.top,12)
@@ -776,7 +782,7 @@ struct RoomActionStyle:ButtonStyle {
      Text("TogetherPlayer \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")").font(.caption).foregroundStyle(.secondary)
     }
    }.frame(maxWidth:1200).padding(20).frame(maxWidth:.infinity)
-  }.background(Color(red:0.025,green:0.03,blue:0.07)).buttonStyle(RoomActionStyle()).sheet(item:$picker) {selection in
+  }.accessibilityIdentifier("room-page-scroll").background(Color(red:0.025,green:0.03,blue:0.07)).buttonStyle(RoomActionStyle()).sheet(item:$picker) {selection in
     switch selection {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}

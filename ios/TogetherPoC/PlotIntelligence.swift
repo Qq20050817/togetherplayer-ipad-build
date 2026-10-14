@@ -255,7 +255,7 @@ struct PlotFrame {
   working=true;result=nil;reason="正在分析已观看的剧情…"
   operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment,plannedMoment:plannedMoment)}
   deadline=Task {[weak self] in
-   try? await Task.sleep(nanoseconds:60_000_000_000)
+   try? await Task.sleep(nanoseconds:120_000_000_000)
    guard !Task.isCancelled,let self,self.generation==token,self.working else {return}
    self.cancel();self.reason="分析超时，可以重试；影片继续播放"
   }
