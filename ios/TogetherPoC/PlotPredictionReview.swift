@@ -53,7 +53,7 @@ struct PlotPredictionVerdict {
    "alreadyWatchedAfterPrediction":evidence.suffix(20).map{["id":$0.id,"text":String($0.text.prefix(160))]}
   ]
   guard let json=try? JSONSerialization.data(withJSONObject:data),let input=String(data:json,encoding:.utf8) else{return nil}
-  let prompt="你只负责预测题的赛后裁判。问题和选项由过去的观众预测产生，输入只有此刻已经实际观看过的后续字幕。不得使用外部电影知识或更后面的剧情。只有当提供的已播放字幕【明确证实】恰好某一个候选走向，而且能引用证明它的原始字幕id时，返回JSON {index:选项的0起始下标,confidence:0到1,evidenceID:真实字幕id}。只有疑似、间接猜测、多项都可能或没有充分证据，则必须输出 {index:-1,confidence:0,evidenceID:""}。不能依据选项写入剧情，不可剧透。"
+  let prompt=#"你只负责预测题的赛后裁判。问题和选项由过去的观众预测产生，输入只有此刻已经实际观看过的后续字幕。不得使用外部电影知识或更后面的剧情。只有当提供的已播放字幕【明确证实】恰好某一个候选走向，而且能引用证明它的原始字幕id时，返回JSON {index:选项的0起始下标,confidence:0到1,evidenceID:真实字幕id}。只有疑似、间接猜测、多项都可能或没有充分证据，则必须输出 {index:-1,confidence:0,evidenceID:""}。不能依据选项写入剧情，不可剧透。"#
   guard let text=try? await PlotLocalAI.respond(instructions:prompt,input:input) else{return nil}
   return PlotPredictionVerdict.parse(text,choices:review.choices,observed:evidence)
  }
