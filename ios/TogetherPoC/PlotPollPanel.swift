@@ -143,15 +143,6 @@ import SwiftUI
      Text("位图显示默认关闭；仅在影片暂停时切换，可能增加解码负担。OCR 不会修改影片或切换观看字幕。").font(.caption).foregroundStyle(.secondary)
      if !subtitles.nativeIndexStatus.isEmpty {Text("内置字幕：\(subtitles.nativeIndexStatus)").font(.caption2).accessibilityIdentifier("plot-native-subtitle-index")}
      Text("预分析：\(intelligence.fullFilmPreparationStatus)").font(.caption2).accessibilityIdentifier("plot-full-film-preanalysis")
-     if auth.connected {
-      Picker("推理模型",selection:$auth.preferredModelID) {
-       Text("自动选择（按账号可用列表）").tag("")
-       ForEach(auth.availableModels,id:\.id) {model in Text(model.name).tag(model.id)}
-       if !auth.preferredModelID.isEmpty && !auth.availableModels.contains(where:{$0.id==auth.preferredModelID}) {Text("已保存的选择（请刷新列表）").tag(auth.preferredModelID)}
-      }.pickerStyle(.menu).disabled(intelligence.working || auth.loadingModels || auth.working).accessibilityIdentifier("plot-model-selector")
-      Button(auth.loadingModels ? "正在获取模型…" : "获取可用模型") {auth.refreshModels()}.disabled(auth.loadingModels || auth.working || intelligence.working).accessibilityIdentifier("plot-model-refresh")
-      Text("只列出当前账号支持的订阅模型。获取列表不发起推理；指定模型不可用时会提示，不会擅自替换。").font(.caption).foregroundStyle(.secondary)
-     }
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "")").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
     }.padding(.top,14)
@@ -172,6 +163,15 @@ import SwiftUI
      if !auth.modelName.isEmpty {Text("最近选用的订阅模型："+auth.modelName).font(.caption).foregroundStyle(.secondary)}
      if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange)}
      Button("Continue with ChatGPT") {auth.connect()}.buttonStyle(.borderedProminent).disabled(auth.working || auth.loadingModels || intelligence.working)
+     if auth.connected {
+      Picker("推理模型",selection:$auth.preferredModelID) {
+       Text("自动选择（按账号可用列表）").tag("")
+       ForEach(auth.availableModels,id:\.id) {model in Text(model.name).tag(model.id)}
+       if !auth.preferredModelID.isEmpty && !auth.availableModels.contains(where:{$0.id==auth.preferredModelID}) {Text("已保存的选择（请刷新列表）").tag(auth.preferredModelID)}
+      }.pickerStyle(.menu).disabled(intelligence.working || auth.loadingModels || auth.working).accessibilityIdentifier("plot-model-selector")
+      Button(auth.loadingModels ? "正在获取模型…" : "获取可用模型") {auth.refreshModels()}.disabled(auth.loadingModels || auth.working || intelligence.working).accessibilityIdentifier("plot-model-refresh")
+      Text("只列出当前账号支持的订阅模型。获取列表不发起推理；指定模型不可用时会提示，不会擅自替换。").font(.caption).foregroundStyle(.secondary)
+     }
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary)
     }
     PlotPanelCard(title:"隐私与用量",icon:"hand.raised") {
