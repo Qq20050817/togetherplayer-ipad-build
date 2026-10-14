@@ -55,7 +55,7 @@ enum OriginalPGSFileExtractor {
      video.pointee.start_time != Int64.min {
    origin=Double(video.pointee.start_time)*av_q2d(video.pointee.time_base)
   }
-  while output.count<maximumEvents, inputBytes<maximumInputBytes {
+  while !Task.isCancelled,output.count<maximumEvents, inputBytes<maximumInputBytes {
    let result=av_read_frame(format,packet)
    guard result>=0 else{break}
    defer {av_packet_unref(packet)}
