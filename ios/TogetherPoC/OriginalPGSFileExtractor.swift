@@ -44,7 +44,7 @@ enum OriginalPGSFileExtractor {
   var origin=0.0
   if videoIndex>=0,
      let video=format.pointee.streams[Int(videoIndex)],
-     video.pointee.start_time != swift_AV_NOPTS_VALUE() {
+     video.pointee.start_time != Int64.min {
    origin=Double(video.pointee.start_time)*av_q2d(video.pointee.time_base)
   }
   while output.count<maximumEvents, inputBytes<maximumInputBytes {
@@ -59,9 +59,9 @@ enum OriginalPGSFileExtractor {
    guard decoded>=0,got != 0 else{continue}
    defer {avsubtitle_free(&subtitle)}
    let pts:Double
-   if subtitle.pts != swift_AV_NOPTS_VALUE() {
+   if subtitle.pts != Int64.min {
     pts=Double(subtitle.pts)/Double(AV_TIME_BASE)
-   } else if packet.pointee.pts != swift_AV_NOPTS_VALUE() {
+   } else if packet.pointee.pts != Int64.min {
     pts=Double(packet.pointee.pts)*av_q2d(source.pointee.time_base)
    } else {continue}
    let t=pts+Double(subtitle.start_display_time)/1000-origin
@@ -78,7 +78,7 @@ enum OriginalPGSFileExtractor {
     let rect=pointer.pointee
     guard rect.type == SUBTITLE_BITMAP,
       rect.w>0,rect.h>0,rect.h<=PGSBitmapComposition.maxPixelsPerObject,
-      rect.w<=PGSBitmapComposition.maxPixelsPerObject/rect.h,
+      Int(rect.w)<=PGSBitmapComposition.maxPixelsPerObject/Int(rect.h),
       rect.nb_colors>0,rect.nb_colors<=256,
       rect.linesize.0>=rect.w,
       let indices=rect.data.0,let palette=rect.data.1 else{continue}
