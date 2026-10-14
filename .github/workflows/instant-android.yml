@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [feat/instant-controls-20261014]
+    branches: [feat/instant-controls-20261014, fix/android-instant-controls-20261014]
     paths: ['android/**', '.github/workflows/instant-android.yml']
 permissions:
   contents: read
@@ -82,7 +82,7 @@ jobs:
   release-verified-android:
     name: Publish direct experimental APK (no ZIP)
     needs: android-build
-    if: ${{ success() && github.ref_name == 'feat/instant-controls-20261014' }}
+    if: ${{ success() && (github.ref_name == 'feat/instant-controls-20261014' || github.ref_name == 'fix/android-instant-controls-20261014') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

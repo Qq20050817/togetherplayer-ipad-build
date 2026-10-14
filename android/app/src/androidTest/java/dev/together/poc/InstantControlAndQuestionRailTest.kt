@@ -24,7 +24,8 @@ class InstantControlAndQuestionRailTest {
     val room=JSONObject().put("roomId","instant-test").put("hostId","host").put("version",1).put("executeAt",now).put("updatedAt",now).put("state","paused").put("position",0).put("playbackRate",1).put("mediaUrl","https://example.invalid/movie.mp4")
     a.javaClass.getDeclaredMethod("receive",JSONObject::class.java,Double::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,JSONObject().put("type","WELCOME").put("instantControlVersion",1).put("room",room),now)
     clock.add(now,now,now,now)
-    a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,movie.toURI().toString(),0.0,false)
+    val playback=field(a,"playback").get(a) as CompatiblePlayback
+    playback.setMediaItem(androidx.media3.common.MediaItem.fromUri(movie.toURI().toString()));playback.prepare()
    }
    var ready=false
    for(n in 0..<60){scenario.onActivity{a->ready=(field(a,"playback").get(a) as CompatiblePlayback).playbackState==androidx.media3.common.Player.STATE_READY};if(ready)break;Thread.sleep(100)}
@@ -57,7 +58,11 @@ class InstantControlAndQuestionRailTest {
     movie.getLocationOnScreen(movieAt);drawer.window!!.decorView.getLocationOnScreen(drawerAt)
     assertTrue("question must sit beside the video, not cover it",movieAt[0]+movie.width<=drawerAt[0]+2)
     assertNotEquals(0,a.applicationInfo.icon)
-    drawer.dismiss();assertEquals(0,field(a,"plotReservedWidth").getInt(a))
+    drawer.dismiss()
+   }
+   InstrumentationRegistry.getInstrumentation().waitForIdleSync();Thread.sleep(350)
+   scenario.onActivity{a->
+    assertEquals(0,field(a,"plotReservedWidth").getInt(a))
     (field(a,"fullscreenDialog").get(a) as Dialog).dismiss()
    }
   }

@@ -269,8 +269,7 @@ import AVFoundation
   let actual=player.currentTime().seconds
   if actual.isFinite,actual>=0 {
    if player.rate>0,plotLastWasPlaying,let last=plotLastTime,actual>last,actual-last<=2.5 {
-    if let range=plotWatched.last,last-range.upperBound<=0.2 {plotWatched[plotWatched.count-1]=range.lowerBound...actual}
-    else {plotWatched.append(last...actual);plotWatched=Array(plotWatched.suffix(500))}
+    PlotWatchedIntervals.record(&plotWatched,from:last,to:actual)
    }
    plotLastTime=actual
    plotLastWasPlaying=player.rate>0

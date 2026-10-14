@@ -114,12 +114,13 @@ final class WatchInterfaceTests: XCTestCase {
   app.launch();XCUIDevice.shared.orientation = .landscapeLeft
   XCTAssertTrue(app.otherElements["plot-question-drawer"].firstMatch.waitForExistence(timeout:15))
   enterFullscreen(app)
-  let drawer=app.otherElements["plot-question-drawer"].firstMatch, movie=app.otherElements["fullscreen-movie"].firstMatch
+  let drawer=app.otherElements["fullscreen-plot-question-drawer"].firstMatch, movie=app.otherElements["fullscreen-movie"].firstMatch
   XCTAssertTrue(drawer.waitForExistence(timeout:8));XCTAssertTrue(movie.exists)
   XCTAssertLessThanOrEqual(movie.frame.maxX,drawer.frame.minX+1,"question rail must reserve space beside the film")
   XCTAssertGreaterThan(movie.frame.width,app.windows.firstMatch.frame.width*0.5)
-  app.buttons["收起剧情问题"].firstMatch.tap()
-  XCTAssertFalse(drawer.exists);XCTAssertTrue(movie.exists)
+  drawer.buttons["fullscreen-close-plot-question"].firstMatch.tap()
+  let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:drawer)
+  XCTAssertEqual(XCTWaiter.wait(for:[closed],timeout:5),.completed);XCTAssertTrue(movie.exists)
   XCTAssertTrue(app.buttons["待回答"].firstMatch.exists,"closing must keep the unanswered question reachable")
  }
  private func enterFullscreen(_ app:XCUIApplication) {

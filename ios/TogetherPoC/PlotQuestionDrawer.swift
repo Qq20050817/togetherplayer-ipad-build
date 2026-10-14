@@ -6,6 +6,7 @@ import SwiftUI
  @ObservedObject var model:TestClient
  let onClose:()->Void
  let onSettings:()->Void
+ var fullscreen=false
  @State private var selected=""
  @State private var custom=""
  var body:some View {
@@ -14,6 +15,7 @@ import SwiftUI
     Label("剧情推理",systemImage:"sparkles").font(.headline)
     Spacer()
     Button(action:onClose){Image(systemName:"xmark")}.accessibilityLabel("收起剧情问题")
+     .accessibilityIdentifier(fullscreen ? "fullscreen-close-plot-question" : "close-plot-question")
    }
    ScrollView {
     VStack(alignment:.leading,spacing:14) {
@@ -58,7 +60,7 @@ import SwiftUI
    .clipShape(RoundedRectangle(cornerRadius:18))
    .overlay(RoundedRectangle(cornerRadius:18).stroke(.white.opacity(0.08)))
    .preferredColorScheme(.dark).accessibilityElement(children:.contain)
-   .accessibilityIdentifier("plot-question-drawer")
+   .accessibilityIdentifier(fullscreen ? "fullscreen-plot-question-drawer" : "plot-question-drawer")
    .onChange(of:model.plotPoll?["id"] as? String) {_ in selected="";custom=""}
  }
 }

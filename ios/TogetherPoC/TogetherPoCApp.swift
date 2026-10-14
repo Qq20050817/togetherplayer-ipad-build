@@ -84,7 +84,8 @@ import UniformTypeIdentifiers
    .sheet(isPresented:$plotPollOpen) {PlotPollPanel(model:model)}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
-    guard id != nil,!fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
+    guard id != nil else {questionOpen=false;return}
+    guard !fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
     questionOpen=true
    }
    .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
@@ -487,7 +488,7 @@ struct FullscreenToolStyle:ButtonStyle {
      .padding(12)
      .background(Color.black.opacity(0.65))
      .frame(maxWidth:.infinity,alignment:.top)
-     .simultaneousGesture(TapGesture().onEnded {scheduleHide()})
+     .contentShape(Rectangle()).onTapGesture {scheduleHide()}
    }
    }.frame(maxWidth:.infinity,maxHeight:.infinity).clipped()
    if controls.visible && !composing {
@@ -526,7 +527,8 @@ struct FullscreenToolStyle:ButtonStyle {
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
    .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
-    guard id != nil,!questionOpen else {return}
+    guard id != nil else {questionOpen=false;plotHintVisible=false;return}
+    guard !questionOpen else {return}
     if model.plotPollWaiting && !model.plotPollSubmitted && !composing {
      // The server pauses both viewers; open the question without extra taps.
      plotHintVisible=false;questionOpen=true;return
@@ -545,7 +547,7 @@ struct FullscreenToolStyle:ButtonStyle {
      questionOpen=false;plotHintVisible=false
     }
    }
-   if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
+   if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
   }.animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen)
   }
  }
