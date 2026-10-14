@@ -61,6 +61,17 @@ import XCTest
   XCTAssertEqual(published.count,1)
   model.playbackJumped()
  }
+ func testClosingSettingsOnlyCancelsInteractiveAnalysisNotAutomaticGeneration() {
+  let model=controller(),cues=evidence()
+  model.frame={PlotFrame(key:"film",position:130,evidence:cues)}
+  model.generate(autoMoment:true)
+  XCTAssertTrue(model.working)
+  XCTAssertFalse(model.shouldCancelOnPanelDismissal)
+  model.cancel()
+  model.generate()
+  XCTAssertTrue(model.shouldCancelOnPanelDismissal)
+  model.cancel()
+ }
  func testMissingCueEndCallbackCannotHoldAReadyQuestionForever() {
   let model=controller(),cues=evidence()
   let frame=PlotFrame(key:"film",position:130,evidence:cues)

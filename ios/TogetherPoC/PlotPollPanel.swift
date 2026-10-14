@@ -60,7 +60,7 @@ import SwiftUI
     }
     .onChange(of:intelligence.result) {value in if let value {editQuestion=value.text;editOptions=value.choices}}
     .onChange(of:model.plotPoll?["id"] as? String) {_ in selected="";custom=""}
-    .onDisappear {if intelligence.working {intelligence.cancel()}}
+    .onDisappear {if intelligence.shouldCancelOnPanelDismissal {intelligence.cancel()}}
   }.preferredColorScheme(.dark).accessibilityIdentifier("plot-settings-panel")
  }
  private var overview:some View {

@@ -11,9 +11,9 @@ struct PlotFrame {
  var plannedCheckpoint:Double? = nil
 }
 @MainActor final class PlotIntelligence:ObservableObject {
- @Published var mode:PlotMode {didSet {preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
+ @Published var mode:PlotMode {didSet {clearPendingAutomaticQuestion();cancelStoryPreparation();preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
  @Published var pauseForQuestions:Bool {didSet {preferences.set(pauseForQuestions,forKey:"plot-pause-for-questions")}}
- @Published var eventDrivenEnabled:Bool {didSet {preferences.set(eventDrivenEnabled,forKey:"plot-event-driven");if !eventDrivenEnabled {momentTask?.cancel();momentTask=nil}}}
+ @Published var eventDrivenEnabled:Bool {didSet {preferences.set(eventDrivenEnabled,forKey:"plot-event-driven");if !eventDrivenEnabled {momentTask?.cancel();momentTask=nil;clearPendingAutomaticQuestion()}}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
  @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
@@ -45,6 +45,8 @@ struct PlotFrame {
  let auth=ChatGPTAuthProbe()
  private let memory:PlotMemoryStore
  private let preferences:UserDefaults
+ private var operationIsAutomatic=false
+ var shouldCancelOnPanelDismissal:Bool {working && !operationIsAutomatic}
  private var operation:Task<Void,Never>?
  private var deadline:Task<Void,Never>?
  private var timer:Timer?
@@ -200,7 +202,7 @@ struct PlotFrame {
    _ = try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
   }
  }
- func cancel() {clearPendingAutomaticQuestion();generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
+ func cancel() {clearPendingAutomaticQuestion();operationIsAutomatic=false;generation+=1;operation?.cancel();operation=nil;deadline?.cancel();deadline=nil;working=false;reason="分析已取消，影片继续播放"}
  func subtitleChanged(_ text:String) {
   momentTask?.cancel();momentTask=nil
   // Only evaluate already-watched subtitles at the end of a caption.
@@ -270,6 +272,7 @@ struct PlotFrame {
   guard !working,let snapshot=frame?() else {reason="请先加载影片；本机出题无需房间在线";return}
   cancel();cancelStoryPreparation()
   lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
+  operationIsAutomatic=autoMoment
   working=true;result=nil;reason="正在分析已观看的剧情…"
   operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment,plannedMoment:plannedMoment)}
   deadline=Task {[weak self] in
