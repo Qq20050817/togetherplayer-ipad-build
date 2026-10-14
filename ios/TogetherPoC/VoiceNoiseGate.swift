@@ -53,8 +53,19 @@ struct VoiceRecognitionDraft {
   let a=compact(lhs),b=compact(rhs)
   guard !a.isEmpty,!b.isEmpty else {return false}
   if a.hasPrefix(b) || b.hasPrefix(a) {return true}
-  let prefix=zip(a,b).prefix(while:{$0.0==$0.1}).count
   let short=min(a.count,b.count)
+  let aa=Array(a),bb=Array(b)
+  if short>=4 {
+   let tolerance=max(1,short/5)
+   if aa.count==bb.count,zip(aa,bb).filter({$0.0 != $0.1}).count<=tolerance {return true}
+   let small=aa.count<=bb.count ? aa : bb,large=aa.count<=bb.count ? bb : aa
+   if large.count-small.count<=tolerance {
+    var matched=0
+    for character in large where matched<small.count {if character==small[matched] {matched+=1}}
+    if matched==small.count {return true}
+   }
+  }
+  let prefix=zip(a,b).prefix(while:{$0.0==$0.1}).count
   return short>=4 && Double(prefix)/Double(short)>=0.6
  }
  mutating func accept(_ value:String,final:Bool,start:TimeInterval?=nil,end:TimeInterval?=nil,window:Int?=nil) {
@@ -83,7 +94,7 @@ struct VoiceRecognitionDraft {
     committed.removeAll {piece in
      guard piece.window==mergeWindow,piece.epoch==mergeEpoch,
            let oldStart=piece.start,let oldEnd=piece.end else {return false}
-     return start<=oldStart+0.04 && end>=oldEnd-0.04
+     return start<=oldStart+0.25 && end>=oldEnd-0.25
     }
     currentStart=start;currentEnd=end
    } else {
