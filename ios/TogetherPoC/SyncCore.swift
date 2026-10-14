@@ -73,7 +73,7 @@ final class AVPlayerAdapter: PlayerAdapter {
  private func deferToMain(_ action:@escaping(AVPlayerAdapter)->Void)->Bool {
   guard !Thread.isMainThread else {return false}
   let item=player.currentItem
-  DispatchQueue.main.async { [weak self,weak item] in
+  DispatchQueue.main.async { [weak self] in
    guard let self,self.player.currentItem === item else {return}
    action(self)
   }
