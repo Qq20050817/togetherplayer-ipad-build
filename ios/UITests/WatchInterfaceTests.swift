@@ -88,6 +88,27 @@ final class WatchInterfaceTests: XCTestCase {
  // iPadOS 26 can report the old button frame while the first orientation
  // transition is still settling. Confirm the actual fullscreen presentation
  // before querying sliders shared with the ordinary watch screen.
+ func testLocalMKVPlaybackControlsSurviveInterleavedTransportActions() {
+  let app=XCUIApplication()
+  app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_TRACK_PLAYBACK_TEST"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  enterFullscreen(app)
+  let progress=app.sliders["movie-progress"].firstMatch
+  let loaded=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:progress)
+  XCTAssertEqual(XCTWaiter.wait(for:[loaded],timeout:30),.completed)
+  let back=app.buttons["后退10秒"].firstMatch
+  let forward=app.buttons["前进10秒"].firstMatch
+  for _ in 0..<5 {
+   if app.buttons["播放"].firstMatch.exists {app.buttons["播放"].firstMatch.tap()}
+   forward.tap();back.tap()
+   if app.buttons["暂停"].firstMatch.exists {app.buttons["暂停"].firstMatch.tap()}
+   progress.adjust(toNormalizedSliderPosition:0.3)
+   XCTAssertEqual(app.state,.runningForeground,"transport actions must not terminate the app")
+  }
+  app.buttons["退出全屏"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["全屏观影"].firstMatch.waitForExistence(timeout:5))
+ }
  private func enterFullscreen(_ app:XCUIApplication) {
   let full=app.buttons["全屏观影"].firstMatch
   let movie=app.otherElements["fullscreen-movie"].firstMatch

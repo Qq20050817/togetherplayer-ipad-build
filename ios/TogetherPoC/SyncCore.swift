@@ -49,6 +49,8 @@ final class AVPlayerAdapter: PlayerAdapter {
  private var seekBuffer = SeekRequestBuffer()
  private var speed: Float = 1
  private var startGate=PlaybackStartGate()
+ private var resumeAfterSeek=false
+ var isSeeking:Bool {seeking || seekBuffer.pending != nil}
  var position: Double { let n = player.currentTime().seconds*1000; return n.isFinite ? n : 0 }
  var duration: Double { let n=(player.currentItem?.duration.seconds ?? 0)*1000;return n.isFinite && n>0 ? n : 0 }
  // Only contiguous data at the playhead can cover playback; later disjoint ranges cannot.
@@ -65,22 +67,46 @@ final class AVPlayerAdapter: PlayerAdapter {
   return max(0,(end-position)*1000)
  }
  var buffering: Bool { player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
- var ready: Bool { player.currentItem?.status == .readyToPlay && !seeking }
+ var ready: Bool { player.currentItem?.status == .readyToPlay && !isSeeking }
+ // All mutations use one queue. An off-main request belongs to the item it
+ // saw, and must never execute against a replacement film.
+ private func deferToMain(_ action:@escaping(AVPlayerAdapter)->Void)->Bool {
+  guard !Thread.isMainThread else {return false}
+  let item=player.currentItem
+  DispatchQueue.main.async { [weak self,weak item] in
+   guard let self,self.player.currentItem === item else {return}
+   action(self)
+  }
+  return true
+ }
  func play() {
+  if deferToMain({$0.play()}) {return}
   guard let item=player.currentItem,item.status == .readyToPlay,
         item.error == nil,player.error == nil else {return}
+  if isSeeking {
+   resumeAfterSeek=true
+   if !seeking {performNextSeek()}
+   return
+  }
   guard startGate.shouldStart(now:ProcessInfo.processInfo.systemUptime*1000,
         prepared:true,paused:player.timeControlStatus == .paused) else {return}
   if abs(player.defaultRate-speed)>0.001 {player.defaultRate=speed}
   player.play()
  }
  func pause() {
+  if deferToMain({$0.pause()}) {return}
+  resumeAfterSeek=false
   if startGate.requested || player.rate != 0 {player.pause()}
   startGate.reset()
  }
  func setPlaybackSpeed(_ value: Float) {
   guard value.isFinite,value>0,value<=2.5 else {return}
+  if deferToMain({$0.setPlaybackSpeed(value)}) {return}
   speed=value
+  // Keep the requested rate, but do not reconfigure the decoder during seek
+  // or item preparation. play()/itemBecameReady applies it at a safe boundary.
+  guard !isSeeking,player.error == nil,
+        player.currentItem == nil || (player.currentItem?.status == .readyToPlay && player.currentItem?.error == nil) else {return}
   // Avoid rewriting defaultRate/rate on every 100 ms sync tick: AVFoundation
   // can briefly reconfigure audio/video decoding on repeated rate writes.
   if abs(player.defaultRate-value)>0.001 {player.defaultRate=value}
@@ -88,19 +114,42 @@ final class AVPlayerAdapter: PlayerAdapter {
  }
  // Called before replacing a movie. A delayed completion must not seek its replacement.
  func resetPendingSeeks() {
+  if deferToMain({$0.resetPendingSeeks()}) {return}
   seekEpoch &+= 1
   seekBuffer.clear()
   seeking=false
+  resumeAfterSeek=false
   player.currentItem?.cancelPendingSeeks()
   startGate.reset()
  }
  func seekTo(_ milliseconds: Double) {
-  guard player.currentItem != nil,seekBuffer.replace(milliseconds,duration:duration) else {return}
+  guard milliseconds.isFinite else {return}
+  if deferToMain({$0.seekTo(milliseconds)}) {return}
+  guard let item=player.currentItem,item.status != .failed,
+        item.error == nil,player.error == nil else {return}
+  let firstRequest = !isSeeking
+  guard seekBuffer.replace(milliseconds,duration:duration) else {return}
+  if firstRequest {
+   resumeAfterSeek=startGate.requested || player.rate>0 || player.timeControlStatus != .paused
+  }
   if !seeking {performNextSeek()}
  }
+ func itemBecameReady(_ item:AVPlayerItem) {
+  if deferToMain({$0.itemBecameReady(item)}) {return}
+  guard player.currentItem === item,item.status == .readyToPlay,
+        item.error == nil,player.error == nil else {return}
+  if !seeking,seekBuffer.pending != nil {performNextSeek()}
+  else if !isSeeking {setPlaybackSpeed(speed)}
+ }
  private func performNextSeek() {
-  guard let target=seekBuffer.takeLatest(),let item=player.currentItem else {seeking=false;return}
+  guard let item=player.currentItem,item.status == .readyToPlay,
+        item.error == nil,player.error == nil else {seeking=false;return}
+  guard let target=seekBuffer.takeLatest() else {seeking=false;return}
   seeking=true
+  // Pause once for the whole burst. No PLAY/rate write runs between its
+  // intermediate completions; an explicit PAUSE can cancel resume intent.
+  if startGate.requested || player.rate != 0 {player.pause()}
+  startGate.reset()
   let epoch=seekEpoch
   // Exact-frame decoding on each rapid jump is expensive for 4K/HDR video.
   let tolerance=CMTime(value:1,timescale:10)
@@ -112,6 +161,9 @@ final class AVPlayerAdapter: PlayerAdapter {
     }
     self.seeking=false
     if self.seekBuffer.pending != nil {self.performNextSeek()}
+    else if self.resumeAfterSeek {
+     self.resumeAfterSeek=false;self.play()
+    } else {self.setPlaybackSpeed(self.speed)}
    }
   }
  }

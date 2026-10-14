@@ -95,6 +95,12 @@ import CoreMedia
  private var speedHoldTimer:Timer?
  @Published private var optimisticPlaying:Bool?
  private var optimisticUntil=0.0
+ private var controlSettleUntil=0.0
+ var holdingLocalPause:Bool {
+  guard optimisticPlaying == false,optimisticRoomID == engine.room?.roomId,
+        clock.localNow()<optimisticUntil else {return false}
+  return inFlight != nil || !queuedOperations.isEmpty || engine.target()?.1 == "playing"
+ }
  private var optimisticRoomID=""
  private var lastStepTarget:Double?
  private var lastStepTime=0.0
@@ -289,13 +295,14 @@ import CoreMedia
  }
  deinit {for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func diagnostic(_ event: String) {
-  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":"0.5.6","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
    if let raw=log.uri,let u=URL(string:raw),u.host=="devstreaming-cdn.apple.com" {data["appleAccessLogPath"]=u.path}
   }
   if let log=adapter.player.currentItem?.errorLog()?.events.last {data["errorStatusCode"]=log.errorStatusCode}
+  data["seekInProgress"]=adapter.isSeeking
   data["itemStatus"]=adapter.player.currentItem?.status.rawValue ?? -1
   data["durationMs"]=adapter.duration
   data["resyncCount"]=engine.resyncCount
@@ -396,7 +403,7 @@ import CoreMedia
     guard g==mediaLoadGeneration else {return}
     if needsRemux {requestStatus="兼容片源已准备，正在读取播放信息。"}
     installMedia(playbackURL,originalURL:url,allowRemuxRetry:!useAtmos && !needsRemux)
-    if localVideoTest {adapter.player.play()}
+    if localVideoTest {adapter.play()}
    } catch {
     guard g==mediaLoadGeneration else {return}
     requestStatus=useAtmos ? "Atmos本机清单加载失败，可点恢复官方自适应音轨。" : ((error as? MKVRemux.Failure)?.errorDescription ?? MKVRemux.safeFailure(error).errorDescription ?? "本机片源准备失败")
@@ -448,6 +455,8 @@ import CoreMedia
      } else {self.requestStatus="兼容播放仍失败（\((observed.error as NSError?)?.code ?? 0)）；可能为取流或编码限制。"}
     }
     else if observed.status == .readyToPlay {
+     self.adapter.itemBecameReady(observed)
+     if self.localVideoTest {self.adapter.play()}
      if self.requestStatus=="兼容片源已准备，正在读取播放信息。" {self.requestStatus=""}
      self.loadTrackSelections(observed);self.inspectFormats()
     }
@@ -776,7 +785,7 @@ import CoreMedia
   if obj["ackUserId"] as? String == credentials?["userId"] as? String,(obj["ackSequence"] as? NSNumber)?.int64Value == inFlightSequence,inFlight != nil {
    if inFlight?["type"] as? String=="ROOM_MEDIA",let change=pendingRoomMedia,let room=engine.room,change.matches(room) {finishRoomMedia("房间影片已设置；双方正在加载新影片。")}
    inFlight=nil;inFlightStartedAt=nil;operationRetry=0
-   if !queuedOperations.contains(where:{["PLAY","PAUSE","SEEK"].contains($0["type"] as? String ?? "")}) {clearOptimisticPlayback()}
+   if !holdingLocalPause && !queuedOperations.contains(where:{["PLAY","PAUSE","SEEK"].contains($0["type"] as? String ?? "")}) {clearOptimisticPlayback()}
    flushOperations()
   }
   if type=="ERROR" {
@@ -835,12 +844,15 @@ import CoreMedia
   if type != "SEEK" {lastStepTarget=nil}
   let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
   feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
+  playbackRecovery.reset();playbackNeedsRecovery=false
+  controlSettleUntil=clock.localNow()+2500
   if localVideoTest {
    switch type {case "PLAY":adapter.play();case "PAUSE":adapter.pause();case "SEEK":adapter.seekTo(position);default:break};return
   }
   guard connected && clock.ready else {requestStatus="尚未连接或正在校准时钟";feedback.showPlaybackAction(requestStatus);return}
-  if type == "PLAY",engine.target()?.1 == "playing",adapter.ready {
-   playbackRecovery.reset();adapter.pause();adapter.play()
+  if type == "PLAY",engine.target()?.1 == "playing",adapter.ready,
+     inFlight == nil,queuedOperations.isEmpty,!holdingLocalPause {
+   playbackRecovery.reset();adapter.play()
    playbackNeedsRecovery=false;feedback.showPlaybackAction("已尝试恢复当前影片播放")
    return
   }
@@ -880,6 +892,7 @@ import CoreMedia
   let current=engine.room
   let now=clock.localNow()
   let shouldPlay=foreground && connected && !plotPollWaiting &&
+   now>=controlSettleUntil &&
    variantDurationCheck == .compatible && current?.target(clock.serverNow()).1 == "playing" &&
    adapter.player.currentItem != nil && adapter.player.currentItem?.status == .readyToPlay &&
    !localVideoTest && currentOriginalURL != nil &&
@@ -947,9 +960,10 @@ import CoreMedia
   let error: Double?
   if variantDurationCheck == .compatible {
    if let room=engine.room,optimisticRoomID==room.roomId,clock.localNow()<optimisticUntil,
-      (inFlight != nil || !queuedOperations.isEmpty) {
+      (inFlight != nil || !queuedOperations.isEmpty || holdingLocalPause) {
     // A pending host command must not be reverted by an outdated room snapshot.
     error=nil
+    if holdingLocalPause {adapter.pause()}
    } else if speedHoldID != nil && speedHoldID != "local" && adapter.player.rate>0 && !plotPollWaiting {
     // Keep the local 2× rate while the server processes SPEED_HOLD.
     error=nil
@@ -994,7 +1008,7 @@ import CoreMedia
    let target=engine.target();let position=adapter.position
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
-   let telemetry: [String:Any]=["clientVersion":"0.5.6","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+   let telemetry: [String:Any]=["clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":adapter.bufferedAheadMs,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
    var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
    send(["type":"TELEMETRY","data":connectionTelemetry])
    status="0.5.6 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(adapter.bufferedAheadMs/1000))s"
@@ -1287,7 +1301,7 @@ extension TestClient {
   if active && plotPollWaiting {feedback.showPlaybackAction("请先回答剧情问题");return}
   if active {
    guard speedHoldID==nil,requestedPlaying else {return}
-   if localVideoTest {adapter.player.rate=2;speedHoldID="local";return}
+   if localVideoTest {adapter.setPlaybackSpeed(2);speedHoldID="local";return}
    guard connected else {return}
    speedHoldID=UUID().uuidString
    speedHoldReleaseUntil=0
@@ -1298,12 +1312,12 @@ extension TestClient {
   } else {
    speedHoldTimer?.invalidate();speedHoldTimer=nil
    guard let id=speedHoldID else {return};speedHoldID=nil
-   if id=="local" {adapter.player.rate=1}
+   if id=="local" {adapter.setPlaybackSpeed(1)}
    else {adapter.setPlaybackSpeed(1);speedHoldReleaseUntil=clock.localNow()+600;send(["type":"SPEED_HOLD","data":["active":false,"holdId":id]])}
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;visualSampler.setForeground(true);if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}
