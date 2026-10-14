@@ -351,12 +351,12 @@ class MainActivity: Activity() {
   val question=poll.optString("question")
   body.addView(TextView(this).apply{text=question;textSize=18f;setTextColor(-1);setLineSpacing(dp(3).toFloat(),1f);contentDescription="完整剧情题目：$question"})
   val choices=RadioGroup(this).apply{orientation=RadioGroup.VERTICAL}
-  val custom=EditText(this).apply{hint="也可以写下你的推理";maxLines=4;setTextColor(-1)}
+  val custom=EditText(this).apply{hint="也可以写下你的推理";maxLines=4;setTextColor(-1);setHintTextColor(0xff8997aa.toInt());textSize=15f;setPadding(dp(12),dp(12),dp(12),dp(12));background=rounded(0xff1a2434.toInt(),10)}
   if(!voted){
    val options=poll.optJSONArray("options") ?: org.json.JSONArray()
    for(i in 0 until options.length()){val value=options.optString(i);choices.addView(RadioButton(this).apply{id=View.generateViewId();text=value;tag=value;setTextColor(-1);setPadding(0,dp(8),0,dp(8))})}
    body.addView(choices);body.addView(custom)
-   body.addView(Button(this).apply{text="提交回答";ButtonMotion.install(this);setOnClickListener{
+   body.addView(Button(this).apply{text="提交回答";setTextColor(-1);backgroundTintList=android.content.res.ColorStateList.valueOf(0xff2878ee.toInt());ButtonMotion.install(this);setOnClickListener{
     val selected=choices.findViewById<RadioButton>(choices.checkedRadioButtonId)?.tag as? String ?: ""
     val answer=custom.text.toString().trim().ifBlank{selected}
     if(answer.isBlank()){Toast.makeText(this@MainActivity,"请选择或填写答案",Toast.LENGTH_SHORT).show();return@setOnClickListener}
@@ -378,11 +378,17 @@ class MainActivity: Activity() {
  private fun reservePlotSpace(width:Int){
   val root=fullscreenContent ?: screenRoot ?: return
   plotSpaceAnimator?.cancel();plotReservedWidth=width
-  plotReservedRoot=root;plotOriginalPadding=intArrayOf(root.paddingLeft,root.paddingTop,root.paddingRight,root.paddingBottom)
+  if(plotReservedRoot!==root || plotOriginalPadding==null)plotOriginalPadding=intArrayOf(root.paddingLeft,root.paddingTop,root.paddingRight,root.paddingBottom)
+  plotReservedRoot=root
   val saved=plotOriginalPadding!!
-  plotSpaceAnimator=android.animation.ValueAnimator.ofInt(0,width).apply{duration=240;interpolator=android.view.animation.DecelerateInterpolator();addUpdateListener{root.setPadding(saved[0],saved[1],saved[2]+(it.animatedValue as Int),saved[3])};start()}
+  plotSpaceAnimator=android.animation.ValueAnimator.ofInt((root.paddingRight-saved[2]).coerceAtLeast(0),width).apply{duration=240;interpolator=android.view.animation.DecelerateInterpolator();addUpdateListener{root.setPadding(saved[0],saved[1],saved[2]+(it.animatedValue as Int),saved[3])};start()}
  }
- private fun restorePlotSpace(){plotSpaceAnimator?.cancel();plotSpaceAnimator=null;plotReservedWidth=0;val root=plotReservedRoot;val padding=plotOriginalPadding;if(root!=null && padding!=null)root.setPadding(padding[0],padding[1],padding[2],padding[3]);plotReservedRoot=null;plotOriginalPadding=null}
+ private fun restorePlotSpace(){
+  plotSpaceAnimator?.cancel();plotReservedWidth=0
+  val root=plotReservedRoot ?: return;val padding=plotOriginalPadding ?: return
+  val extra=(root.paddingRight-padding[2]).coerceAtLeast(0)
+  plotSpaceAnimator=android.animation.ValueAnimator.ofInt(extra,0).apply{duration=200;interpolator=android.view.animation.DecelerateInterpolator();addUpdateListener{root.setPadding(padding[0],padding[1],padding[2]+(it.animatedValue as Int),padding[3])};addListener(object:android.animation.AnimatorListenerAdapter(){override fun onAnimationEnd(animation:android.animation.Animator){if(plotDrawer==null){plotReservedRoot=null;plotOriginalPadding=null;root.requestApplyInsets()}}});start()}
+ }
  private fun selectTrack(type: Int){
   if(playback.compatibleActive){
    val tracks=playback.compatibleTracks(type);val audio=type==androidx.media3.common.C.TRACK_TYPE_AUDIO
