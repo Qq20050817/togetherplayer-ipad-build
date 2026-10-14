@@ -846,6 +846,7 @@ import CoreMedia
  func control(_ type: String,position: Double=0) {
   if plotPollWaiting && type != "PAUSE" {requestStatus="请双方先回答剧情问题，再继续播放";feedback.showPlaybackAction(requestStatus);return}
   guard position.isFinite else {return}
+  cancelRecoveryPreroll()
   if type != "SEEK" {lastStepTarget=nil}
   let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
   feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
@@ -892,6 +893,11 @@ import CoreMedia
  func disconnectForTest() {
   generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;adapter.pause();let g=generation
   Task {try? await Task.sleep(nanoseconds:3_000_000_000);if g==generation {connect()} }
+ }
+ private func cancelRecoveryPreroll() {
+  guard prerolling else {return}
+  prerollGeneration += 1;prerolling=false;prerollPrepared=false
+  adapter.player.cancelPendingPrerolls()
  }
  private func monitorPlaybackRecovery() {
   let current=engine.room
@@ -961,6 +967,7 @@ import CoreMedia
    if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
   }
   guard connected else {return}
+  if engine.target()?.1 == "playing" || adapter.isSeeking {cancelRecoveryPreroll()}
   if speedHoldID != nil,engine.target()?.1 == "paused" {setSpeedHold(false)}
   let error: Double?
   if variantDurationCheck == .compatible {
