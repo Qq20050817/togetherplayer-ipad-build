@@ -21,6 +21,11 @@ import AVFoundation
  @Published var lineSpacing:Double {didSet {preferences.set(SubtitleAppearance.lineSpacing(lineSpacing),forKey:"subtitle-line-spacing")}}
  private let preferences:UserDefaults
  private var nativeTimeline=NativeSubtitleTimeline()
+ // Original decoded bitmap PGS events, never OCR or AI SRT.
+ private var originalPGSTimeline=PGSBitmapTimeline()
+ private var originalPGSTrack:Int?
+ private var originalPGSEventTime = -Double.infinity
+ @Published private(set) var originalPGSFrame:PGSBitmapFrame?
  private var legibleOutput:AVPlayerItemLegibleOutput?
  private var legibleDelegate:SubtitleLegibleDelegate?
  private weak var attachedItem:AVPlayerItem?
@@ -60,6 +65,7 @@ import AVFoundation
   guard !key.isEmpty,plotFilmKey != key else {return}
   if !plotFilmKey.isEmpty {plotFullFilmReset?();clear()}
   plotFilmKey=key;plotLastTime=nil;plotLastWasPlaying=false
+  clearOriginalPGS()
   nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0
  }
  var available: Bool {document != nil}
@@ -159,7 +165,7 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;enabled=false;delay=0}
+ func clear() {generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;clearOriginalPGS();enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
@@ -180,7 +186,38 @@ import AVFoundation
   legibleOutput=output;legibleDelegate=delegate
   output.setDelegate(delegate,queue:.main);item.add(output);refresh()
  }
- func nativeSelectionChanged(enabled:Bool=true) {plotFullFilmReset?();nativeEnabled=enabled;nativeTimeline.clear();clearNativeIndex();refresh()}
+ func nativeSelectionChanged(enabled:Bool=true) {plotFullFilmReset?();nativeEnabled=enabled;nativeTimeline.clear();clearNativeIndex();clearOriginalPGS();refresh()}
+
+ /// Decoder injection seam: ONLY original PGS bitmap events may enter here.
+ /// Track changes and new films clear it; OCR stays in nativeAISRT.
+ func installOriginalPGS(_ events:[PGSBitmapEvent],track:Int) {
+  guard track>=0 else{return}
+  originalPGSTrack=track
+  originalPGSTimeline.replace(with:events)
+  originalPGSEventTime = -.infinity
+  updateOriginalPGS(at:player.currentTime().seconds)
+ }
+ private func clearOriginalPGS() {
+  originalPGSTrack=nil;originalPGSTimeline.clear()
+  originalPGSEventTime = -.infinity;originalPGSFrame=nil
+ }
+ private func updateOriginalPGS(at time:Double) {
+  guard nativeEnabled,!enabled,originalPGSTrack != nil,
+        time.isFinite,time>=0 else {
+   if originalPGSFrame != nil {originalPGSFrame=nil}
+   originalPGSEventTime = -.infinity;return
+  }
+  let events=originalPGSTimeline.events
+  var low=0,high=events.count
+  while low<high {
+   let middle=low+(high-low)/2
+   if events[middle].time<=time {low=middle+1} else {high=middle}
+  }
+  let eventTime=low>0 ? events[low-1].time : -.infinity
+  guard eventTime != originalPGSEventTime else{return}
+  originalPGSEventTime=eventTime
+  originalPGSFrame=low>0 ? events[low-1].frame : nil
+ }
  fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
   guard output === legibleOutput else {return}
   lastNativeCallbackAt=Date().timeIntervalSince1970
@@ -248,6 +285,7 @@ import AVFoundation
     attachNativeOutput(to:item)
    }
   }
+  updateOriginalPGS(at:player.currentTime().seconds)
   let time=player.currentTime().seconds-delay
   let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
