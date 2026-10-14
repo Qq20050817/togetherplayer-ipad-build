@@ -75,6 +75,11 @@ import SwiftUI
        .font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
       Toggle("PGS 图像字幕 OCR 仅供 AI 使用",isOn:$subtitles.convertPGSForAI)
        .accessibilityIdentifier("plot-pgs-ai-only-srt")
+      Toggle("试验：原版 PGS 位图显示（默认关闭）",isOn:$subtitles.originalPGSBitmapEnabled)
+       .disabled(model.adapter.player.rate>0)
+       .accessibilityIdentifier("plot-original-pgs-bitmap-experimental")
+      Text("安全模式默认关闭额外的原版 PGS 位图解码，避免与双人播放启动争抢视频解码资源。AI OCR/SRT 不受影响。真机验证前请保持关闭；仅在影片暂停时可切换。")
+       .font(.caption2).foregroundStyle(.secondary)
       Text("默认开启：OCR 文字生成本机 AI 专用 SRT，不修改电影文件、不切换观看字幕轨道。真正的原版 PGS 位图显示还取决于播放器底层支持。")
        .font(.caption2).foregroundStyle(.secondary)
       if !subtitles.nativeIndexStatus.isEmpty {
