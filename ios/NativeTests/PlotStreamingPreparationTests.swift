@@ -66,7 +66,7 @@ import XCTest
   let frame=PlotFrame(key:"film",position:130,evidence:cues)
   model.frame={frame};model.eventDrivenEnabled=true
   var roomReady=false,published:[PlotQuestion]=[]
-  model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={roomReady}
+  model.isSubtitleCurrentlyShown={false};model.mayPublishAutomatically={roomReady}
   model.publishAutomatically={published.append($0)}
   model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
   XCTAssertTrue(published.isEmpty)
@@ -90,18 +90,46 @@ import XCTest
   XCTAssertTrue(model.shouldCancelOnPanelDismissal)
   model.cancel()
  }
- func testDialogueCannotDelayAReadyQuestion() {
+ func testCurrentSentenceMustFinishButNextSentenceNeedsNoQuietGap() {
+  let model=controller(),cues=evidence()
+  let frame=PlotFrame(key:"film",position:130,evidence:cues)
+  var published=0,boundary=1
+  model.frame={frame};model.eventDrivenEnabled=true
+  model.isSubtitleCurrentlyShown={true};model.currentCaptionSequence={boundary}
+  model.mayPublishAutomatically={true};model.publishAutomatically={_ in published+=1}
+  model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
+  XCTAssertEqual(published,0,"never interrupt a character halfway through the current subtitle")
+  XCTAssertFalse(model.publishPendingAutomaticQuestion())
+  boundary+=1
+  model.subtitleChanged("下一句话已开始，但不需要等长时间空白")
+  XCTAssertEqual(published,1)
+  XCTAssertEqual(model.automaticQuestionCount,1)
+  XCTAssertEqual(model.automaticPublishCount,1)
+  XCTAssertFalse(model.publishPendingAutomaticQuestion())
+ }
+ func testNoDialogueMeansReadyQuestionCanPresentImmediately() {
   let model=controller(),cues=evidence()
   let frame=PlotFrame(key:"film",position:130,evidence:cues)
   var published=0
   model.frame={frame};model.eventDrivenEnabled=true
+  model.isSubtitleCurrentlyShown={false};model.mayPublishAutomatically={true}
+  model.publishAutomatically={_ in published+=1}
+  model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
+  XCTAssertEqual(published,1)
+ }
+ func testWaitingForCaptionMustNotPresentAnExpiredQuestion() {
+  let model=controller(),cues=evidence()
+  let frame=PlotFrame(key:"film",position:130,evidence:cues)
+  var published=0,boundary=1,now=Date(timeIntervalSince1970:100)
+  model.frame={frame};model.eventDrivenEnabled=true
+  model.automaticQuestionNow={now};model.currentCaptionSequence={boundary}
   model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={true}
   model.publishAutomatically={_ in published+=1}
   model.queueAutomaticQuestion(question(cues),snapshot:frame,token:0)
-  XCTAssertEqual(published,1,"validated automatic questions must not wait for a cue-end callback")
-  XCTAssertEqual(model.automaticQuestionCount,1)
-  XCTAssertEqual(model.automaticPublishCount,1)
+  now=now.addingTimeInterval(25);boundary+=1
   XCTAssertFalse(model.publishPendingAutomaticQuestion())
+  XCTAssertEqual(published,0)
+  XCTAssertTrue(model.autoTriggerStatus.contains("取消"))
  }
  func testQueuedQuestionCannotLeakAfterFilmChangeOrRewind() {
   for rewind in [false,true] {
@@ -109,7 +137,7 @@ import XCTest
    let initial=PlotFrame(key:"film",position:130,evidence:cues)
    var current=initial,roomReady=false,published=0
    model.frame={current};model.eventDrivenEnabled=true
-   model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={roomReady}
+   model.isSubtitleCurrentlyShown={false};model.mayPublishAutomatically={roomReady}
    model.publishAutomatically={_ in published+=1}
    model.queueAutomaticQuestion(question(cues),snapshot:initial,token:0)
    current=PlotFrame(key:rewind ? "film" : "other",position:rewind ? 100 : 135,evidence:cues)
@@ -123,7 +151,7 @@ import XCTest
   let initial=PlotFrame(key:"film",position:130,evidence:cues)
   var current=initial,roomReady=false,published=0
   model.frame={current};model.eventDrivenEnabled=true
-  model.isSubtitleCurrentlyShown={true};model.mayPublishAutomatically={roomReady}
+  model.isSubtitleCurrentlyShown={false};model.mayPublishAutomatically={roomReady}
   model.publishAutomatically={_ in published+=1}
   model.queueAutomaticQuestion(question(cues),snapshot:initial,token:0)
   let newer=(0..<8).map{PlotEvidence.cue(start:130+Double($0)*2,end:131+Double($0)*2,text:"人物已经讨论另一个新事件 \($0)",source:"embedded-subtitle")}

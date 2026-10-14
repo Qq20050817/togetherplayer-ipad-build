@@ -238,6 +238,10 @@ import CoreMedia
    return self.externalSubtitles.originalPGSFrame != nil ||
      !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
   }
+  plotIntelligence.currentCaptionSequence={ [weak self] in self?.externalSubtitles.plotCaptionSequence ?? 0 }
+  externalSubtitles.plotCaptionBoundaryChanged={ [weak self] in
+   _ = self?.plotIntelligence.publishPendingAutomaticQuestion()
+  }
   plotIntelligence.publishAutomatically={ [weak self] question in
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
    self.publishPlotPoll(question)

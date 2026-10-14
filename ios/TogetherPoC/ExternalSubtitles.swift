@@ -53,6 +53,8 @@ import AVFoundation
  private var plotLastWasPlaying=false
  private var plotJumpObserver:NSObjectProtocol?
  var plotDidSeek:(()->Void)?
+ private(set) var plotCaptionSequence=0
+ var plotCaptionBoundaryChanged:(()->Void)?
  var plotCaptionChanged:((String)->Void)?
  var plotFullSubtitleIndexed:((SubtitleDocument,String,[PlotQuestionCheckpoint])->Void)?
  var plotFullFilmReset:(()->Void)?
@@ -237,6 +239,11 @@ import AVFoundation
   guard eventTime != originalPGSEventTime else{return}
   originalPGSEventTime=eventTime
   originalPGSFrame=low>0 ? events[low-1].frame : nil
+  noteCaptionBoundary()
+ }
+ private func noteCaptionBoundary() {
+  plotCaptionSequence+=1
+  plotCaptionBoundaryChanged?()
  }
  fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
   guard output === legibleOutput else {return}
@@ -313,7 +320,7 @@ import AVFoundation
   // Missing original frame falls back to the selected native track rather than
   // dropping captions during partial extraction or at a later movie position.
   let visibleText=originalPGSFrame != nil ? "" : next
-  if visibleText != text {text=visibleText;plotCaptionChanged?(visibleText)}
+  if visibleText != text {text=visibleText;noteCaptionBoundary();plotCaptionChanged?(visibleText)}
  }
 }
 

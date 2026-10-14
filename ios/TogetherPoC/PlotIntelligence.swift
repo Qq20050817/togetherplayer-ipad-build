@@ -70,12 +70,13 @@ struct PlotFrame {
  var storyQuestionInference:(PlotContext) async -> PlotQuestion?={await PlotLocalAI.question($0,planned:true)}
  private var preparedWatchedQuestion:(question:PlotQuestion,cutoff:Double,key:String)?
  var automaticQuestionNow:()->Date={Date()}
- private var pendingAutomatic:(question:PlotQuestion,snapshot:PlotFrame,context:PlotContext,token:Int,created:Date)?
+ private var pendingAutomatic:(question:PlotQuestion,snapshot:PlotFrame,context:PlotContext,captionSequence:Int?,token:Int,created:Date)?
  private var storyNodes:[PlotStoryNode]=[]
  private let storyArchive=PlotStoryArchive()
  var mayPublishAutomatically:(()->Bool)?
  var automaticAvailabilityReason:(()->String?)?
  var publishAutomatically:((PlotQuestion)->Void)?
+ var currentCaptionSequence:(()->Int)?
  var isSubtitleCurrentlyShown:(()->Bool)?
  // UI validity reads must not assemble subtitle evidence or checkpoints.
  var displayPosition:(()->PlotDisplayPosition?)?
@@ -230,8 +231,8 @@ struct PlotFrame {
   // Only evaluate already-watched subtitles at the end of a caption.
   // A reconnect can replace the player, so merge stored film evidence
   // before deciding whether this quiet gap is a real plot turning point.
-  guard text.isEmpty else{return}
   if publishPendingAutomaticQuestion() || pendingAutomatic != nil {return}
+  guard text.isEmpty else{return}
   guard eventDrivenEnabled else{autoTriggerStatus="自动暂停提问已关闭";return}
   guard mode != .fallback else{autoTriggerStatus="免费备用题库只支持手动出题；自动提问请选择真实 AI";return}
   guard !working else{autoTriggerStatus="AI 正在分析剧情";return}
@@ -462,15 +463,17 @@ struct PlotFrame {
    cancel();reason="本地剧情记忆保存失败；没有消耗新的云端请求，请稍后再试"
   }
  }
- // Present a validated result immediately. Only transient room unavailability
- // may retain it briefly; revalidate against current evidence before sending.
+ // Wait only for the caption currently on screen to end/change, including
+ // a back-to-back next line. Never wait for a long silent scene or send an
+ // expired question about an earlier scene.
  func queueAutomaticQuestion(_ question:PlotQuestion,snapshot:PlotFrame,token:Int,context:PlotContext?=nil) {
   guard token==generation,eventDrivenEnabled else{return}
   let safe=PlotQuestion(text:question.text,choices:question.choices,source:question.source,evidenceIDs:question.evidenceIDs,kind:question.kind,blocking:true)
   clearPendingAutomaticQuestion()
-  pendingAutomatic=(safe,snapshot,context ?? PlotContext(cutoff:snapshot.position,recent:snapshot.evidence,earlier:[],predictions:[]),token,automaticQuestionNow())
+  let boundary=isSubtitleCurrentlyShown?()==true ? currentCaptionSequence?() : nil
+  pendingAutomatic=(safe,snapshot,context ?? PlotContext(cutoff:snapshot.position,recent:snapshot.evidence,earlier:[],predictions:[]),boundary,token,automaticQuestionNow())
   automaticQuestionCount+=1
-  autoTriggerStatus="有效剧情题已生成，正在提交房间并打开答题栏"
+  autoTriggerStatus=isSubtitleCurrentlyShown?()==true ? "有效剧情题已就绪，等当前一句字幕结束立即弹出" : "有效剧情题已就绪，正在提交房间并打开答题栏"
   _ = publishPendingAutomaticQuestion()
  }
  private func clearPendingAutomaticQuestion() {pendingAutomatic=nil}
@@ -482,6 +485,13 @@ struct PlotFrame {
    current.position-pending.snapshot.position<=90 else {
    clearPendingAutomaticQuestion();autoTriggerStatus="题目对应的剧情已变化，已取消弹出";return false
   }
+  // A changed sequence means the original caption finished, even when the
+  // next line starts immediately and there is no silent gap at all.
+  let originalCaptionEnded:Bool
+  if let sequence=pending.captionSequence,let currentCaptionSequence {
+   originalCaptionEnded=currentCaptionSequence() != sequence || isSubtitleCurrentlyShown?()==false
+  } else {originalCaptionEnded=isSubtitleCurrentlyShown?()==false}
+  guard originalCaptionEnded else{return false}
   guard mayPublishAutomatically?()==true,let publishAutomatically else{return false}
   let combined:[PlotEvidence]=pending.context.recent+current.evidence
   var byID:[String:PlotEvidence]=[:]
