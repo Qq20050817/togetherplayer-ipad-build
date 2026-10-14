@@ -11,6 +11,8 @@ enum OriginalPGSFileExtractor {
  enum Failure:Error {case unsupportedSource,openFailed,missingTrack,codecFailed,readFailed}
  static let maximumInputBytes:Int64 = 256*1024*1024
  static let maximumEvents=1000
+ /// Avoid retaining arbitrarily many decoded full-screen bitmaps in memory.
+ static let maximumDecodedPixels=16_777_216
 
  /// Run on a background thread. FFmpeg demuxing is synchronous.
  static func extract(url:URL,streamIndex:Int)->[PGSBitmapEvent] {
@@ -40,7 +42,13 @@ enum OriginalPGSFileExtractor {
   defer {av_packet_free(&allocated)}
   var output:[PGSBitmapEvent]=[]
   var inputBytes:Int64=0
+  var decodedPixels=0
+  var memoryLimitReached=false
   let videoIndex=av_find_best_stream(format,AVMEDIA_TYPE_VIDEO,-1,-1,nil,0)
+  let videoParameters:UnsafeMutablePointer<AVCodecParameters>? = videoIndex>=0
+   ? format.pointee.streams[Int(videoIndex)]?.pointee.codecpar : nil
+  let videoWidth=Int(videoParameters?.pointee.width ?? 0)
+  let videoHeight=Int(videoParameters?.pointee.height ?? 0)
   var origin=0.0
   if videoIndex>=0,
      let video=format.pointee.streams[Int(videoIndex)],
@@ -69,8 +77,12 @@ enum OriginalPGSFileExtractor {
    if subtitle.num_rects == 0 {
     output.append(PGSBitmapEvent(time:t,frame:nil));continue
    }
-   let width=Int(parameters!.pointee.width)
-   let height=Int(parameters!.pointee.height)
+   // MKV PGS subtitle streams often declare 0×0: the PGS composition
+   // still uses the video canvas, so recover its dimensions from video.
+   let declaredWidth=Int(parameters!.pointee.width)
+   let declaredHeight=Int(parameters!.pointee.height)
+   let width=declaredWidth>0 ? declaredWidth : videoWidth
+   let height=declaredHeight>0 ? declaredHeight : videoHeight
    guard width>0,height>0,width<=16384,height<=16384 else{continue}
    var objects:[PGSBitmapObject]=[]
    for i in 0..<min(Int(subtitle.num_rects),PGSBitmapComposition.maxObjects) {
@@ -83,6 +95,11 @@ enum OriginalPGSFileExtractor {
       rect.linesize.0>=rect.w,
       let indices=rect.data.0,let palette=rect.data.1 else{continue}
     let w=Int(rect.w),h=Int(rect.h),stride=Int(rect.linesize.0)
+    let pixelCount=w*h
+    guard decodedPixels<=Self.maximumDecodedPixels-pixelCount else {
+     memoryLimitReached=true;break
+    }
+    decodedPixels+=pixelCount
     var pixels=[UInt8](repeating:0,count:w*h)
     for y in 0..<h {
      for x in 0..<w {pixels[y*w+x]=indices[y*stride+x]}
@@ -93,6 +110,7 @@ enum OriginalPGSFileExtractor {
     objects.append(PGSBitmapObject(x:Int(rect.x),y:Int(rect.y),width:w,height:h,
                                     indices:pixels,paletteARGB:colors))
    }
+   if memoryLimitReached {break}
    if !objects.isEmpty {
     output.append(PGSBitmapEvent(time:t,
      frame:PGSBitmapFrame(videoWidth:width,videoHeight:height,objects:objects)))
