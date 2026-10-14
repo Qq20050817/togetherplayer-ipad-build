@@ -29,6 +29,8 @@ struct ChatGPTRequestFailure:LocalizedError {
    case NSURLErrorSecureConnectionFailed,NSURLErrorServerCertificateUntrusted:detail="安全连接或证书验证失败"
    default:detail="网络请求未完成（代码 \(networkCode)）"
    }
+  } else if serviceCode=="unsupported_country_region_territory" {
+   detail="OpenAI 拒绝当前检测到的国家或地区；请确认支持地区及系统授权浏览器的网络路径"
   } else if let httpCode {
    switch httpCode {
    case 401:detail="授权未被接口接受（HTTP 401），请检查授权"

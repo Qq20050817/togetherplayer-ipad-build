@@ -56,6 +56,31 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["plot-settings-close"].tap()
   XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
  }
+ func testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  func check(_ buttonID:String) {
+   let canvas=app.descendants(matching:.any)["playback-canvas-instance"].firstMatch
+   XCTAssertTrue(canvas.waitForExistence(timeout:10))
+   let identity=canvas.value as? String
+   XCTAssertNotNil(identity.flatMap(UUID.init(uuidString:)),"identity must belong to the actual stateful canvas")
+   for _ in 0..<3 {
+    let open=app.buttons[buttonID].firstMatch;XCTAssertTrue(open.waitForExistence(timeout:5));open.tap()
+    let scroll=app.scrollViews["plot-settings-scroll"].firstMatch
+    XCTAssertTrue(scroll.waitForExistence(timeout:5))
+    XCTAssertEqual(canvas.value as? String,identity,"opening AI must not destroy/recreate the movie canvas")
+    app.buttons["plot-settings-close"].firstMatch.tap()
+    let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:scroll)
+    XCTAssertEqual(XCTWaiter.wait(for:[closed],timeout:5),.completed)
+    XCTAssertEqual(canvas.value as? String,identity,"closing AI must keep the movie canvas")
+    XCTAssertEqual(app.state,.runningForeground)
+   }
+  }
+  check("watch-header-plot-ai-button")
+  enterFullscreen(app)
+  check("fullscreen-plot-ai-button")
+  capture("31-stable-canvas-after-ai-open",app)
+ }
  func testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch() {
   let app=XCUIApplication()
   app.launchEnvironment["TOGETHER_UI_TEST"]="1"

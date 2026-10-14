@@ -62,23 +62,25 @@ import UniformTypeIdentifiers
    let wide=availableWidth>=900 && availableWidth>geometry.size.height
    let sideWidth=wide ? min(320,availableWidth*0.26) : 0
    let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
-   HStack(spacing:12) {
+   HStack(spacing:questionOpen || plotPollOpen ? 12 : 0) {
    VStack(spacing:12) {
     header
     ScrollView {
-     if wide {
-      HStack(alignment:.top,spacing:12) {
-       VStack(spacing:12) {watchCard(height:min(movieWidth * CGFloat(9.0/16.0),max(300,geometry.size.height-360)));MediaLibraryPanel(model:model,library:model.library)}.frame(maxWidth:.infinity)
-       VStack(spacing:12) {sidePanel(height:max(330,geometry.size.height-290));actions}.frame(width:sideWidth)
-      }
-     } else {
-      VStack(spacing:12) {watchCard(height:movieWidth * CGFloat(9.0/16.0));sidePanel(height:300);MediaLibraryPanel(model:model,library:model.library);actions}
+     let layout=wide ? AnyLayout(HStackLayout(alignment:.top,spacing:12)) : AnyLayout(VStackLayout(alignment:.leading,spacing:12))
+     layout {
+      VStack(spacing:12) {
+       watchCard(height:wide ? min(movieWidth * CGFloat(9.0/16.0),max(300,geometry.size.height-360)) : movieWidth * CGFloat(9.0/16.0))
+       MediaLibraryPanel(model:model,library:model.library)
+      }.frame(maxWidth:.infinity)
+      VStack(spacing:12) {sidePanel(height:wide ? max(330,geometry.size.height-290) : 300);actions}.frame(width:wide ? sideWidth : nil)
      }
     }
-   }
-   if plotPollOpen {PlotPollPanel(model:model,onClose:{plotPollOpen=false}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
-   else if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
-   }.padding(16).animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen).animation(.spring(response:0.32,dampingFraction:0.9),value:plotPollOpen)
+   }.transaction {$0.animation=nil}
+   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen) {
+    PlotPollPanel(model:model,onClose:{plotPollOpen=false})
+   } question:{PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true})}
+   }.padding(16)
+
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
@@ -204,6 +206,9 @@ import UniformTypeIdentifiers
  @ObservedObject var chat: ChatEngine
  var bottomInset: Double=0
  @State private var captionHeight:CGFloat=0
+ #if DEBUG
+ @State private var canvasIdentity=UUID()
+ #endif
  var body: some View {
   GeometryReader {geometry in
    let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:player.currentItem?.presentationSize ?? .zero)
@@ -218,6 +223,9 @@ import UniformTypeIdentifiers
     }
    }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
+  #if DEBUG
+  .accessibilityIdentifier("playback-canvas-instance").accessibilityValue(canvasIdentity.uuidString)
+  #endif
  }
 }
 struct SubtitleHeightKey:PreferenceKey {
@@ -419,7 +427,7 @@ struct FullscreenToolStyle:ButtonStyle {
   GeometryReader {geometry in
   let railWidth=min(340,geometry.size.width*0.30)
   let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen) ? railWidth+10 : 0)
-  HStack(spacing:10) {
+  HStack(spacing:questionOpen || plotPollOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
@@ -509,7 +517,7 @@ struct FullscreenToolStyle:ButtonStyle {
      RequestFeedback(feedback:model.feedback)
     }.padding(12).background(Color(white:0.08))
    }
-  }.background(Color.black).preferredColorScheme(.dark)
+  }.transaction {$0.animation=nil}.background(Color.black).preferredColorScheme(.dark)
    // Do not install an outer tap recognizer over the UIKit movie touch surface.
    // It can cancel touch-ended delivery, leaving controls hidden after a tap.
    .onAppear {screenBrightness=Double(UIScreen.main.brightness);questionOpen=model.plotPollWaiting && !model.plotPollSubmitted;scheduleHide()}
@@ -545,9 +553,11 @@ struct FullscreenToolStyle:ButtonStyle {
      questionOpen=false;plotHintVisible=false
     }
    }
-   if plotPollOpen {PlotPollPanel(model:model,onClose:{plotPollOpen=false}).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
-   else if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
-  }.animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen).animation(.spring(response:0.32,dampingFraction:0.9),value:plotPollOpen)
+   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen) {
+    PlotPollPanel(model:model,onClose:{plotPollOpen=false}).padding(.vertical,10)
+   } question:{PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).padding(.vertical,10)}
+  }
+
   }
  }
  private var tools:some View {

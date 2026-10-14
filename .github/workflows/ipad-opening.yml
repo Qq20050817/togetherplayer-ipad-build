@@ -1,0 +1,121 @@
+name: Verify stable movie canvas and lightweight AI panel
+on:
+  push:
+    branches: [fix/ipad-ai-opening-20261014]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ipad-seamless-room-play-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ipad:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          for version in 26.3 26.2 26.1.1 26.0.1; do
+            dev="/Applications/Xcode_${version}.app/Contents/Developer"
+            if [ -d "$dev" ]; then sudo xcode-select -s "$dev"; xcodebuild -version; exit 0; fi
+          done
+          exit 1
+      - name: Validate original PGS bitmap compositor
+        run: |
+          swiftc -typecheck ios/TogetherPoC/VoiceNoiseGate.swift
+          swiftc -parse-as-library ios/TogetherPoC/PGSBitmapComposition.swift tools/pgs_bitmap_composition_smoke.swift -o /tmp/pgs-bitmap-composition-smoke
+          /tmp/pgs-bitmap-composition-smoke
+      - name: Generate project and resolve dependencies
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath plot-build
+          python3 tools/patch_prism_swift61.py plot-build/SourcePackages/checkouts/PrismCore
+      - name: Build iPad candidate
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO build
+      - name: Select simulator
+        run: |
+          xcrun simctl list devices available -j > /tmp/plot-simulators.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/plot-simulators.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
+          echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Test all native core regressions including control interleaving
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests -retry-tests-on-failure test
+      - name: Test essential watch UI regressions
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomScrollingKeepsExpandedInputsAndNavigationUsable -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck -only-testing:TogetherPoCUITests/WatchInterfaceTests/testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -retry-tests-on-failure test
+      - name: Package direct unsigned IPA
+        run: |
+          set -euo pipefail
+          mkdir -p plot-delivery
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.24-AI-Opening-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          cd plot-delivery
+          sha256sum TogetherPlayer-0.6.24-AI-Opening-unsigned.ipa > SHA256SUMS.txt
+          printf 'Source branch: %s\nSource SHA: %s\nCI: native core and watch UI tests passed\nUnsigned build: sign with your certificate for installation\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-iPad-0.6.24-AI-Opening
+          path: plot-delivery/
+          retention-days: 7
+      - name: Export native test reports
+        if: always()
+        run: |
+          mkdir -p playback-test-reports
+          for result in plot-build/Logs/Test/*.xcresult; do
+            [ -d "$result" ] || continue
+            xcrun xcresulttool export attachments --path "$result" --output-path "playback-test-reports/attachments-$(basename "$result")" || true
+            xcrun xcresulttool export diagnostics --path "$result" --output-path "playback-test-reports/diagnostics-$(basename "$result")" || true
+            xcrun xcresulttool get test-results summary --path "$result" > "playback-test-reports/$(basename "$result").json" || true
+          done
+          mkdir -p playback-test-reports/crashes
+          shopt -s nullglob
+          for report in "$HOME"/Library/Logs/DiagnosticReports/TogetherPoC*; do
+            cp "$report" playback-test-reports/crashes/
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playback-control-test-reports
+          path: playback-test-reports/
+          retention-days: 7
+  release:
+    name: Publish verified IPA directly without ZIP
+    if: ${{ success() }}
+    needs: ipad
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check exact artifact and SHA256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.24-AI-Opening --dir verified
+          grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
+          cd verified
+          sha256sum -c SHA256SUMS.txt
+          cd ..
+          git archive --format=zip --output=verified/TogetherPlayer-0.6.24-AI-Opening-source.zip HEAD
+          sha256sum verified/TogetherPlayer-0.6.24-AI-Opening-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
+      - name: Create preview release only after tests pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='v0.6.24-ai-opening-ipad-20261014'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists. Will not replace an existing package.' >&2
+            exit 1
+          fi
+          gh release create "$tag" verified/TogetherPlayer-0.6.24-AI-Opening-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.24-AI-Opening-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.24 · Lightweight AI opening' --notes 'Based on verified iPad 0.6.23. Keeps the movie canvas identity across AI rail opening, removes movie resize animation, scopes subtitle/visual state observation to explicitly opened advanced settings, lazily creates panel sections and uses a cheap film/position read for UI validity instead of rebuilding subtitle evidence. Stops the 100 ms recovery monitor from publishing unchanged Boolean values, deduplicates identical poll snapshots, and confines member-position updates to the live member panel. Preserves event-driven remote control updates, sync monitoring, movie/subtitle/voice features, plot-question rail and bundled icon. Native core tests verify that a connected healthy timer continues sending sync and readiness while producing no whole-page invalidations; watch and room scrolling UI regressions must pass before release. Adds a reserved AI settings rail, simplified cards, account-scoped short model cache and stage-specific Chinese timeout diagnostics with non-inference connectivity checks. No automatic retry, paid API fallback or production server change. Unsigned IPA: sign using original certificate. Real M1 frame-time and original-film acceptance remain pending.'

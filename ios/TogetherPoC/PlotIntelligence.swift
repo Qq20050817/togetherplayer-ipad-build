@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 
+struct PlotDisplayPosition {let key:String;let position:Double}
+
 struct PlotFrame {
  let key:String
  let position:Double
@@ -30,6 +32,7 @@ struct PlotFrame {
  @Published private(set) var automaticRequests=0
  @Published private(set) var savedSubtitleCount=0
  var collectedSubtitleCount:Int {
+  if let displayPosition {guard let current=displayPosition(),current.key==lastKey else{return 0};return savedSubtitleCount}
   guard let current=frame?() else{return 0}
   return current.key==lastKey ? max(savedSubtitleCount,current.evidence.count) : current.evidence.count
  }
@@ -62,6 +65,13 @@ struct PlotFrame {
  var automaticAvailabilityReason:(()->String?)?
  var publishAutomatically:((PlotQuestion)->Void)?
  var isSubtitleCurrentlyShown:(()->Bool)?
+ // UI validity reads must not assemble subtitle evidence or checkpoints.
+ var displayPosition:(()->PlotDisplayPosition?)?
+ private var currentDisplayPosition:PlotDisplayPosition? {
+  if let displayPosition {return displayPosition()}
+  guard let current=frame?() else{return nil}
+  return PlotDisplayPosition(key:current.key,position:current.position)
+ }
  var frame:(()->PlotFrame?)?
  var visualEvidenceEnabled=false
  func visualChanged() {guard visualEvidenceEnabled else{return};subtitleChanged("")}
@@ -248,7 +258,7 @@ struct PlotFrame {
   if current.key != lastKey || (working && current.position<generationCutoff) {cancel()}
   if current.key != lastKey || current.position<previewCutoff {result=nil}
  }
- var previewUsable:Bool {guard let current=frame?() else {return false};return current.key==lastKey && current.position>=previewCutoff}
+ var previewUsable:Bool {guard let current=currentDisplayPosition else {return false};return current.key==lastKey && current.position>=previewCutoff}
  func generate(manualDeep:Bool=false,regenerate:Bool=false,autoMoment:Bool=false,plannedMoment:Bool=false) {
   guard !working,let snapshot=frame?() else {reason="请先加载影片；本机出题无需房间在线";return}
   cancel();lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation

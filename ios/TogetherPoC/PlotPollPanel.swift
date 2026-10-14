@@ -18,8 +18,6 @@ import SwiftUI
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
- @ObservedObject var visuals:PlotVisualSampler
- @ObservedObject var subtitles:ExternalSubtitles
  @Environment(\.dismiss) private var dismiss
  var onClose:(()->Void)?
  @State private var selected=""
@@ -27,14 +25,15 @@ import SwiftUI
  @State private var editQuestion=""
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
+ @State private var advancedOpen=false
  init(model:TestClient,onClose:(()->Void)?=nil) {
   self.model=model;intelligence=model.plotIntelligence;auth=model.plotIntelligence.auth
-  visuals=model.visualSampler;subtitles=model.externalSubtitles;self.onClose=onClose
+  self.onClose=onClose
  }
  var body:some View {
   NavigationStack {
    ScrollView {
-    VStack(alignment:.leading,spacing:12) {
+    LazyVStack(alignment:.leading,spacing:12) {
      if model.plotPoll != nil {questionCard}
      overview
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
@@ -52,7 +51,7 @@ import SwiftUI
     .onAppear {if let value=intelligence.result {editQuestion=value.text;editOptions=value.choices}}
     .onChange(of:intelligence.result) {value in if let value {editQuestion=value.text;editOptions=value.choices}}
     .onChange(of:model.plotPoll?["id"] as? String) {_ in selected="";custom=""}
-    .onDisappear {intelligence.cancel()}
+    .onDisappear {if intelligence.working {intelligence.cancel()}}
   }.preferredColorScheme(.dark).accessibilityIdentifier("plot-settings-panel")
  }
  private var overview:some View {
@@ -130,11 +129,28 @@ import SwiftUI
  }
  private var advancedCard:some View {
   PlotPanelCard(title:"设置与状态",icon:"slider.horizontal.3") {
-   DisclosureGroup("高级设置") {
+   DisclosureGroup("高级设置",isExpanded:$advancedOpen) {
+    if advancedOpen {PlotAdvancedSettings(model:model,intelligence:intelligence,auth:auth)}
+   }
+  }
+ }
+}
+@MainActor private struct PlotAdvancedSettings:View {
+ @ObservedObject var model:TestClient
+ @ObservedObject var intelligence:PlotIntelligence
+ @ObservedObject var auth:ChatGPTAuthProbe
+ @ObservedObject var visuals:PlotVisualSampler
+ @ObservedObject var subtitles:ExternalSubtitles
+ @State private var localAvailability="正在检查系统模型"
+ init(model:TestClient,intelligence:PlotIntelligence,auth:ChatGPTAuthProbe) {
+  self.model=model;self.intelligence=intelligence;self.auth=auth
+  visuals=model.visualSampler;subtitles=model.externalSubtitles
+ }
+ var body:some View {
     VStack(alignment:.leading,spacing:14) {
      Stepper("自动请求上限：\(intelligence.limit) 次",value:$intelligence.limit,in:1...50)
      Text("同片段优先复用，自动请求至少间隔3分钟；失败计数，不自动重试。手动深度推理单独计数。").font(.caption).foregroundStyle(.secondary)
-     Text("苹果本地 AI：\(PlotLocalAI.availabilityDetail) · 已采集 \(intelligence.collectedSubtitleCount) 条字幕线索").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
+     Text("苹果本地 AI：\(localAvailability) · 已采集 \(intelligence.collectedSubtitleCount) 条字幕线索").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
      Toggle("本机画面分析（试验）",isOn:$visuals.enabled).accessibilityIdentifier("plot-visual-experiment")
      Text("仅分析已播放画面，保存粗略场景标签，不上传图像。").font(.caption).foregroundStyle(.secondary)
      Text("画面识别：\(visuals.status)").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
@@ -146,10 +162,10 @@ import SwiftUI
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "")").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
     }.padding(.top,14)
-   }
-  }
+   .onAppear {localAvailability=PlotLocalAI.availabilityDetail}
  }
 }
+
 @MainActor struct PlotAuthorizationView:View {
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
@@ -172,6 +188,7 @@ import SwiftUI
       Button(auth.loadingModels ? "正在获取模型…" : "获取可用模型") {auth.refreshModels()}.disabled(auth.loadingModels || auth.working || intelligence.working).accessibilityIdentifier("plot-model-refresh")
       Text("只列出当前账号支持的订阅模型。获取列表不发起推理；指定模型不可用时会提示，不会擅自替换。").font(.caption).foregroundStyle(.secondary)
      }
+     Text("授权使用系统浏览器。网页若显示地区不受支持，授权未完成，无法获取模型；连接检查不代表地区或权限已获允许。").font(.caption).foregroundStyle(.secondary)
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary)
     }
     PlotPanelCard(title:"隐私与用量",icon:"hand.raised") {

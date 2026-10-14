@@ -10,6 +10,11 @@ final class ChatGPTRequestSupportTests:XCTestCase {
    XCTAssertTrue(error.localizedDescription.contains("超时"))
   }
  }
+ func testCountryRestrictionHasExplicitDiagnosticWithoutCredentialInvalidation() {
+  let error=ChatGPTRequestFailure(stage:.authorization,httpCode:403,serviceCode:"unsupported_country_region_territory")
+  XCTAssertTrue(error.localizedDescription.contains("国家或地区"))
+  XCTAssertFalse(ChatGPTRequestFailure.unusableRefresh(error.serviceCode))
+ }
  func testCancellationIsNeverReportedAsNetworkFailure() {
   XCTAssertTrue(ChatGPTRequestFailure.network(URLError(.cancelled),stage:.stream) is CancellationError)
   XCTAssertTrue(ChatGPTRequestFailure.network(CancellationError(),stage:.models) is CancellationError)
