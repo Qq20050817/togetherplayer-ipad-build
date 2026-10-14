@@ -60,9 +60,13 @@ final class WatchInterfaceTests: XCTestCase {
   let app=XCUIApplication()
   app.launchEnvironment["TOGETHER_UI_TEST"]="1"
   app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
-  app.launch()
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
   let open=app.buttons["watch-header-plot-ai-button"].firstMatch
-  XCTAssertTrue(open.waitForExistence(timeout:15));open.tap()
+  XCTAssertTrue(open.waitForExistence(timeout:15))
+  let settled=XCTNSPredicateExpectation(predicate:NSPredicate {_,_ in app.frame.width>app.frame.height && open.frame.minX>app.frame.width*0.75},object:open)
+  XCTAssertEqual(XCTWaiter.wait(for:[settled],timeout:5),.completed)
+  let restingX=open.frame.minX
+  open.tap()
   let setting=app.switches["plot-blocking-mode"].firstMatch
   let panelScroll=app.scrollViews["plot-settings-scroll"].firstMatch
   XCTAssertTrue(panelScroll.waitForExistence(timeout:5))
@@ -77,6 +81,8 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["plot-settings-close"].firstMatch.tap()
   let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:panelScroll)
   XCTAssertEqual(XCTWaiter.wait(for:[closed],timeout:5),.completed)
+  let returned=XCTNSPredicateExpectation(predicate:NSPredicate {_,_ in abs(open.frame.minX-restingX)<2},object:open)
+  XCTAssertEqual(XCTWaiter.wait(for:[returned],timeout:5),.completed)
   open.tap()
   XCTAssertTrue(panelScroll.waitForExistence(timeout:5))
   for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
