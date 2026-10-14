@@ -188,7 +188,6 @@ import SwiftUI
       Button(auth.loadingModels ? "正在获取模型…" : "获取可用模型") {auth.refreshModels()}.disabled(auth.loadingModels || auth.working || intelligence.working).accessibilityIdentifier("plot-model-refresh")
       Text("只列出当前账号支持的订阅模型。获取列表不发起推理；指定模型不可用时会提示，不会擅自替换。").font(.caption).foregroundStyle(.secondary)
      }
-     Text("授权使用系统浏览器。网页若显示地区不受支持，授权未完成，无法获取模型；连接检查不代表地区或权限已获允许。").font(.caption).foregroundStyle(.secondary)
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary)
     }
     PlotPanelCard(title:"隐私与用量",icon:"hand.raised") {
