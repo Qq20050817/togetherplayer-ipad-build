@@ -34,7 +34,7 @@ import CoreMedia
  var plotMyUserID:String {credentials?["userId"] as? String ?? ""}
 
  @Published var videoBadges: [String]=[]
- var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : (optimisticPlaying ?? (engine.room?.state == "playing"))}
+ var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : (playbackNeedsRecovery ? false : (optimisticPlaying ?? (engine.room?.state == "playing")))}
  var playbackTitle: String {usingLocalFile ? localFileName : usingBaiduSource ? baiduFileName : roomTitle}
  func isMyMessage(_ message: ChatMessage) -> Bool {message.userId == credentials?["userId"] as? String}
  var usingBaiduSource: Bool {baiduPlaybackURL != nil && activeLocalSource==baiduPlaybackURL?.absoluteString && localSourceRoomURL==engine.room?.mediaUrl && localSourceRoomID==engine.room?.roomId}
@@ -106,6 +106,10 @@ import CoreMedia
  private var prerollPrepared=false
  private var recoveryStartedAt: Double?
  private var lastPrerollAt = -Double.infinity
+ private var playbackRecovery=PlaybackRecovery()
+ @Published private(set) var playbackNeedsRecovery=false
+ private var recoveryResumePosition:Double?
+ private var recoveryRebuilds=0
  private var queuedOperations: [[String:Any]]=[]
  private var inFlight: [String:Any]?
  private var inFlightSequence: Int64=0
@@ -344,6 +348,9 @@ import CoreMedia
   String(bytes:[UInt8((value>>24)&255),UInt8((value>>16)&255),UInt8((value>>8)&255),UInt8(value&255)],encoding:.ascii) ?? "unknown"
  }
  private func loadMedia(_ url: URL,forceRemux: Bool=false) {
+  // Rebuilding the same AVPlayerItem retains the film identity, selected
+  // subtitle track and existing plot evidence. The room clock stays intact.
+  playbackRecovery.reset();playbackNeedsRecovery=false
   // Room media identity remains stable across WebSocket reconnects and
   // refreshed signed playback URLs. Only a genuinely different film resets
   // watched subtitle evidence and imported subtitle state.
@@ -402,6 +409,18 @@ import CoreMedia
   videoBadges=[]
   if MediaSourceCatalog.canShare(originalURL.absoluteString),originalURL != baiduPlaybackURL {library.played(originalURL.absoluteString,title:movieTitle)}
   streamInfo="等待读取播放轨道";adapter.pause();adapter.resetPendingSeeks();externalSubtitles.attachNativeOutput(to:item);adapter.player.replaceCurrentItem(with:item);visualSampler.attach(to:item);updateMediaInfo()
+  if let position=recoveryResumePosition {
+   recoveryResumePosition=nil
+   // Seek only after the replacement item has become ready.
+   let requested=position
+   Task { [weak self,weak item] in
+    for _ in 0..<100 {
+     guard let self=self,item != nil,self.adapter.player.currentItem === item else {return}
+     if self.adapter.ready {self.adapter.seekTo(requested);return}
+     try? await Task.sleep(nanoseconds:50_000_000)
+    }
+   }
+  }
   // Show already saved film evidence immediately after the player is reattached.
   Task {await plotIntelligence.collect()}
   if allowRemuxRetry {
@@ -660,7 +679,7 @@ import CoreMedia
    plotIntelligence.preserveCurrentFilmEvidence()
   // Invalidate both send and receive callbacks before scheduling one retry.
   generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil
-  connected=false;engine.resetSession();attempt += 1
+  connected=false;engine.resetSession();playbackRecovery.reset();playbackNeedsRecovery=false;attempt += 1
   disconnectCount += 1;lastDisconnectReason=reason
   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
   clearOptimisticPlayback();lastStepTarget=nil
@@ -722,8 +741,13 @@ import CoreMedia
    if let file=pendingLocalFile {pendingLocalFile=nil;useLocalFile(file)}
   }
   if type=="WELCOME" {supportsBlockingPolls=(obj["plotPollCapabilities"] as? [String:Any])?["blocking"] as? Bool == true}
-  if type=="PLOT_POLL_STATE" {plotPoll=obj["poll"] as? [String:Any]}
-  if obj.keys.contains("poll") {plotPoll=obj["poll"] as? [String:Any]}
+  if type=="PLOT_POLL_STATE" || obj.keys.contains("poll") {
+   let incoming=obj["poll"] as? [String:Any]
+   // A blocking question must always release the active 2x lease, even if
+   // the user is still pressing the fullscreen gesture surface.
+   if incoming?["waitingForAnswers"] as? Bool == true && speedHoldID != nil {setSpeedHold(false)}
+   plotPoll=incoming
+  }
   if type=="CHAT_MESSAGE",let message=obj["message"] as? [String:Any] {acceptChat(message,live:true)}
   if type=="REACTION",let emoji=obj["emoji"] as? String {chat.reaction(emoji,now:clock.localNow())}
   if type=="CHAT_TYPING",obj["userId"] as? String != credentials?["userId"] as? String {chat.typing(obj["name"] as? String ?? "好友",now:clock.localNow())}
@@ -794,6 +818,11 @@ import CoreMedia
    switch type {case "PLAY":adapter.play();case "PAUSE":adapter.pause();case "SEEK":adapter.seekTo(position);default:break};return
   }
   guard connected && clock.ready else {requestStatus="尚未连接或正在校准时钟";feedback.showPlaybackAction(requestStatus);return}
+  if type == "PLAY",engine.target()?.1 == "playing",adapter.ready {
+   playbackRecovery.reset();adapter.pause();adapter.play()
+   playbackNeedsRecovery=false;feedback.showPlaybackAction("已尝试恢复当前影片播放")
+   return
+  }
   var operation: [String:Any]=["type":type,"position":max(0,position)]
   if isHost {
    // Keep only the last pending jump while preserving pause/play and media actions.
@@ -811,6 +840,37 @@ import CoreMedia
   generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;adapter.pause();let g=generation
   Task {try? await Task.sleep(nanoseconds:3_000_000_000);if g==generation {connect()} }
  }
+ private func monitorPlaybackRecovery() {
+  let current=engine.room
+  let now=clock.localNow()
+  let shouldPlay=foreground && connected && !plotPollWaiting &&
+   variantDurationCheck == .compatible && current?.target(clock.serverNow()).1 == "playing" &&
+   adapter.player.currentItem != nil && adapter.player.currentItem?.status == .readyToPlay &&
+   !localVideoTest && currentOriginalURL != nil &&
+   inFlight == nil && queuedOperations.isEmpty
+  let action=playbackRecovery.observe(now:now,position:adapter.position,shouldPlay:shouldPlay)
+  switch action {
+  case .none:break
+  case .wake:
+   playbackNeedsRecovery=true
+   // Re-arm AVPlayer's internal play intent without replacing the film.
+   adapter.pause();adapter.setPlaybackSpeed(current?.playbackRate == 2 ? 2 : 1);adapter.play()
+   diagnostic("resumeAfterStall")
+  case .rebuild:
+   guard let original=currentOriginalURL else {return}
+   guard recoveryRebuilds < 2 else {requestStatus="自动恢复未成功，请检查原片源或网络";return}
+   playbackNeedsRecovery=true
+   recoveryResumePosition=engine.target()?.0 ?? adapter.position
+   recoveryRebuilds += 1
+   diagnostic("rebuildStalledPlayerItem")
+   loadMedia(original)
+  }
+  if action == .none {
+   if !shouldPlay {playbackNeedsRecovery=false}
+   else {playbackNeedsRecovery=now-(playbackRecovery.stalledSince ?? now)>=5000}
+  }
+  if current?.target(clock.serverNow()).1 == "paused" {recoveryRebuilds=0}
+ }
  private func tick() {
   if localVideoTest {ticks += 1;if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
@@ -818,6 +878,7 @@ import CoreMedia
    if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
   }
   guard connected else {return}
+  if speedHoldID != nil,engine.target()?.1 == "paused" {setSpeedHold(false)}
   let error: Double?
   if variantDurationCheck == .compatible {
    if let room=engine.room,optimisticRoomID==room.roomId,clock.localNow()<optimisticUntil,
@@ -834,6 +895,7 @@ import CoreMedia
     error=engine.tick()
    }
   } else {clearOptimisticPlayback();adapter.pause();error=nil}
+  monitorPlaybackRecovery()
   ticks += 1
   if clock.ready {flushOperations()}
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}

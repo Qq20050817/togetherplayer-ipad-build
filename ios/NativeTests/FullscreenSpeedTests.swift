@@ -26,6 +26,40 @@ final class FullscreenSpeedTests:XCTestCase {
   now=3300;engine.tick()
   XCTAssertEqual(p.seeks,1,"genuine sustained drift should still be corrected")
  }
+ func testRapidDoubleSpeedTransitionsDoNotSeekWhileAVPlayerSettles() {
+  var now=0.0;let clock=ClockSync{now};clock.add(0,0,0,0)
+  let p=Player();p.position=10_000
+  let engine=SyncEngine(p,clock)
+  let original=Timeline(state:"playing",position:10_000,updatedAt:0,playbackRate:1)
+  engine.receive(Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:1,executeAt:0,state:"playing",position:10_000,updatedAt:0,playbackRate:1,before:original))
+  now=100
+  engine.receive(Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:2,executeAt:100,state:"playing",position:15_000,updatedAt:100,playbackRate:2,before:original))
+  now=250;engine.tick();XCTAssertEqual(p.rate,2);XCTAssertEqual(p.seeks,0)
+  now=2000;engine.tick();XCTAssertEqual(p.seeks,0,"2x transition should not hard-seek the decoding frame")
+  now=2800;engine.tick();XCTAssertEqual(p.seeks,1,"drift correction remains available after settling")
+ }
+ func testWaitingPlayerRetainsPlayIntentForAutomaticRecovery() {
+  var now=0.0;let clock=ClockSync{now};clock.add(0,0,0,0)
+  let p=Player();p.buffering=true
+  let engine=SyncEngine(p,clock)
+  let original=Timeline(state:"playing",position:0,updatedAt:0,playbackRate:1)
+  engine.receive(Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:1,executeAt:0,state:"playing",position:0,updatedAt:0,playbackRate:1,before:original))
+  engine.tick();XCTAssertTrue(p.playing,"buffering should retain a PLAY request")
+  p.buffering=false;p.position=1000;now=1000;engine.tick();XCTAssertTrue(p.playing)
+ }
+ func testStalledPlayerRecoveryStagesAndPauseUnlock() {
+  var watchdog=PlaybackRecovery()
+  XCTAssertEqual(watchdog.observe(now:0,position:1000,shouldPlay:true),.none)
+  XCTAssertEqual(watchdog.observe(now:4999,position:1000,shouldPlay:true),.none)
+  XCTAssertEqual(watchdog.observe(now:5000,position:1000,shouldPlay:true),.wake)
+  XCTAssertEqual(watchdog.observe(now:9000,position:1000,shouldPlay:true),.none)
+  XCTAssertEqual(watchdog.observe(now:14000,position:1000,shouldPlay:true),.rebuild)
+  XCTAssertEqual(watchdog.observe(now:15000,position:1000,shouldPlay:true),.none)
+  XCTAssertEqual(watchdog.observe(now:16000,position:1000,shouldPlay:false),.none)
+  XCTAssertEqual(watchdog.observe(now:22000,position:1000,shouldPlay:true),.none,"poll pause resets stale watchdog")
+  XCTAssertEqual(watchdog.observe(now:27000,position:1000,shouldPlay:true),.wake)
+  XCTAssertEqual(watchdog.observe(now:27100,position:1200,shouldPlay:true),.none,"frame progress disarms rebuild")
+ }
  func testSharedRateUsesExecuteAtAndRestoresWithoutSeek() {
   var now=1000.0;let clock=ClockSync{now};clock.add(0,0,0,0)
   let p=Player();let engine=SyncEngine(p,clock)

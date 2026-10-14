@@ -1,7 +1,7 @@
 name: Verify seamless room PLAY and package direct iPad IPA
 on:
   push:
-    branches: [fix/ipad-seamless-room-play-start-20261014]
+    branches: [fix/ipad-playback-recovery-and-speed-hold-20261014]
   workflow_dispatch:
 permissions:
   contents: read
@@ -53,13 +53,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p plot-delivery
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.17-Seamless-Room-Play-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.18-Auto-Playback-Recovery-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           cd plot-delivery
-          sha256sum TogetherPlayer-0.6.17-Seamless-Room-Play-unsigned.ipa > SHA256SUMS.txt
+          sha256sum TogetherPlayer-0.6.18-Auto-Playback-Recovery-unsigned.ipa > SHA256SUMS.txt
           printf 'Source branch: %s\nSource SHA: %s\nCI: native core and watch UI tests passed\nUnsigned build: sign with your certificate for installation\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-0.6.17-Seamless-Room-Play
+          name: TogetherPlayer-iPad-0.6.18-Auto-Playback-Recovery
           path: plot-delivery/
           retention-days: 7
   release:
@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.17-Seamless-Room-Play --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.18-Auto-Playback-Recovery --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           cd verified
           sha256sum -c SHA256SUMS.txt
@@ -86,9 +86,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='v0.6.17-seamless-room-play-ipad-20261014'
+          tag='v0.6.18-playback-recovery-ipad-20261014'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release already exists. Will not replace an existing package.' >&2
             exit 1
           fi
-          gh release create "$tag" verified/TogetherPlayer-0.6.17-Seamless-Room-Play-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.17 · Seamless room play start' --notes 'Unsigned preview IPA. Removes optimistic host PLAY that caused a second synchronized start ~750 ms later; provides a 2 s first-frame settle window and clears misleading syncing playback status. Preserves PGS crash safe mode from 0.6.16. Requires signing and real two-device playback acceptance.'
+          gh release create "$tag" verified/TogetherPlayer-0.6.18-Auto-Playback-Recovery-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.18 · Playback recovery and 2x stability' --notes 'Unsigned preview IPA. Retains seamless room start; prevents 2x speed transition hard seeks, releases hold on plot-poll pause, re-arms stalled AVPlayer, and rebuilds the current item after sustained genuine stalls without a manual file import. Preserves PGS crash safe mode from 0.6.16. Requires signing and real two-device playback acceptance.'

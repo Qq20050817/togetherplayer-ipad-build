@@ -141,8 +141,11 @@ final class SyncEngine {
    // Give a newly scheduled PLAY time to render its first frames before
    // making any speed change / hard seek. Normal seek commands while already
    // playing remain immediate and are not given this startup grace period.
-   if next.state == "playing" && previous?.roomId == next.roomId && previous?.state == "paused" {
-    settleUntil=clock.localNow()+2000
+   if next.state == "playing" && previous?.roomId == next.roomId {
+    if previous?.state == "paused" {settleUntil=clock.localNow()+2000}
+    // Rate changes can stall AVPlayer's decoder, particularly at 2x on 4K.
+    // Give a new shared speed time to settle before drift correction seeks.
+    else if next.playbackRate != previous?.playbackRate {settleUntil=clock.localNow()+2500}
    }
    room=next
   }
@@ -177,7 +180,12 @@ final class SyncEngine {
   if !player.ready || player.buffering {wasUnready=true}
   else if wasUnready {wasUnready=false;settleUntil=now+2000}
   if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>200 {player.seekTo(position)};return error }
-  guard player.ready && !player.buffering else {excessiveDriftSince=nil;return nil}
+  guard player.ready else {excessiveDriftSince=nil;return nil}
+  if player.buffering {
+   // Preserve play intent while AVPlayer waits for data. The player can
+   // otherwise remain stuck in waiting with no subsequent play attempt.
+   player.play();excessiveDriftSince=nil;return nil
+  }
   if now<settleUntil {resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if abs(error)>=500 {if excessiveDriftSince == nil {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else {excessiveDriftSince=nil}
   var overdue=excessiveDriftSince.map {now-$0>=10_000} ?? false
