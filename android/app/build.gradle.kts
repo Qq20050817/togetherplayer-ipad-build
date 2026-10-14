@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
  namespace = "dev.together.poc"
  compileSdk = 35
- defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 65; versionName = "0.6.5"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
+ defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 66; versionName = "0.6.6"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = "17" }
 }

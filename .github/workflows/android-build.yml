@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
@@ -53,9 +53,9 @@ jobs:
         run: |
           mkdir -p android-delivery/screenshots
           if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-Android-0.6.5-PlaybackRecovery.apk
-            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.5-PlaybackRecovery.apk > SHA256SUMS.txt)
-            printf 'Source SHA: %s\nAndroid: 0.6.5\nScope: keep local MOV fallback; 2x transition settle, re-arm stalled playback, preserve subtitle selections.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk
+            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk > SHA256SUMS.txt)
+            printf 'Source SHA: %s\nAndroid: 0.6.6\nScope: keep Android 0.6.5 fixes; display full plot question as scrollable dialog body, support prediction labels.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
           fi
       - uses: actions/upload-artifact@v4
         if: always()
@@ -81,7 +81,7 @@ jobs:
   release-verified-android:
     name: Publish direct experimental APK (no ZIP)
     needs: android-build
-    if: ${{ success() && github.ref_name == 'fix/android-playback-recovery-20261014' }}
+    if: ${{ success() && github.ref_name == 'fix/android-full-plot-question-20261014' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -100,22 +100,22 @@ jobs:
           archive_dir="$(dirname "$build_report")"
           grep -Fx "Source SHA: $GITHUB_SHA" "$build_report"
           (cd "$archive_dir" && sha256sum -c SHA256SUMS.txt)
-          test -s "$archive_dir/TogetherPlayer-Android-0.6.5-PlaybackRecovery.apk"
+          test -s "$archive_dir/TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk"
           mkdir -p release-files
-          cp "$archive_dir/TogetherPlayer-Android-0.6.5-PlaybackRecovery.apk" "$archive_dir/BUILD.txt" "$archive_dir/SHA256SUMS.txt" release-files/
+          cp "$archive_dir/TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk" "$archive_dir/BUILD.txt" "$archive_dir/SHA256SUMS.txt" release-files/
       - name: Release direct APK only after all tests pass
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="v0.6.5-playback-recovery-android-preview"
+          tag="v0.6.6-plot-full-question-android-preview"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Tag already exists; refusing to overwrite existing assets." >&2
             exit 1
           fi
           gh release create "$tag" \
-            release-files/TogetherPlayer-Android-0.6.5-PlaybackRecovery.apk \
+            release-files/TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk \
             release-files/BUILD.txt release-files/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "TogetherPlayer Android 0.6.5 - Playback recovery and 2x stability (experimental)" \
-            --notes "Experimental direct APK, no ZIP. Based on the last verified Android 0.6.4 local MOV compatible playback. Adds synchronized double-speed transition settling, buffering-play intent, released 2x lease for blocking plot questions, automatic wake and one bounded player item rebuild without selecting the movie again. Emulator CI verification; two real devices and all high-bitrate sources require acceptance. Existing iPad/server/router services unchanged."
+            --title "TogetherPlayer Android 0.6.6 - Full plot question and prediction UI (experimental)" \
+            --notes "Experimental direct APK, no ZIP. Based on the last verified Android 0.6.4 local MOV compatible playback. Preserves 0.6.5 synchronized speed/recovery. Fixes truncated plot poll question titles on Android by showing long questions in a scrollable body, with prediction hints and unchanged vote flow. Emulator CI verification; two real devices and all high-bitrate sources require acceptance. Existing iPad/server/router services unchanged."

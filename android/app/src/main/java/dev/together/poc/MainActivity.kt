@@ -339,7 +339,8 @@ class MainActivity: Activity() {
   val kind=when(poll.optString("questionType")){"motive"->"人物动机";"contradiction"->"说法矛盾";"timeline"->"时间线";"prediction"->"剧情预测";else->"剧情讨论"}
   val point=poll.optDouble("positionMs",0.0).coerceAtLeast(0.0).toLong()/1000
   val waiting=poll.optBoolean("waitingForAnswers")
-  val question=(if(waiting)"答题后继续播放\n" else "")+"$kind · ${point/60}:${(point%60).toString().padStart(2,'0')}\n"+poll.optString("question")
+  val heading=PlotPollPresentation.title(kind,point/60,point%60)
+  val question=PlotPollPresentation.questionBody(waiting,poll.optString("question"))
   if(revealed){
    val answers=poll.optJSONObject("answers") ?: JSONObject()
    val names=mutableListOf<String>();val keys=answers.keys()
@@ -349,12 +350,18 @@ class MainActivity: Activity() {
   if(voted){android.app.AlertDialog.Builder(this).setTitle("🎭 剧情推理").setMessage(question+"\n\n你已提交回答，等待对方完成。").setPositiveButton("完成",null).show();return}
   val options=poll.optJSONArray("options") ?: org.json.JSONArray()
   val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(8),dp(18),dp(8))}
+  val visibleQuestion=android.widget.TextView(this).apply {
+   text=question;textSize=18f;setTextColor(0xfff4f4f4.toInt());setLineSpacing(dp(3).toFloat(),1f)
+   setPadding(0,dp(5),0,dp(14));contentDescription="完整剧情题目：$question"
+  }
+  body.addView(visibleQuestion,LinearLayout.LayoutParams(-1,-2))
   val choices=android.widget.RadioGroup(this).apply{orientation=android.widget.RadioGroup.VERTICAL}
-  for(i in 0 until options.length()){val value=options.optString(i);choices.addView(android.widget.RadioButton(this).apply{this.id=View.generateViewId();text=value;tag=value})}
+  for(i in 0 until options.length()){val value=options.optString(i);choices.addView(android.widget.RadioButton(this).apply {this.id=View.generateViewId();text=value;tag=value;setPadding(0,dp(6),0,dp(6))})}
   body.addView(choices)
   val custom=EditText(this).apply{hint="自己填写答案（可选）";maxLines=3}
   body.addView(custom)
-  val dialog=android.app.AlertDialog.Builder(this).setTitle("🎭 "+question).setView(body).setNegativeButton("取消",null)
+  val scrolling=android.widget.ScrollView(this).apply{isFillViewport=true;addView(body)}
+  val dialog=android.app.AlertDialog.Builder(this).setTitle(heading).setView(scrolling).setNegativeButton("取消",null)
    .setPositiveButton("提交",null).create()
   dialog.setOnShowListener {
    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
