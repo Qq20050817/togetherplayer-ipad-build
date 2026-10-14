@@ -70,7 +70,13 @@ jobs:
           mkdir -p playback-test-reports
           for result in plot-build/Logs/Test/*.xcresult; do
             [ -d "$result" ] || continue
+            xcrun xcresulttool export diagnostics --path "$result" --output-path "playback-test-reports/diagnostics-$(basename "$result")" || true
             xcrun xcresulttool get test-results summary --path "$result" > "playback-test-reports/$(basename "$result").json" || true
+          done
+          mkdir -p playback-test-reports/crashes
+          shopt -s nullglob
+          for report in "$HOME"/Library/Logs/DiagnosticReports/TogetherPoC*; do
+            cp "$report" playback-test-reports/crashes/
           done
       - uses: actions/upload-artifact@v4
         if: always()
