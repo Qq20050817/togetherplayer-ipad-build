@@ -11,7 +11,8 @@ import CoreGraphics
 
  var body: some View {
   ZStack(alignment: .topLeading) {
-   ForEach(Array(PGSBitmapComposition.layers(for: frame).enumerated()), id: \.offset) { _, layer in
+   ForEach(Array(PGSBitmapComposition.layers(for: frame).enumerated()), id: \.offset) { item in
+    let layer=item.element
     if let image = Self.makeImage(layer),
        let layout = layer.normalizedRect(videoWidth: frame.videoWidth,
                                          videoHeight: frame.videoHeight) {
