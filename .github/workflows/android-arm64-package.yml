@@ -1,0 +1,59 @@
+name: Package verified Android source for ARM64
+on:
+  push:
+    branches: [fix/android-arm64-delivery-20261014]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: deecd713dab81eb6d0666781336355da07c0e0e5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Require completed native validation for this exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = deecd713dab81eb6d0666781336355da07c0e0e5
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/38602733771 --jq .conclusion)" = success
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/38602733771 --jq .head_sha)" = deecd713dab81eb6d0666781336355da07c0e0e5
+          mkdir -p android/app/src/main/assets
+          curl -fsSL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
+      - name: Build ARM64 without changing application code
+        working-directory: android
+        run: gradle --no-daemon -PdeliveryArm64=true testDebugUnitTest assembleDebug
+      - name: Verify packaged libraries, model and icon
+        run: |
+          mkdir delivery
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.7-arm64.apk
+          python3 - <<'PY'
+          import zipfile,hashlib
+          with zipfile.ZipFile('delivery/TogetherPlayer-Android-0.6.7-arm64.apk') as z:
+              assert z.testzip() is None
+              assert set(n.split('/')[1] for n in z.namelist() if n.startswith('lib/')) == {'arm64-v8a'}
+              assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest() == '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
+              assert any('together_player_icon' in n for n in z.namelist())
+          PY
+          printf 'Source SHA: deecd713dab81eb6d0666781336355da07c0e0e5\nNative validation: 38602733771, 26 tests passed on x86_64 emulator\nARM64 packaging and unit tests passed; physical ARM64 acceptance pending.\n' > delivery/BUILD-ARM64.txt
+          (cd delivery && sha256sum TogetherPlayer-Android-0.6.7-arm64.apk > SHA256SUMS-ARM64.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-0.6.7-ARM64
+          path: delivery/
+          retention-days: 7
+      - name: Add uniquely named ARM64 assets to verified preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload v0.6.7-instant-controls-android-preview delivery/TogetherPlayer-Android-0.6.7-arm64.apk delivery/BUILD-ARM64.txt delivery/SHA256SUMS-ARM64.txt --repo "$GITHUB_REPOSITORY"
