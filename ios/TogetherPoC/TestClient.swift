@@ -85,6 +85,7 @@ import CoreMedia
  private var trackSelectionGeneration=0
  private var nativeIndexRequestKey=""
  private var nativeIndexTask:Task<Void,Never>?
+ private var originalPGSDecodeTask:Task<Void,Never>?
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
  private var currentOriginalURL: URL?
  private var activeLocalSource=""
@@ -215,7 +216,8 @@ import CoreMedia
   }
   plotIntelligence.isSubtitleCurrentlyShown={ [weak self] in
    guard let self else{return true}
-   return !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
+   return self.externalSubtitles.originalPGSFrame != nil ||
+     !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
   }
   plotIntelligence.publishAutomatically={ [weak self] question in
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
@@ -348,6 +350,7 @@ import CoreMedia
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
+  originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
   let needsRemux=forceRemux || MKVRemux.needed(url:url,fileName:url==baiduPlaybackURL ? baiduFileName : nil)
@@ -475,6 +478,7 @@ import CoreMedia
    }
    if selectedSubtitleIndex>=0 && !externalSubtitles.enabled {
     prepareNativeSubtitleIndex(item:item,track:selectedSubtitleIndex)
+    prepareOriginalPGSBitmap(item:item,track:selectedSubtitleIndex)
    }
    diagnostic("subtitleOptionsLoaded")
   }
@@ -500,6 +504,26 @@ import CoreMedia
      forAIOnly:self.mkvRemux.pgsOCRRendition)
     await self.plotIntelligence.collect()
    } else {self.externalSubtitles.nativeIndexUnavailable()}
+  }
+ }
+ /// Experimental local-file PGS path. Does not read network movies twice or
+ /// change any source/room/PrismCore playback state; uses original palette.
+ private func prepareOriginalPGSBitmap(item:AVPlayerItem,track:Int) {
+  originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
+  guard track==0,!externalSubtitles.enabled,
+        let streamIndex=mkvRemux.uniquePGSStreamIndex,
+        let original=currentOriginalURL,original.isFileURL else{return}
+  let generation=mediaLoadGeneration
+  originalPGSDecodeTask=Task { [weak self,weak item] in
+   let events=await Task.detached(priority:.utility) {
+    OriginalPGSFileExtractor.extract(url:original,streamIndex:streamIndex)
+   }.value
+   guard !Task.isCancelled,!events.isEmpty,let self,let item,
+         generation==self.mediaLoadGeneration,
+         self.adapter.player.currentItem === item,
+         !self.externalSubtitles.enabled,
+         self.selectedSubtitleIndex==track else{return}
+   self.externalSubtitles.installOriginalPGS(events,track:track)
   }
  }
  // Keep an explicitly selected built-in subtitle track active across
@@ -546,7 +570,10 @@ import CoreMedia
   else if index == -2 {item.select(nil,in:group)}
   else {guard group.options.indices.contains(index) else {return};item.select(group.options[index],in:group)}
   selectedSubtitleIndex=index
-  if index>=0 {prepareNativeSubtitleIndex(item:item,track:index)}
+  if index>=0 {
+   prepareNativeSubtitleIndex(item:item,track:index)
+   prepareOriginalPGSBitmap(item:item,track:index)
+  }
  }
  func chooseAudio(_ index: Int) {
   guard let item=adapter.player.currentItem,let group=audioGroup else {return}
