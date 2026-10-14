@@ -110,6 +110,9 @@ import CoreMedia
  @Published private(set) var playbackNeedsRecovery=false
  private var recoveryResumePosition:Double?
  private var recoveryRebuilds=0
+ private var pendingPlotPredictionReview:PlotPendingReview?
+ private var reviewedPlotPollIDs=Set<String>()
+ private var plotPredictionReviewTask:Task<Void,Never>?
  private var queuedOperations: [[String:Any]]=[]
  private var inFlight: [String:Any]?
  private var inFlightSequence: Int64=0
@@ -358,6 +361,8 @@ import CoreMedia
   var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
   let plotKey=PlotMemoryStore.key(components?.string ?? identity)
   if requestedSubtitleFilmKey != plotKey {
+   pendingPlotPredictionReview=nil;plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil
+   reviewedPlotPollIDs=[]
    requestedSubtitleIndex=nil
    requestedSubtitleFilmKey=plotKey
   }
@@ -747,6 +752,22 @@ import CoreMedia
    // the user is still pressing the fullscreen gesture surface.
    if incoming?["waitingForAnswers"] as? Bool == true && speedHoldID != nil {setSpeedHold(false)}
    plotPoll=incoming
+   // Capture an answered prediction only AFTER the server has revealed both
+   // votes. Its correct outcome is deliberately unknown until future scenes
+   // have actually played. Replay of WELCOME/STATE cannot duplicate a review.
+   if isHost,let poll=incoming,poll["revealed"] as? Bool == true,
+      poll["questionType"] as? String == "prediction",
+      let id=poll["id"] as? String,!reviewedPlotPollIDs.contains(id),
+      let room=engine.room,let question=poll["question"] as? String,
+      let options=poll["options"] as? [String],let votes=poll["answers"] as? [String:String] {
+    let millis=(poll["positionMs"] as? NSNumber)?.doubleValue ?? -1
+    let review=PlotPendingReview(id:id,roomId:room.roomId,mediaId:room.mediaUrl,
+      at:max(0,millis/1000),question:question,choices:options,answers:votes)
+    if millis>=0 && review.isReady {
+     pendingPlotPredictionReview=review
+     reviewedPlotPollIDs.insert(id)
+    }
+   }
   }
   if type=="CHAT_MESSAGE",let message=obj["message"] as? [String:Any] {acceptChat(message,live:true)}
   if type=="REACTION",let emoji=obj["emoji"] as? String {chat.reaction(emoji,now:clock.localNow())}
@@ -886,6 +907,35 @@ import CoreMedia
   }
   if current?.target(clock.serverNow()).1 == "paused" {recoveryRebuilds=0}
  }
+ private func reviewPlotPredictionIfReady() {
+  guard connected,isHost,plotPredictionReviewTask == nil,
+   let review=pendingPlotPredictionReview,let room=engine.room else{return}
+  guard room.roomId==review.roomId,room.mediaUrl==review.mediaId else {
+   pendingPlotPredictionReview=nil;return
+  }
+  let position=adapter.position/1000
+  if position>review.at+480 {pendingPlotPredictionReview=nil;return}
+  guard review.canReview(position:position),PlotLocalAI.available else{return}
+  let evidence=review.observed(externalSubtitles.observedPlotEvidence(),position:position)
+  guard evidence.count>=3 else{return}
+  pendingPlotPredictionReview=nil
+  plotPredictionReviewTask=Task { [weak self] in
+   let verdict=await PlotFutureJudge.evaluate(review,evidence:evidence)
+   guard let self else{return}
+   defer {self.plotPredictionReviewTask=nil}
+   guard !Task.isCancelled,self.connected,self.isHost,
+      self.engine.room?.roomId==review.roomId,self.engine.room?.mediaUrl==review.mediaId,
+      self.adapter.position/1000>=review.at+180 else{return}
+   // An unresolved outcome is never given a made-up "right answer".
+   if let verdict {
+    let message=PlotPredictionVerdict.message(verdict,review:review,members:self.members)
+    guard message.utf8.count<=6000,message.count<=1000,self.outbox.count<20 else{return}
+    let id="plot-review:"+review.id
+    let frame:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message,"clientMessageId":id]]
+    self.outbox[id]=frame;self.send(frame)
+   }
+  }
+ }
  private func tick() {
   if localVideoTest {ticks += 1;if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
@@ -911,6 +961,7 @@ import CoreMedia
    }
   } else {clearOptimisticPlayback();adapter.pause();error=nil}
   monitorPlaybackRecovery()
+  if ticks%100 == 0 {reviewPlotPredictionIfReady()}
   ticks += 1
   if clock.ready {flushOperations()}
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
@@ -1252,7 +1303,7 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;visualSampler.setForeground(true);if credentials != nil {connect()}}
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}
