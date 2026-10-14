@@ -1,7 +1,7 @@
 name: Verify story-turn playback, AI, and IPA package
 on:
   push:
-    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013, fix/ipad-embedded-subtitle-selection-20261013, fix/ipad-visual-frame-sampling-20261013, fix/ipad-native-caption-autoprompt-20261014, feat/ipad-story-question-checkpoints-20261014, build/ipad-story-checkpoints-macos15-20261014, fix/ipad-seek-burst-stability-20261014, feat/ipad-native-subtitle-ai-index-20261014, delivery/ipad-0.6.14-story-graph-verified-20261014, feat/ipad-pgs-ai-only-srt-20261014, feat/ipad-pgs-bitmap-overlay-prototype-20261014]
+    branches: [fix/plot-solo-20261013, fix/plot-reconnect-subtitle-memory-20261013, fix/plot-memory-autoprompt-20261013, feat/ipad-visual-plot-prototype-20261013, fix/ipad-embedded-subtitle-selection-20261013, fix/ipad-visual-frame-sampling-20261013, fix/ipad-native-caption-autoprompt-20261014, feat/ipad-story-question-checkpoints-20261014, build/ipad-story-checkpoints-macos15-20261014, fix/ipad-seek-burst-stability-20261014, feat/ipad-native-subtitle-ai-index-20261014, delivery/ipad-0.6.14-story-graph-verified-20261014, feat/ipad-pgs-ai-only-srt-20261014, feat/ipad-pgs-bitmap-overlay-prototype-20261014, feat/ipad-pgs-overlay-view-wiring-20261014]
   workflow_dispatch:
 permissions:
   contents: read
