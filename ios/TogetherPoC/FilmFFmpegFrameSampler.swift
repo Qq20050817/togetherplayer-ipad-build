@@ -16,6 +16,7 @@ final class FilmFFmpegFrameSampler {
  private let secondsPerTick:Double
  private let firstTimestamp:Int64
  private(set) var lastDecodedTime:Double?
+ private(set) var lastFailure:String?
 
  static func mediaDuration(_ url:URL)->Double? {
   guard url.isFileURL,!Task.isCancelled else{return nil}
@@ -74,44 +75,83 @@ final class FilmFFmpegFrameSampler {
   if format != nil {avformat_close_input(&format)}
  }
  func image(at seconds:Double)->CGImage? {
-  lastDecodedTime=nil
-  guard !Task.isCancelled,seconds.isFinite,seconds>=0,let format,let decoder,let packet,let frame else{return nil}
+  lastDecodedTime=nil;lastFailure=nil
+  guard !Task.isCancelled,seconds.isFinite,seconds>=0,
+   let format,let decoder,let packet,let frame else {
+   lastFailure="视频解码器尚未准备好或任务已取消";return nil
+  }
   let target=firstTimestamp+Int64((seconds/secondsPerTick).rounded(.towardZero))
-  // Some one-frame MP4 fixtures do not carry a seek index. At time zero
-  // the demuxer is already positioned correctly, so decoding can continue.
-  let seekResult=av_seek_frame(format,index,target,AVSEEK_FLAG_BACKWARD)
-  if seekResult<0 && seconds>0.5 {return nil}
+  // MKV files with sparse, late or absent cue indexes can reject a stream-
+  // specific backward seek. Try the bounded libavformat alternatives before
+  // giving up; never linear-scan a 20GB movie just to find one thumbnail.
+  var seekCode=av_seek_frame(format,index,target,AVSEEK_FLAG_BACKWARD)
+  if seekCode<0 {
+   seekCode=avformat_seek_file(format,index,Int64.min,target,Int64.max,AVSEEK_FLAG_BACKWARD)
+  }
+  if seekCode<0 {
+   let globalTarget=Int64((seconds*1_000_000).rounded(.towardZero))
+   seekCode=av_seek_frame(format,-1,globalTarget,AVSEEK_FLAG_BACKWARD)
+  }
+  if seekCode<0 && seconds>0.5 {
+   lastFailure="MKV 的视频索引不允许随机定位到 \(Int(seconds)) 秒";return nil
+  }
   avcodec_flush_buffers(decoder)
-  var visited=0,decoded=0
-  while visited<900,decoded<380 {
-   if Task.isCancelled {return nil}
-   visited+=1
-   guard av_read_frame(format,packet)>=0 else{break}
+  var packets=0,decoded=0,conversionFailures=0
+  var nearby:(time:Double,image:CGImage)?
+  var found:Double?
+  let maxPackets=1800,maxFrames=640
+  func acceptDecodedFrame() -> CGImage? {
+   decoded+=1
+   let pts=frame.pointee.best_effort_timestamp != Int64.min
+    ? frame.pointee.best_effort_timestamp : frame.pointee.pts
+   guard pts != Int64.min else{return nil}
+   let position=Double(pts-firstTimestamp)*secondsPerTick
+   guard position.isFinite,position>=0 else{return nil}
+   found=position
+   // A seek can land slightly before the target keyframe. Retain only one
+   // genuine nearby image instead of rejecting every long-GOP 4K frame.
+   let onTarget=position>=seconds-0.35 && position<=seconds+4
+   let nearbyEarlier=position>=seconds-5 && position<seconds-0.35 &&
+    (nearby.map{position-$0.time>0.9} ?? true)
+   guard onTarget || nearbyEarlier else{return nil}
+   guard let image=Self.convert(frame) else{conversionFailures+=1;return nil}
+   if onTarget {lastDecodedTime=position;return image}
+   nearby=(position,image)
+   return nil
+  }
+  while packets<maxPackets && decoded<maxFrames {
+   if Task.isCancelled {lastFailure="已取消抽帧";return nil}
+   let status=av_read_frame(format,packet)
+   if status<0 {break}
    defer {av_packet_unref(packet)}
-   guard packet.pointee.stream_index==index, avcodec_send_packet(decoder,packet)>=0 else{continue}
+   packets+=1
+   guard packet.pointee.stream_index==index else{continue}
+   let sent=avcodec_send_packet(decoder,packet)
+   if sent<0 {continue}
    while avcodec_receive_frame(decoder,frame)>=0 {
-    decoded+=1
-    let stamp=frame.pointee.best_effort_timestamp
-    let position=stamp==Int64.min ? -1 : Double(stamp-firstTimestamp)*secondsPerTick
-    if position>=seconds-0.35,let converted=Self.convert(frame) {
-     lastDecodedTime=position;av_frame_unref(frame);return converted
-    }
+    let image=acceptDecodedFrame()
     av_frame_unref(frame)
-    if decoded>=380 {break}
+    if let image {return image}
+    if decoded>=maxFrames {break}
    }
   }
-  // B-frames and decoders with frame threading may return the final picture
-  // only after avcodec_send_packet(nil) signals end-of-stream.
-  if avcodec_send_packet(decoder,nil)>=0 {
-   while avcodec_receive_frame(decoder,frame)>=0 {
-    let stamp=frame.pointee.best_effort_timestamp
-    let position=stamp==Int64.min ? -1 : Double(stamp-firstTimestamp)*secondsPerTick
-    if (position>=seconds-0.35 || (seconds<=0.5 && stamp==Int64.min)),
-      let converted=Self.convert(frame) {
-     lastDecodedTime=position;av_frame_unref(frame);return converted
-    }
+  // Drain decoder delay frames for short fixtures and the end of a GOP.
+  if !Task.isCancelled && avcodec_send_packet(decoder,nil)>=0 {
+   var drained=0
+   while drained<maxFrames-decoded && avcodec_receive_frame(decoder,frame)>=0 {
+    drained+=1
+    let image=acceptDecodedFrame()
     av_frame_unref(frame)
+    if let image {return image}
    }
+  }
+  if let nearby {lastDecodedTime=nearby.time;return nearby.image}
+  if conversionFailures>0 {
+   lastFailure="已解码视频帧，但像素格式或HDR画面转换失败（\(conversionFailures)次）"
+  } else if decoded==0 {
+   lastFailure="视频定位后未解码出画面（已读取\(packets)个数据包）"
+  } else {
+   lastFailure="已解码\(decoded)帧，最后时间\(Int(found ?? 0))秒，仍未取得\(Int(seconds))秒附近画面"
   }
   return nil
  }
