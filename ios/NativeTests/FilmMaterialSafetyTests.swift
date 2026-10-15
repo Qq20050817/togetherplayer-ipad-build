@@ -19,6 +19,29 @@ import Darwin
   }
   return result==KERN_SUCCESS ? UInt64(info.resident_size) : nil
  }
+ func testIndependentFourKHEVC10BitMKVFrameSamplingKeepsRealTimestamps() throws {
+  let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-uhd10",withExtension:"mkv"),
+   "CI must generate the 3840x2160 HEVC Main10 Matroska fixture before xcodegen")
+  let sampler=try XCTUnwrap(FilmFFmpegFrameSampler(url:movie),
+   "HEVC Main10 Matroska stream must open an independent video decoder")
+  let thumbnail=try XCTUnwrap(sampler.image(at:10),
+   "4K HEVC sampled frame failed: \(sampler.lastFailure ?? "unknown")")
+  XCTAssertLessThanOrEqual(thumbnail.width,480)
+  XCTAssertLessThanOrEqual(thumbnail.height,270)
+  let timestamp=try XCTUnwrap(sampler.lastDecodedTime)
+  XCTAssertLessThanOrEqual(abs(timestamp-10),5)
+  XCTAssertGreaterThanOrEqual(timestamp,0)
+  // Seeking backward must not poison the decoder after a prior request.
+  let again=try XCTUnwrap(sampler.image(at:2),
+   "HEVC backward seek failed: \(sampler.lastFailure ?? "unknown")")
+  XCTAssertGreaterThan(again.width,0)
+  XCTAssertLessThanOrEqual(abs((sampler.lastDecodedTime ?? -100)-2),5)
+ }
+ func testFrameFailureDiagnosticPreservesActualError() {
+  let description=FilmMaterialExportFailure.frameExtractionDiagnostic("实际画面0/120；HEVC解码失败").localizedDescription
+  XCTAssertTrue(description.contains("0/120"))
+  XCTAssertTrue(description.contains("HEVC解码失败"))
+ }
  func testLargeFingerprintHasBoundedResidentMemoryAndReportsProgress() async throws {
   let root=try directory();defer{try? FileManager.default.removeItem(at:root)}
   let file=root.appendingPathComponent("large-sparse.mkv")
