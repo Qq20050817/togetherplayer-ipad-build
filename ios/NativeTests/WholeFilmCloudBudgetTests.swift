@@ -174,4 +174,20 @@ import XCTest
   XCTAssertEqual(restored.limit,200);XCTAssertEqual(restored.analysisLimit,12)
  }
 
+ func testCancelledQueuedWriterCannotRecreateACleanedCache() async throws {
+  let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  defer{try? FileManager.default.removeItem(at:folder)}
+  let archive=WholeFilmArchive(directory:folder),key=PlotMemoryStore.key("cancelled-write")
+  let value=WholeFilmArchiveValue(sections:[WholeFilmSection(index:0,summary:"已清理的资料不能被旧任务写回来。",evidenceIDs:["one"])],map:nil,filmKey:"film")
+  try await archive.write(value,key:key)
+  _ = try await archive.remove(film:"film",legacyKey:key)
+  let writer=Task {
+   withUnsafeCurrentTask{$0?.cancel()}
+   try await archive.write(value,key:key)
+  }
+  do {try await writer.value;XCTFail("Cancelled write must be rejected")}
+  catch is CancellationError {} catch {XCTFail("Unexpected error: \(error)")}
+  let saved=await archive.read(key);XCTAssertTrue(saved.sections.isEmpty)
+ }
+
 }

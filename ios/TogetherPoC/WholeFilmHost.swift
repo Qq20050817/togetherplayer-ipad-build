@@ -21,6 +21,9 @@ actor WholeFilmArchive {
   return value
  }
  func write(_ value:WholeFilmArchiveValue,key:String)throws {
+  // A cancelled writer queued behind confirmed cleanup must not recreate
+  // the deleted cache when actor jobs are resumed in priority order.
+  try Task.checkCancellation()
   guard let directory else{return}
   try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
   var folder=directory;var attributes=URLResourceValues();attributes.isExcludedFromBackup=true;try? folder.setResourceValues(attributes)
