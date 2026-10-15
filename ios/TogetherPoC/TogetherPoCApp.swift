@@ -878,10 +878,11 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
    guard !completed else {return};completed=true
    guard let url=urls.first else {onCancel();return}
    guard asCopy else {onPick(url);return}
-   // An imported copy can be a short-lived Inbox URL. Relocate it before
-   // the picker closes and before any independent decoder is launched.
+   // Keep a provider grant alive until the imported copy is durable.
+   let scoped=url.startAccessingSecurityScopedResource()
    DispatchQueue.global(qos:.userInitiated).async { [self] in
     let result=Result {try LocalMovieCopyStore.persist(url)}
+    if scoped {url.stopAccessingSecurityScopedResource()}
     DispatchQueue.main.async { [self] in
      switch result {
      case .success(let stableURL):onPick(stableURL)
