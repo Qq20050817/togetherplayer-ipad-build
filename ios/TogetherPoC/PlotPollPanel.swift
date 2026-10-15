@@ -153,7 +153,7 @@ import UniformTypeIdentifiers
     Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本轮已发布 \(bank.publishedCount) 道 · 已答完 \(bank.completedCount) 道")
      .font(.caption).foregroundStyle(.secondary)
     Text("原片指纹已核对；题目随播放触发，正确答案仅在揭晓后发送。").font(.caption2).foregroundStyle(.secondary)
-    Button("开始新一轮题库") {restartBankRound=true}.accessibilityIdentifier("plot-restart-bank-round")
+    Button("开始新一轮题库") {restartBankRound=true}.disabled(bank.importing).accessibilityIdentifier("plot-restart-bank-round")
    }
    if !bank.revealedAnswer.isEmpty {
     Text("剧情已揭晓").font(.headline)

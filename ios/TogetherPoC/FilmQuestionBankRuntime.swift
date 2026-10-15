@@ -116,7 +116,7 @@ import Combine
  }
  /// Explicit new viewing round; seeking backwards never resets these records.
  func startNewRound() {
-  guard active != nil else{return}
+  guard active != nil,!importing else{return}
   generation+=1;publishing?.cancel()
   progress=FilmBankProgress(revision:progress.revision+1);publishedCount=0;completedCount=0;revealedAnswer="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
   let write=persist();Task {do{try await write.value}catch{self.status="本轮记录保存失败："+error.localizedDescription}}
