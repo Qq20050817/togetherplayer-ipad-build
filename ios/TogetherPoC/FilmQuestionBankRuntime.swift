@@ -8,7 +8,8 @@ import Combine
  @Published private(set) var status="当前影片未导入题库"
  @Published private(set) var revealedAnswer=""
  var onBankReady:(()->Void)?
- private let store=FilmQuestionBankStore()
+ private let store:FilmQuestionBankStore
+ init(store:FilmQuestionBankStore=FilmQuestionBankStore()){self.store=store}
  private var key=""
  private var sourceURL:URL?
  private var generation=0
