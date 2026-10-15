@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor struct PlotPanelCard<Content:View>:View {
  let title:String
@@ -18,6 +19,8 @@ import SwiftUI
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
+ @ObservedObject var materials:FilmMaterialExportSession
+ @ObservedObject var bank:FilmQuestionBankRuntime
  @Environment(\.dismiss) private var dismiss
  var onClose:(()->Void)?
  @State private var selected=""
@@ -27,8 +30,10 @@ import SwiftUI
  @State private var authOpen=false
  @State private var advancedOpen=false
  @State private var aiOnlySubtitlePickerOpen=false
+ @State private var bankPickerOpen=false
  init(model:TestClient,onClose:(()->Void)?=nil) {
   self.model=model;intelligence=model.plotIntelligence;auth=model.plotIntelligence.auth
+  materials=model.filmMaterials;bank=model.questionBankRuntime
   self.onClose=onClose
  }
  var body:some View {
@@ -39,6 +44,7 @@ import SwiftUI
      overview
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
       generationCard
+      offlineMaterialsAndQuestionBank
       if intelligence.result != nil && intelligence.previewUsable {previewCard}
       interactionCard
       advancedCard
@@ -49,6 +55,11 @@ import SwiftUI
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
     .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {if let onClose {onClose()} else {dismiss()}}.accessibilityIdentifier("plot-settings-close")}}
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
+    .fileImporter(isPresented:$bankPickerOpen,allowedContentTypes:[.json]) { result in
+     if case .success(let url)=result {
+      Task {await bank.importFile(url,filmKey:model.bankMovieKey,source:model.bankMovieURL,durationMs:model.adapter.duration)}
+     }
+    }
     .sheet(isPresented:$aiOnlySubtitlePickerOpen) {
      SubtitleDocumentPicker(onPick:{url in
       aiOnlySubtitlePickerOpen=false
@@ -100,6 +111,43 @@ import SwiftUI
    if intelligence.legacyRequests>0 {Text("旧版未分类请求 \(intelligence.legacyRequests) 次（保留计数，未清零）").font(.caption2).foregroundStyle(.secondary)}
    if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange);Button("检查连接（不消耗推理额度）") {authOpen=true}.font(.caption)}
    if !model.isConnected {Label("当前离线，可预览，连接房间后再发布",systemImage:"wifi.slash").font(.caption).foregroundStyle(.orange)}
+  }
+ }
+ private var offlineMaterialsAndQuestionBank:some View {
+  PlotPanelCard(title:"电影素材与离线题库",icon:"square.and.arrow.up.on.square") {
+   Text("你主动导出字幕与关键画面，交给 ChatGPT 聊天生成题库；播放时不再调用 AI。").font(.caption).foregroundStyle(.secondary)
+   Button {
+    model.beginFilmMaterialsExport()
+   } label:{
+    Label(materials.working ? "正在提取完整字幕和关键画面…" : "一键导出电影 AI 素材",systemImage:"film.stack")
+   }.buttonStyle(.borderedProminent).disabled(materials.working || model.bankMovieURL == nil)
+    .accessibilityIdentifier("plot-export-film-materials")
+   if materials.working {ProgressView(value:materials.progress).accessibilityIdentifier("plot-film-export-progress")}
+   Text(materials.status).font(.caption).foregroundStyle(.secondary)
+    .accessibilityIdentifier("plot-film-export-status")
+   if let zip=materials.file {
+    ShareLink(item:zip) {Label("分享素材包给 ChatGPT",systemImage:"square.and.arrow.up")}
+     .buttonStyle(.bordered).accessibilityIdentifier("plot-share-film-materials")
+    Text("已保存至“文件 → 我的 iPad → TogetherPlayer → AI素材”")
+     .font(.caption2).foregroundStyle(.secondary)
+   }
+   Divider()
+   Button {
+    bankPickerOpen=true
+   } label:{
+    Label("导入 ChatGPT 制作的 JSON 题库",systemImage:"square.and.arrow.down")
+   }.buttonStyle(.borderedProminent).disabled(model.bankMovieURL == nil)
+    .accessibilityIdentifier("plot-import-question-bank")
+   Text(bank.status).font(.caption).foregroundStyle(.secondary)
+    .accessibilityIdentifier("plot-question-bank-status")
+   if let active=bank.active {
+    Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本次已发布 \(bank.publishedCount) 道")
+     .font(.caption).foregroundStyle(.secondary)
+   }
+   if !bank.revealedAnswer.isEmpty {
+    Text("剧情已揭晓").font(.headline)
+    Text(bank.revealedAnswer).font(.callout).accessibilityIdentifier("plot-question-bank-reveal")
+   }
   }
  }
  private var interactionCard:some View {
