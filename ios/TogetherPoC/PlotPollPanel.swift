@@ -26,6 +26,7 @@ import SwiftUI
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
  @State private var advancedOpen=false
+ @State private var aiOnlySubtitlePickerOpen=false
  init(model:TestClient,onClose:(()->Void)?=nil) {
   self.model=model;intelligence=model.plotIntelligence;auth=model.plotIntelligence.auth
   self.onClose=onClose
@@ -48,6 +49,12 @@ import SwiftUI
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
     .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {if let onClose {onClose()} else {dismiss()}}.accessibilityIdentifier("plot-settings-close")}}
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
+    .sheet(isPresented:$aiOnlySubtitlePickerOpen) {
+     SubtitleDocumentPicker(onPick:{url in
+      aiOnlySubtitlePickerOpen=false
+      Task {await model.importFullFilmSubtitleForAI(url)}
+     },onCancel:{aiOnlySubtitlePickerOpen=false})
+    }
     .onAppear {
      if let value=intelligence.result {editQuestion=value.text;editOptions=value.choices}
      #if DEBUG
@@ -76,7 +83,7 @@ import SwiftUI
  }
  private var generationCard:some View {
   PlotPanelCard(title:"先理解整片，再随进度提问",icon:"wand.and.stars") {
-   WholeFilmStatusCard(host:intelligence.wholeFilm,retry:{model.prepareCompleteFilmForAI(force:true)})
+   WholeFilmStatusCard(host:intelligence.wholeFilm,retry:{model.prepareCompleteFilmForAI(force:true)},importSubtitle:{aiOnlySubtitlePickerOpen=true},importStatus:model.aiOnlySubtitleImportStatus)
    Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases) {mode in Text(mode.title).tag(mode)}}.pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
    Button {intelligence.generate()} label:{
     HStack {if intelligence.working {ProgressView().tint(.white)} else {Image(systemName:"sparkles")};Text(intelligence.working ? "正在分析…" : "生成问题");Spacer()}.frame(maxWidth:.infinity,minHeight:30)
@@ -235,6 +242,8 @@ import SwiftUI
 @MainActor private struct WholeFilmStatusCard:View {
  @ObservedObject var host:WholeFilmHost
  let retry:()->Void
+ let importSubtitle:()->Void
+ let importStatus:String
  var body:some View {
   VStack(alignment:.leading,spacing:8) {
    Label("全片理解",systemImage:"film.stack").font(.subheadline.weight(.semibold))
@@ -242,6 +251,12 @@ import SwiftUI
    Text(host.status).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-whole-film-status")
    if host.busy || host.readingActive {ProgressView(value:Double(host.completed),total:Double(max(1,host.total)));Button("暂停后台分析"){host.cancel()}}
    else {Button("重新读取并分析全片",action:retry).font(.caption)}
+   Button("导入完整字幕供 AI 分析（不改变播放字幕）",action:importSubtitle)
+    .font(.caption).accessibilityIdentifier("plot-import-ai-only-full-subtitle")
+   if !importStatus.isEmpty {
+    Text(importStatus).font(.caption2).foregroundStyle(.secondary)
+     .accessibilityIdentifier("plot-import-ai-only-full-subtitle-status")
+   }
   }.frame(maxWidth:.infinity,alignment:.leading)
  }
 }
