@@ -82,6 +82,13 @@ struct PlotFrame {
  private func requestWholeFilmCloud(_ instruction:String,_ input:String) async throws->String {
   guard canUseWholeFilmCloud else{throw WholeFilmRoutingFailure.cloudBlocked(wholeFilmCloudBlockedReason)}
   let key=wholeFilm.filmKey
+  let budget=await memory.load(key)
+  guard wholeFilm.filmKey==key else{throw CancellationError()}
+  // Also protect the first single-section Smart-mode fallback, before the
+  // host has switched the remaining work to cloud batches.
+  guard budget.budget.canPrepareWholeFilm(requests:1,totalLimit:limit,analysisLimit:analysisLimit,questionReserve:eventDrivenEnabled ? 4 : 0) else {
+   throw NSError(domain:"WholeFilmBudget",code:3,userInfo:[NSLocalizedDescriptionKey:"本片 App 分析预算不足，已保留自动出题与审核预算，尚未发送新请求；已完成片段可继续使用。"])
+  }
   let segment = -1-Int(PlotMemoryStore.key(instruction+input).prefix(8),radix:16)!
   guard try await memory.reserve(key:key,segment:segment,manual:false,limit:limit,interval:0,purpose:.wholeFilm,purposeLimit:analysisLimit) else {
    throw NSError(domain:"WholeFilmBudget",code:1,userInfo:[NSLocalizedDescriptionKey:"已达到本片 App 自动请求总上限或全片分析子上限；不代表 ChatGPT 账号额度用完。已完成片段保留，可调整上限后手动继续。"])
