@@ -32,6 +32,22 @@ import CoreMedia
  @Published var supportsBlockingPolls=false
  var plotPollWaiting:Bool {plotPoll?["waitingForAnswers"] as? Bool == true}
  let plotIntelligence=PlotIntelligence(requireCompleteFilm:true)
+ let filmMaterials=FilmMaterialExportSession()
+ let questionBankRuntime=FilmQuestionBankRuntime()
+ var bankMovieURL:URL? {currentOriginalURL}
+ var bankMovieKey:String? {plotDisplayPosition()?.key}
+ var bankSubtitle:SubtitleDocument? {aiOnlySubtitle?.film==plotDisplayPosition()?.key ? aiOnlySubtitle?.document : externalSubtitles.completeExternalForAI}
+ var bankCanPublish:Bool {
+  isConnected && isRoomHost && clock.ready && supportsBlockingPolls &&
+   variantDurationCheck == .compatible && adapter.player.rate>0 &&
+   engine.room?.state=="playing" && speedHoldID==nil &&
+   (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
+ }
+ var bankPlaybackPositionMs:Double {max(0,adapter.position-engine.timelineOffset)}
+ func beginFilmMaterialsExport() {
+  let title=playbackTitle.isEmpty ? bankMovieURL?.deletingPathExtension().lastPathComponent ?? "电影" : playbackTitle
+  filmMaterials.begin(url:bankMovieURL,title:title,external:bankSubtitle,allowOCR:externalSubtitles.convertPGSForAI)
+ }
  let library=MediaLibrary()
  var plotPollSubmitted:Bool {
   guard let myID=credentials?["userId"] as? String else {return false}
@@ -213,6 +229,7 @@ import CoreMedia
   // Hosts can receive automatic questions alone or with a peer.
   // A pending unanswered poll cannot be overwritten.
   plotIntelligence.mayPublishAutomatically={ [weak self] in
+   if self?.questionBankRuntime.active != nil {return false}
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,
     self.adapter.player.rate>0 else{return false}
    return self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true
@@ -405,6 +422,7 @@ import CoreMedia
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
+  questionBankRuntime.restore(filmKey:plotKey,source:url,durationMs:adapter.duration)
   if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
   if aiOnlySubtitle?.film != plotKey {aiOnlySubtitle=nil;aiOnlySubtitleImportStatus=""}
   nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
@@ -1118,6 +1136,8 @@ import CoreMedia
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
+   questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,canPublish:bankCanPublish,
+    publish:{[weak self] question in self?.publishPlotPoll(question)})
    send(["type":"SYNC"])
    let item=adapter.player.currentItem
    let sourceValid=BaiduMediaReference(value:engine.room?.mediaUrl ?? "")==nil || hasBaiduMatch
