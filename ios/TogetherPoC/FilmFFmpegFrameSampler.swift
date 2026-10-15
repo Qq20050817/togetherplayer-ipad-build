@@ -27,37 +27,91 @@ final class FilmFFmpegFrameSampler {
   let value=Double(format.pointee.duration)/1_000_000
   return value.isFinite && value>0 ? value : nil
  }
- init?(url:URL) {
-  guard url.isFileURL else{return nil}
+ // Film subtitle extraction accepts usable container metadata even if the
+ // optional full-stream probing of an exotic UHD video stream reports error.
+ // Do not reject a real MKV video stream solely on that probe result.
+ static func usableStreamMetadata(infoResult:Int32,streamCount:Int)->Bool {
+  infoResult>=0 || streamCount>0
+ }
+ init?(url:URL,onFailure:(String)->Void={_ in}) {
+  guard url.isFileURL else{onFailure("容器打开失败：需要本地电影文件");return nil}
   var opened:UnsafeMutablePointer<AVFormatContext>?
-  guard avformat_open_input(&opened,url.path,nil,nil)>=0,let source=opened else{return nil}
-  guard avformat_find_stream_info(source,nil)>=0 else {
+  let openResult=avformat_open_input(&opened,url.path,nil,nil)
+  guard openResult>=0,let source=opened else {
+   if opened != nil {avformat_close_input(&opened)}
+   onFailure("FFmpeg容器打开失败（错误码 \(openResult)）；请检查文件授权或文件提供程序是否已完成本地下载")
+   return nil
+  }
+  let inspectResult=avformat_find_stream_info(source,nil)
+  let streamCount=Int(source.pointee.nb_streams)
+  guard Self.usableStreamMetadata(infoResult:inspectResult,streamCount:streamCount) else{
+   onFailure("FFmpeg容器流信息读取失败（错误码 \(inspectResult)，轨道数\(streamCount)）")
    avformat_close_input(&opened);return nil
   }
-  let streamIndex=av_find_best_stream(source,AVMEDIA_TYPE_VIDEO,-1,-1,nil,0)
-  guard streamIndex>=0,let stream=source.pointee.streams[Int(streamIndex)],
-   let parameters=stream.pointee.codecpar,
-   let codec=avcodec_find_decoder(parameters.pointee.codec_id),
-   let context=avcodec_alloc_context3(codec) else {
+  let preferred=av_find_best_stream(source,AVMEDIA_TYPE_VIDEO,-1,-1,nil,0)
+  var streamIndex=preferred
+  // If best-stream detection fails because of a nonessential stream or
+  // unsupported codec, inspect actual video tracks without assuming AVPlayer
+  // or subtitle probing have already prepared a decoder.
+  if streamIndex<0 || Int(streamIndex)>=streamCount ||
+   (source.pointee.streams[Int(streamIndex)]?.pointee.codecpar).map({
+    avcodec_find_decoder($0.pointee.codec_id)==nil
+   }) ?? true {
+   streamIndex = -1
+   for i in 0..<streamCount {
+    guard let candidate=source.pointee.streams[i],
+     let props=candidate.pointee.codecpar,
+     props.pointee.codec_type==AVMEDIA_TYPE_VIDEO,
+     avcodec_find_decoder(props.pointee.codec_id) != nil else{continue}
+    streamIndex=Int32(i);break
+   }
+  }
+  guard streamIndex>=0,Int(streamIndex)<streamCount,
+   let stream=source.pointee.streams[Int(streamIndex)],
+   let parameters=stream.pointee.codecpar else {
+   var codes:[String]=[]
+   for i in 0..<streamCount {
+    if let stream=source.pointee.streams[i],let props=stream.pointee.codecpar,
+      props.pointee.codec_type==AVMEDIA_TYPE_VIDEO {
+     codes.append(String(props.pointee.codec_id.rawValue))
+    }
+   }
+   onFailure(codes.isEmpty
+    ? "MKV容器已打开，但没有识别到视频轨道（轨道数\(streamCount)，流检查错误码\(inspectResult)）"
+    : "MKV已识别视频轨道，当前FFmpeg缺少该视频编码的解码器（codec ID \(codes.joined(separator:","))）")
    avformat_close_input(&opened);return nil
   }
-  // Tiny fixtures and short GOPs can retain their only picture until EOF;
-  // select a bounded worker count BEFORE opening the decoder.
+  let codecName=String(parameters.pointee.codec_id.rawValue)
+  guard let codec=avcodec_find_decoder(parameters.pointee.codec_id) else {
+   onFailure("FFmpeg缺少codec ID \(codecName)视频解码器")
+   avformat_close_input(&opened);return nil
+  }
+  guard let context=avcodec_alloc_context3(codec) else {
+   onFailure("FFmpeg视频解码器分配失败（可能是内存不足，codec ID \(codecName)）")
+   avformat_close_input(&opened);return nil
+  }
   guard avcodec_parameters_to_context(context,parameters)>=0 else {
+   onFailure("FFmpeg视频解码参数初始化失败（codec ID \(codecName)）")
    var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
    avformat_close_input(&opened);return nil
   }
-  // Full-resolution HEVC reference surfaces already consume substantial
-  // memory. Do not add frame-threading queues alongside the live player.
+  // UHD reference surfaces are large; avoid extra frame-threading queues.
   context.pointee.thread_count=1
   context.pointee.thread_type=FF_THREAD_SLICE
-  guard avcodec_open2(context,codec,nil)>=0,
-   let allocatedPacket=av_packet_alloc(),let allocatedFrame=av_frame_alloc() else {
+  let openedCode=avcodec_open2(context,codec,nil)
+  guard openedCode>=0 else {
+   onFailure("FFmpeg视频解码器启动失败（codec ID \(codecName)，错误码\(openedCode)）")
+   var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
+   avformat_close_input(&opened);return nil
+  }
+  guard let allocatedPacket=av_packet_alloc(),let allocatedFrame=av_frame_alloc() else {
+   onFailure("FFmpeg抽帧内存分配失败")
    var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
    avformat_close_input(&opened);return nil
   }
   let timebase=av_q2d(stream.pointee.time_base)
   guard timebase>0,timebase.isFinite else {
+   onFailure("MKV视频时间基无效（codec ID \(codecName)）")
    var p:UnsafeMutablePointer<AVPacket>?=allocatedPacket
    var f:UnsafeMutablePointer<AVFrame>?=allocatedFrame
    var d:UnsafeMutablePointer<AVCodecContext>?=context
