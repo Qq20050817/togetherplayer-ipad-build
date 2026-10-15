@@ -666,7 +666,7 @@ class MainActivity: Activity() {
   if(localFileUri.isBlank()){requestStatus.text="请先选择本机影片；云端片源不能在这里删除";return}
   cleanupRequestedSource=localFileUri
   android.app.AlertDialog.Builder(this).setTitle("看完清理").setMessage("选择当前影片所在文件夹，检查影片及关联字幕后再确认删除。只影响这台设备，不删除好友的文件。").setNegativeButton("取消"){_,_->cleanupRequestedSource=null}.setPositiveButton("选择影片所在文件夹"){_,_->
-   try {startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION),704)}
+   try {startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION).putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,android.net.Uri.parse(cleanupRequestedSource)),704)}
    catch(e:Exception){cleanupRequestedSource=null;requestStatus.text="无法打开文件夹选择器：${e.localizedMessage}"}
   }.show()
  }

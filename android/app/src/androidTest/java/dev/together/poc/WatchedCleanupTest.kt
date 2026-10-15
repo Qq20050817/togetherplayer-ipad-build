@@ -31,7 +31,8 @@ class WatchedCleanupTest {
    write("Film.mp4",i.context.assets.open("local-test.mp4").use{it.readBytes()})
    write("Film.zh-Hans.srt","1\n00:00:00,000 --> 00:00:03,000\n你好\n".toByteArray())
    val keep=write("Other.srt","keep".toByteArray())
-   val source=DocumentsContract.buildDocumentUri("com.android.externalstorage.documents","primary:Download/$folder/Film.mp4")
+   val tree=DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents","primary:Download/$folder")
+   val source=DocumentsContract.buildDocumentUriUsingTree(tree,"primary:Download/$folder/Film.mp4")
    ActivityScenario.launch(MainActivity::class.java).use {scenario->
     scenario.onActivity{a->
      a.javaClass.getDeclaredField("localFileUri").apply{isAccessible=true}.set(a,source.toString())
@@ -41,11 +42,14 @@ class WatchedCleanupTest {
     assertNotNull(device.wait(Until.findObject(By.text("选择影片所在文件夹")),5000))
     device.findObject(By.text("选择影片所在文件夹")).click()
     assertTrue(device.wait(Until.hasObject(By.pkg(java.util.regex.Pattern.compile("com[.](google[.]android|android)[.]documentsui"))),5000))
-    // Navigate through real system folder authorization, never grant broad storage access.
-    device.wait(Until.findObject(By.desc("Show roots")),4000)?.click()
-    device.wait(Until.findObject(By.text("Downloads")),4000)?.click()
-    val target=device.wait(Until.findObject(By.text(folder)),5000)
-    assertNotNull("Fixture directory must be selectable",target);target!!.click()
+    // The app uses the current source as the official initial-location hint.
+    // If DocumentsUI restores a root instead, navigate explicitly.
+    if(device.wait(Until.findObject(By.text(folder)),3000)==null) {
+     device.wait(Until.findObject(By.desc("Show roots")),4000)?.click()
+     device.wait(Until.findObject(By.text("Downloads")),4000)?.click()
+     val target=device.wait(Until.findObject(By.text(folder)),5000)
+     assertNotNull("Fixture directory must be selectable",target);target!!.click()
+    }
     val use=device.wait(Until.findObject(By.text(java.util.regex.Pattern.compile("use this folder",java.util.regex.Pattern.CASE_INSENSITIVE))),5000)
     assertNotNull("System must offer folder grant",use);use!!.click()
     device.wait(Until.findObject(By.text(java.util.regex.Pattern.compile("allow",java.util.regex.Pattern.CASE_INSENSITIVE))),3000)?.click()
