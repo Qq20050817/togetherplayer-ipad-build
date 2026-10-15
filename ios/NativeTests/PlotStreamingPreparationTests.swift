@@ -64,6 +64,37 @@ import CoreVideo
   XCTAssertEqual(model.preparedQuestionCount,1,"a cloud-only request must not cancel zero-cost local preparation: \(model.fullFilmPreparationStatus)")
   XCTAssertEqual(model.requests,0,"no cloud authorization is configured in this regression")
  }
+ func testRestoredDiskStoryStillPreparesCurrentQuestionWithoutRepeatingSummary() async throws {
+  let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  defer {try? FileManager.default.removeItem(at:root)}
+  let past=evidence(),ready=question(evidence()),key="disk-"+UUID().uuidString
+  func make()->PlotIntelligence {
+   let model=PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:UserDefaults(suiteName:UUID().uuidString)!,storyArchive:PlotStoryArchive(directory:root))
+   model.frame={PlotFrame(key:key,position:130,evidence:past)}
+   model.storyModelAvailable={true};model.storyQuestionInference={_ in ready}
+   return model
+  }
+  let first=make()
+  first.storyInference={_,_ in
+   let object:[String:Any]=["summary":"警方正在调查钥匙来源，证词仍有疑点","evidenceIDs":[past[0].id],"confidence":0.7]
+   return String(data:try JSONSerialization.data(withJSONObject:object),encoding:.utf8)!
+  }
+  await first.collect();await first.waitForStoryPreparation()
+  XCTAssertEqual(first.preparedQuestionCount,1,first.fullFilmPreparationStatus)
+  let files=try FileManager.default.contentsOfDirectory(at:root,includingPropertiesForKeys:nil)
+  XCTAssertEqual(files.count,1)
+  let nodes=try JSONDecoder().decode([PlotStoryNode].self,from:Data(contentsOf:try XCTUnwrap(files.first)))
+  XCTAssertEqual(nodes.count,1)
+  XCTAssertTrue(nodes.allSatisfy{$0.end<=130 && Set($0.evidenceIDs).isSubset(of:Set(past.map(\.id)))})
+  let reopened=make();var summaryCalls=0,questionCalls=0
+  reopened.storyInference={_,_ in summaryCalls+=1;return "{}"}
+  reopened.storyQuestionInference={_ in questionCalls+=1;return ready}
+  await reopened.collect();await reopened.waitForStoryPreparation()
+  XCTAssertEqual(summaryCalls,0,"the verified disk summary should be reused")
+  XCTAssertEqual(questionCalls,1,"restoring all story windows must not skip current-question preparation")
+  XCTAssertEqual(reopened.preparedQuestionCount,1,reopened.fullFilmPreparationStatus)
+  XCTAssertEqual(reopened.requests,0)
+ }
  func testFullDocumentCannotBypassWatchedEvidenceGate() async throws {
   let model=controller(),past=evidence()
   model.frame={PlotFrame(key:"watched-only-"+past[0].id,position:130,evidence:past)}
