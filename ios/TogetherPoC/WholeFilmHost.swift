@@ -111,7 +111,14 @@ enum WholeFilmPlan {
  }
  func readLocalMovie(_ url:URL,film:String,title:String?,language:String?=nil,streamIndex:Int?=nil,allowOCR:Bool) {
   if filmKey != film {reset(film:film)}
-  let identity=url.absoluteString+":"+(title ?? "auto")+":"+String(allowOCR)+":"+(language ?? "")+":"+String(streamIndex ?? -1)
+  let identityParts: [String] = [
+   url.absoluteString,
+   title ?? "auto",
+   String(allowOCR),
+   language ?? "",
+   String(streamIndex ?? -1)
+  ]
+  let identity = identityParts.joined(separator: ":")
   guard readerKey != identity else{return}
   reader?.cancel();readerKey=identity;embeddedUnavailable=false;readerGeneration+=1;let readingToken=readerGeneration
   readingActive=true;reading(0)
