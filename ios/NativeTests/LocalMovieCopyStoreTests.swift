@@ -10,8 +10,8 @@ final class LocalMovieCopyStoreTests: XCTestCase {
  }
  func testTemporaryPickerCopyBecomesDurableAndKeepsMovieName() throws {
   let root=try sandbox();defer{try? FileManager.default.removeItem(at:root)}
-  let staging=root.appendingPathComponent("tmp",isDirectory:true)
   let documents=root.appendingPathComponent("Documents",isDirectory:true)
+  let staging=documents.appendingPathComponent("Inbox",isDirectory:true)
   try FileManager.default.createDirectory(at:staging,withIntermediateDirectories:true)
   let picked=staging.appendingPathComponent("电影 UHD.mkv")
   let payload=Data(repeating:0x72,count:1024)
