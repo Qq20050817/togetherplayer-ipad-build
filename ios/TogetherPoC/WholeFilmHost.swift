@@ -94,6 +94,7 @@ enum WholeFilmPlan {
  private var inferenceDeadline:Task<Void,Never>?
  private var externalFallback:SubtitleDocument?
  private var embeddedUnavailable=false
+ private var manuallyProvidedFullSubtitle=false
  var onEmbeddedTranscript:((SubtitleDocument)->Void)?
  private var token=0
  private let archive:WholeFilmArchive
@@ -101,7 +102,7 @@ enum WholeFilmPlan {
  var available:()->Bool={PlotLocalAI.available}
  init(archive:WholeFilmArchive=WholeFilmArchive()){self.archive=archive}
  func ready(for key:String)->Bool {filmKey==key && map != nil && completed==total && total>0}
- func reset(film:String="") {readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;reader?.cancel();reader=nil;readerKey="";embeddedUnavailable=false;externalFallback=nil;token+=1;task?.cancel();task=nil;map=nil;sections=[];chunks=[];transcriptKey="";sourceRank=0;filmKey=film;busy=false;readingActive=false;completed=0;total=0;status="等待完整内置字幕；读取完成后分析整片"}
+ func reset(film:String="") {readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;reader?.cancel();reader=nil;readerKey="";embeddedUnavailable=false;manuallyProvidedFullSubtitle=false;externalFallback=nil;token+=1;task?.cancel();task=nil;map=nil;sections=[];chunks=[];transcriptKey="";sourceRank=0;filmKey=film;busy=false;readingActive=false;completed=0;total=0;status="等待完整内置字幕；读取完成后分析整片"}
  func reading(_ progress:Double){guard map==nil,!busy else{return};status="正在读取全片内置字幕：\(Int(max(0,min(1,progress))*100))%（尚未完成分析）"}
  func unavailable(_ text:String){guard map==nil,!busy else{return};status=text}
  func supplyExternal(_ document:SubtitleDocument,film:String) {
@@ -109,8 +110,27 @@ enum WholeFilmPlan {
   externalFallback=document
   if embeddedUnavailable {accept(document,film:film,source:"external-subtitle",embedded:false)}
  }
+ /// An explicitly imported subtitle is AI-only; do not modify playback selection
+ /// or resume an inaccessible movie demuxer after the user chooses this source.
+ func useExternalForAI(_ document:SubtitleDocument,film:String) {
+  if filmKey != film {reset(film:film)}
+  readerGeneration += 1
+  reader?.cancel();reader=nil;readerKey=""
+  readingActive=false;embeddedUnavailable=true
+  manuallyProvidedFullSubtitle=true;externalFallback=document
+  accept(document,film:film,source:"external-subtitle",embedded:false)
+ }
  func readLocalMovie(_ url:URL,film:String,title:String?,language:String?=nil,streamIndex:Int?=nil,allowOCR:Bool) {
   if filmKey != film {reset(film:film)}
+  if manuallyProvidedFullSubtitle {return}
+  guard url.isFileURL else {
+   readerGeneration += 1
+   reader?.cancel();reader=nil;readerKey="";readingActive=false
+   embeddedUnavailable=true
+   if let fallback=externalFallback {accept(fallback,film:film,source:"external-subtitle",embedded:false)}
+   else {unavailable("当前是在线播放地址，无法直接扫描整部影片的内置字幕。请导入完整 SRT/ASS（仅供 AI），或选择本机已下载的原始影片。")}
+   return
+  }
   let identityParts: [String] = [
    url.absoluteString,
    title ?? "auto",
