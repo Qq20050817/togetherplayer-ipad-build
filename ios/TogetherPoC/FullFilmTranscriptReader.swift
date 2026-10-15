@@ -100,8 +100,14 @@ enum FullFilmTranscriptReader {
    var lines:[String]=[]
    for i in 0..<min(Int(subtitle.num_rects),32) {
     guard let pointer=subtitle.rects[i] else{continue};let rect=pointer.pointee
-    if rect.type==SUBTITLE_BITMAP,bitmap {
-     if let text=recognize(rect,language:track.language) {lines.append(text)}
+   if rect.type==SUBTITLE_BITMAP,bitmap {
+    bitmapRects+=1
+    if bitmapRects<=3 {
+     #if DEBUG
+     print("FullFilmTranscriptReader: rect w=\(rect.w) h=\(rect.h) stride=\(rect.linesize.0) colors=\(rect.nb_colors) data=\(rect.data.0 != nil && rect.data.1 != nil)")
+     #endif
+    }
+    if let text=recognize(rect,language:track.language) {ocrMatches+=1;lines.append(text)}
     } else if let text=rect.text {lines.append(String(cString:text))}
     else if let ass=rect.ass {lines.append(cleanASS(String(cString:ass)))}
    }
@@ -118,7 +124,12 @@ enum FullFilmTranscriptReader {
   #if DEBUG
   if bitmap {print("FullFilmTranscriptReader: PGS decoded OCR cues=\(cues.count), bytes=\(bytes), packets=\(packets)")}
   #endif
-  guard let document=NativeSubtitleIndexReader.merge(cues),document.cues.count>=3 else{print("FullFilmTranscriptReader: insufficient cues=\\(cues.count) bitmapRects=\\(bitmapRects) ocrMatches=\\(ocrMatches) packets=\\(packets)");throw Failure.decode}
+  guard let document=NativeSubtitleIndexReader.merge(cues),document.cues.count>=3 else{
+   #if DEBUG
+   print("FullFilmTranscriptReader: insufficient cues=\(cues.count) bitmapRects=\(bitmapRects) ocrMatches=\(ocrMatches) packets=\(packets)")
+   #endif
+   throw Failure.decode
+  }
   progress(1)
   return Output(document:document,track:track.index,label:track.title.isEmpty ? track.language : track.title,duration:duration,ocr:bitmap)
  }
