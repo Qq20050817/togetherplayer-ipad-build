@@ -10,11 +10,13 @@ import Libavutil
 enum FullFilmTranscriptReader {
  struct Output {let document:SubtitleDocument;let track:Int;let label:String;let duration:Double;let ocr:Bool}
  enum Failure:LocalizedError {
-  case localOnly,noTrack,open,decode,incomplete,tooLarge
+  case localOnly,noTrack,open,coordinate,inspect,decode,incomplete,tooLarge
   var errorDescription:String? {switch self {
    case .localOnly:return "完整内置字幕读取目前需要本机文件；可导入完整 SRT/ASS 字幕。"
    case .noTrack:return "影片没有可读取的内置字幕，可使用完整外置字幕。"
-   case .open:return "无法打开原始影片读取字幕。可在“文件”App重新选择已下载的原片，或导入完整 SRT/ASS 字幕供 AI 分析。"
+   case .open:return "已找到本机原片，但无法打开视频容器。请从“文件”App重新选择已下载完成的原片。"
+   case .coordinate:return "“文件”App 暂未授权读取原片，请重新选择已完整下载的本地影片。"
+   case .inspect:return "原片可打开，但字幕轨道信息读取失败。请重新选择原片再试。"
    case .decode:return "这个内置字幕轨道无法解码，可导入完整 SRT/ASS 字幕。"
    case .incomplete:return "字幕扫描未到文件结尾，不能标记全片读取完成。"
    case .tooLarge:return "字幕超出安全大小限制，未标记为全片完成。"
@@ -29,11 +31,30 @@ enum FullFilmTranscriptReader {
  }
  static func extract(_ url:URL,preferredTitle:String?,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,allowOCR:Bool,progress:(Double)->Void)throws->Output {
   guard url.isFileURL else{throw Failure.localOnly}
-  let scope=url.startAccessingSecurityScopedResource();defer{if scope {url.stopAccessingSecurityScopedResource()}}
+  // File Provider URLs can play through AVPlayer before their raw paths are
+  // ready for FFmpeg. The coordinator grants access without copying the movie.
+  let scope=url.startAccessingSecurityScopedResource()
+  defer {if scope {url.stopAccessingSecurityScopedResource()}}
+  let coordinator=NSFileCoordinator(filePresenter:nil)
+  var coordinationError:NSError?
+  var result:Result<Output,Error>?
+  coordinator.coordinate(readingItemAt:url,options:.withoutChanges,error:&coordinationError) { accessibleURL in
+   result=Result {
+    try extractAccessibleMovie(accessibleURL,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:progress)
+   }
+  }
+  guard coordinationError==nil,let result else{throw Failure.coordinate}
+  return try result.get()
+ }
+ private static func extractAccessibleMovie(_ url:URL,preferredTitle:String?,preferredLanguage:String?,preferredStreamIndex:Int?,allowOCR:Bool,progress:(Double)->Void)throws->Output {
+  try Task.checkCancellation()
   var allocated:UnsafeMutablePointer<AVFormatContext>?
   guard avformat_open_input(&allocated,url.path,nil,nil)>=0,let format=allocated else{throw Failure.open}
   defer{avformat_close_input(&allocated)}
-  guard avformat_find_stream_info(format,nil)>=0 else{throw Failure.open}
+  let infoResult=avformat_find_stream_info(format,nil)
+  // Unsupported video/audio decoders need not prevent a valid subtitle stream
+  // from being enumerated from the local movie's container metadata.
+  guard infoResult>=0 || format.pointee.nb_streams>0 else{throw Failure.inspect}
   let supported:[AVCodecID]=[AV_CODEC_ID_SUBRIP,AV_CODEC_ID_ASS,AV_CODEC_ID_SSA,AV_CODEC_ID_WEBVTT,AV_CODEC_ID_MOV_TEXT,AV_CODEC_ID_TEXT,AV_CODEC_ID_HDMV_PGS_SUBTITLE]
   var tracks:[Track]=[]
   for i in 0..<Int(format.pointee.nb_streams) {
