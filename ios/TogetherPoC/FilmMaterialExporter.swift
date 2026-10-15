@@ -438,6 +438,13 @@ struct FilmFrameRecord:Codable {
   }
  }
  func selectMovie(_ url:URL?) {if source != url {cancel();source=url;file=nil;individualFiles=[];previewSubtitle="";status="点击提取后，仅在本机扫描完整字幕和画面"}}
+ func invalidateSubtitleSelection() {
+  guard !working else{return}
+  generation+=1;worker?.cancel();worker=nil
+  file=nil;individualFiles=[];previewSubtitle="";progress=0
+  defaults.removeObject(forKey:Self.checkpointKey)
+  status="字幕来源已更新，请重新导出 AI 素材（原有文件未删除）"
+ }
  func cancel() {generation+=1;worker?.cancel();worker=nil;working=false;defaults.removeObject(forKey:Self.checkpointKey);status="已取消提取，未上传原片"}
  func stopForMemoryPressure() {
   guard working else{return}
