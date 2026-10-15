@@ -8,7 +8,7 @@ import CoreVideo
   (0..<6).map {i in PlotEvidence.cue(start:Double(i)*20+5,end:Double(i)*20+8,text:"警方正在调查蓝色钥匙的来源，证词还有矛盾 \(i)",source:"embedded-subtitle")}
  }
  private func controller()->PlotIntelligence {
-  PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:UserDefaults(suiteName:UUID().uuidString)!)
+  PlotIntelligence(memory:PlotMemoryStore(directory:nil),preferences:UserDefaults(suiteName:UUID().uuidString)!,storyArchive:PlotStoryArchive(directory:nil))
  }
  private func question(_ cues:[PlotEvidence])->PlotQuestion {
   PlotQuestion(text:"警方找到的蓝色钥匙为什么与证词矛盾？",choices:["证人隐瞒来源","有人交换钥匙","还需核实时间"],source:"Apple 设备端 AI",evidenceIDs:[cues.last!.id],kind:"contradiction")
@@ -27,10 +27,10 @@ import CoreVideo
    return String(data:try JSONSerialization.data(withJSONObject:object),encoding:.utf8)!
   }
   await model.collect()
-  for _ in 0..<100 {if model.fullFilmPreparationStatus.contains("已整理"){break};try await Task.sleep(nanoseconds:10_000_000)}
-  XCTAssertEqual(inputs.count,1,"live watched cues must reach the model without an entire-movie HLS scan")
+  await model.waitForStoryPreparation()
+  XCTAssertEqual(inputs.count,1,"live watched cues must reach the model without an entire-movie HLS scan: \(model.fullFilmPreparationStatus)")
   XCTAssertFalse(try XCTUnwrap(inputs.first).contains("未来结局"))
-  XCTAssertTrue(model.fullFilmPreparationStatus.contains("已整理1段"))
+  XCTAssertTrue(model.fullFilmPreparationStatus.contains("已整理1段"),model.fullFilmPreparationStatus)
   await model.collect()
   XCTAssertEqual(inputs.count,1,"ordinary 20-second collection must not repeat background inference")
  }
@@ -43,7 +43,7 @@ import CoreVideo
   let ready=question(past)
   model.storyQuestionInference={context in questionInputs.append(context);return ready}
   await model.collect()
-  for _ in 0..<100 {if model.preparedQuestionCount>0 {break};try await Task.sleep(nanoseconds:10_000_000)}
+  await model.waitForStoryPreparation()
   XCTAssertEqual(model.preparedQuestionCount,1)
   XCTAssertEqual(questionInputs.count,1)
   XCTAssertTrue(questionInputs.allSatisfy{$0.cutoff<=130 && $0.recent.allSatisfy{$0.end<=130}})
@@ -60,8 +60,8 @@ import CoreVideo
   model.storyQuestionInference={_ in ready}
   await model.collect()
   model.generate()
-  for _ in 0..<100 {if model.preparedQuestionCount>0 {break};try await Task.sleep(nanoseconds:10_000_000)}
-  XCTAssertEqual(model.preparedQuestionCount,1,"a cloud-only request must not cancel zero-cost local preparation")
+  await model.waitForStoryPreparation()
+  XCTAssertEqual(model.preparedQuestionCount,1,"a cloud-only request must not cancel zero-cost local preparation: \(model.fullFilmPreparationStatus)")
   XCTAssertEqual(model.requests,0,"no cloud authorization is configured in this regression")
  }
  func testFullDocumentCannotBypassWatchedEvidenceGate() async throws {
@@ -73,7 +73,7 @@ import CoreVideo
   model.storyInference={_,input in inputs.append(input);return "{}"}
   let doc=SubtitleDocument(past.map{SubtitleCue(start:$0.start,end:$0.end,text:$0.text)}+[SubtitleCue(start:200,end:205,text:"尚未观看的反转结局")])
   model.prepareFullFilm(doc,source:"embedded-subtitle",key:"watched-only-"+past[0].id,checkpoints:[])
-  for _ in 0..<100 {if !inputs.isEmpty {break};try await Task.sleep(nanoseconds:10_000_000)}
+  await model.waitForStoryPreparation()
   XCTAssertEqual(inputs.count,1)
   XCTAssertFalse(try XCTUnwrap(inputs.first).contains("尚未观看的反转"))
  }

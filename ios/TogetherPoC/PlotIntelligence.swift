@@ -72,7 +72,7 @@ struct PlotFrame {
  var automaticQuestionNow:()->Date={Date()}
  private var pendingAutomatic:(question:PlotQuestion,snapshot:PlotFrame,context:PlotContext,captionSequence:Int?,token:Int,created:Date)?
  private var storyNodes:[PlotStoryNode]=[]
- private let storyArchive=PlotStoryArchive()
+ private let storyArchive:PlotStoryArchive
  var mayPublishAutomatically:(()->Bool)?
  var automaticAvailabilityReason:(()->String?)?
  var publishAutomatically:((PlotQuestion)->Void)?
@@ -182,6 +182,11 @@ struct PlotFrame {
    self.fullFilmPreparationStatus="后台剧情整理超时；已播放字幕仍可用于实时出题"
   }
  }
+ #if DEBUG
+ // Tests wait on the actual scheduled task rather than assuming background
+ // actor I/O and inference must complete within a one-second polling window.
+ func waitForStoryPreparation() async {await fullFilmTask?.value}
+ #endif
  private func cancelStoryPreparation() {
   if fullFilmTask != nil {
    lastStoryPreparationPosition = -.infinity
@@ -190,8 +195,8 @@ struct PlotFrame {
   storyGeneration+=1;fullFilmTask?.cancel();fullFilmTask=nil
   storyDeadline?.cancel();storyDeadline=nil
  }
- init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard) {
-  self.memory=memory;self.preferences=preferences
+ init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard,storyArchive:PlotStoryArchive=PlotStoryArchive()) {
+  self.memory=memory;self.preferences=preferences;self.storyArchive=storyArchive
   mode=PlotMode(rawValue:preferences.string(forKey:"plot-mode") ?? "") ?? .smart
   pauseForQuestions=preferences.object(forKey:"plot-pause-for-questions") as? Bool ?? true
   eventDrivenEnabled=preferences.object(forKey:"plot-event-driven") as? Bool ?? true
