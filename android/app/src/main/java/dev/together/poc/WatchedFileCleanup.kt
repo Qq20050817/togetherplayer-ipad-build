@@ -45,7 +45,7 @@ class WatchedFileCleanup(private val resolver:ContentResolver) {
     if(++count>2000)throw IOException("文件过多，请选择具体的影片文件夹")
     if(c.getString(2)==DocumentsContract.Document.MIME_TYPE_DIR)continue
     val id=c.getString(0);val name=c.getString(1)
-    val explicit=importedSubtitle?.authority==tree.authority && documentId(importedSubtitle)==id
+    val explicit=importedSubtitle != null && importedSubtitle.authority==tree.authority && documentId(importedSubtitle)==id
     if(name!=original.name && !CleanupNamePolicy.associatedSubtitle(name,original.name) && !explicit)continue
     val uri=DocumentsContract.buildDocumentUriUsingTree(tree,id)
     val stamp=read(uri)
