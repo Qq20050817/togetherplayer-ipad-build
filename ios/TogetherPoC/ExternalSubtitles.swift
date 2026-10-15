@@ -291,6 +291,14 @@ import CoreFoundation
    return false
   }
  }
+ // Prefer real, timed AVPlayer subtitle cues. An incomplete HLS index may
+ // return an empty (non-nil) String at a valid live cue's timestamp.
+ // AI-only OCR must never become the displayed subtitle track.
+ static func nativeDisplayText(live:String,indexed:String?,indexAIOnly:Bool)->String {
+  if !live.isEmpty {return live}
+  if indexAIOnly {return ""}
+  return indexed ?? ""
+ }
  private func refresh() {
   let actual=player.currentTime().seconds
   if actual.isFinite,actual>=0 {
@@ -323,7 +331,7 @@ import CoreFoundation
   let time=player.currentTime().seconds-delay
   let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
-   (nativeEnabled ? (nativeIndexAIOnly ? live : (nativeIndexedDocument?.text(at:time) ?? live)) : "")
+   (nativeEnabled ? Self.nativeDisplayText(live:live,indexed:nativeIndexedDocument?.text(at:time),indexAIOnly:nativeIndexAIOnly) : "")
   // When a genuine PGS composition is visible, never draw OCR/WebVTT on top.
   // Missing original frame falls back to the selected native track rather than
   // dropping captions during partial extraction or at a later movie position.
