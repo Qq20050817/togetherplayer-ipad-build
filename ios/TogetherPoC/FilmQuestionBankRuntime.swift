@@ -7,6 +7,7 @@ import Combine
  @Published private(set) var active:FilmQuestionBank?
  @Published private(set) var status="当前影片未导入题库"
  @Published private(set) var revealedAnswer=""
+ var onBankReady:(()->Void)?
  private let store=FilmQuestionBankStore()
  private var key=""
  private var sourceURL:URL?
@@ -49,7 +50,7 @@ import Combine
    if durationMs>0 && !FilmBankCodec.matches(bank,playbackDuration:durationMs) {
     active=nil;status="题库与影片时长不匹配，已禁用自动出题";return
    }
-   active=bank;status="已自动读取 \(bank.questions.count) 道题；播放时无需调用 AI"
+   active=bank;onBankReady?();status="已自动读取 \(bank.questions.count) 道题；播放时无需调用 AI"
   }
  }
 
@@ -81,7 +82,7 @@ import Combine
    }
    try await store.save(bank,filmKey:filmKey)
    generation+=1;restoring?.cancel()
-   active=bank;published=[];revealed=[];lastPositionMs=nil;revealedAnswer=""
+   active=bank;onBankReady?();published=[];revealed=[];lastPositionMs=nil;revealedAnswer=""
    status="题库已保存：\(bank.questions.count) 道题。播放到节点时自动提问。"
   } catch {status="导入失败："+error.localizedDescription}
  }
