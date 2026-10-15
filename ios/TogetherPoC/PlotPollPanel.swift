@@ -127,6 +127,9 @@ import UniformTypeIdentifiers
     .accessibilityIdentifier("plot-export-film-materials")
    Text(model.playbackTitle.isEmpty ? "未选择电影" : model.playbackTitle).font(.caption).lineLimit(2)
    if materials.working {ProgressView(value:materials.progress).accessibilityIdentifier("plot-film-export-progress");Button("取消提取",role:.cancel){materials.cancel()}.accessibilityIdentifier("plot-cancel-film-materials")}
+   Button("补充完整外置字幕（仅制作素材）") {aiOnlySubtitlePickerOpen=true}
+    .buttonStyle(.bordered).disabled(materials.working || model.bankMovieURL == nil).accessibilityIdentifier("plot-import-material-subtitle")
+   if !model.aiOnlySubtitleImportStatus.isEmpty {Text(model.aiOnlySubtitleImportStatus).font(.caption2).foregroundStyle(.secondary)}
    Text(materials.status).font(.caption).foregroundStyle(.secondary)
     .accessibilityIdentifier("plot-film-export-status")
    if let zip=materials.file {

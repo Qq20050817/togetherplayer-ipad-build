@@ -1,6 +1,7 @@
 import XCTest
 import CryptoKit
 import CoreGraphics
+import AVFoundation
 @testable import TogetherPoC
 
 @MainActor final class FilmBankV2Tests:XCTestCase {
@@ -197,6 +198,26 @@ import CoreGraphics
   try await store.saveForSource(sample(FilmMaterialFingerprint.source(movie)),candidate:candidate)
   runtime.restore(filmKey:"f",source:other,durationMs:120_000);await runtime.waitForRestore()
   XCTAssertEqual(fullReads,1);XCTAssertNil(runtime.active);XCTAssertTrue(runtime.status.contains("不匹配"))
+ }
+
+ func testMaterialOnlySubtitleImportDoesNotAnalyzeOrChangePlaybackSubtitles() async throws {
+  let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-material",withExtension:"mp4"))
+  let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}
+  let subtitle=directory.appendingPathComponent("material-only.srt")
+  try Data("1\n00:00:01,000 --> 00:00:03,000\nMaterial evidence only\n\n2\n00:00:20,000 --> 00:00:23,000\nSecond clue\n".utf8).write(to:subtitle)
+  let model=TestClient(automaticallyConnect:false)
+  model.installCleanupTestSource(movie)
+  model.adapter.player.replaceCurrentItem(with:AVPlayerItem(url:movie))
+  let previousEnabled=model.externalSubtitles.enabled
+  var inferenceCalls=0
+  model.plotIntelligence.wholeFilm.available={true}
+  model.plotIntelligence.wholeFilm.inference={_,_ in inferenceCalls+=1;return "{}"}
+  await model.importFullFilmSubtitleForAI(subtitle)
+  await model.plotIntelligence.wholeFilm.waitForAnalysis()
+  XCTAssertEqual(model.bankSubtitle?.cues.count,2)
+  XCTAssertEqual(inferenceCalls,0,"Importing materials must not start old cloud/local film analysis")
+  XCTAssertEqual(model.externalSubtitles.enabled,previousEnabled)
+  XCTAssertTrue(model.aiOnlySubtitleImportStatus.contains("不自动调用"))
  }
 
 }

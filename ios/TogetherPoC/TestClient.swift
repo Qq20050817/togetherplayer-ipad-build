@@ -629,8 +629,8 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     return
    }
    aiOnlySubtitle=(film:key,document:document)
-   aiOnlySubtitleImportStatus="已导入 \(document.cues.count) 条完整字幕，仅供 AI；播放字幕保持不变。"
-   plotIntelligence.wholeFilm.useExternalForAI(document,film:key)
+   aiOnlySubtitleImportStatus="已导入 \(document.cues.count) 条完整字幕，仅供素材；播放字幕保持不变，不自动调用 AI。"
+   // V2 import is data-only. Legacy analysis requires its explicit Continue action.
   } catch {
    aiOnlySubtitleImportStatus=(error as? SubtitleParseError)==(.size) ? "字幕超过 5MB，请换用较小的完整字幕文件。" : "完整字幕读取失败；请确认文件格式、编码及文件访问权限。"
   }

@@ -73,6 +73,7 @@ final class WatchInterfaceTests: XCTestCase {
   let export=app.buttons["plot-export-film-materials"].firstMatch
   XCTAssertTrue(export.waitForExistence(timeout:8));XCTAssertTrue(export.isHittable)
   let importer=app.buttons["plot-import-question-bank"].firstMatch
+  revealPlotControl("plot-import-question-bank",app)
   XCTAssertTrue(importer.isHittable);XCTAssertTrue(importer.isEnabled)
   let canvas=app.otherElements["fullscreen-movie"].firstMatch
   XCTAssertTrue(canvas.exists);XCTAssertGreaterThan(canvas.frame.width,app.frame.width*0.5)
