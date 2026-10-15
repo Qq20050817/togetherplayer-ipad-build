@@ -7,11 +7,12 @@ adb('shell','run-as',old,'mkdir','-p','files')
 adb('shell','run-as',old,'touch','files/parallel-data-preserved')
 old_dump=adb('shell','dumpsys','package',old)
 assert 'versionCode=67 ' in old_dump
-old_uid=re.search(r'userId=(\d+)',old_dump).group(1)
+old_uid=adb('shell','run-as',old,'id','-u')
 print(adb('install','-r','parallel-universal.apk'))
 new_dump=adb('shell','dumpsys','package',preview)
 assert 'versionCode=68 ' in new_dump
-new_uid=re.search(r'userId=(\d+)',new_dump).group(1)
+new_uid=adb('shell','run-as',preview,'id','-u')
+assert old_uid.isdigit() and new_uid.isdigit()
 assert new_uid!=old_uid
 started=adb('shell','am','start','-W','-n',preview+'/dev.together.poc.MainActivity')
 assert 'Status: ok' in started,started
@@ -22,7 +23,7 @@ for attempt in range(12):
  time.sleep(1)
 else:raise AssertionError('Preview activity did not render real watch interface')
 adb('shell','run-as',old,'cat','files/parallel-data-preserved')
-assert re.search(r'userId=(\d+)',adb('shell','dumpsys','package',old)).group(1)==old_uid
+assert adb('shell','run-as',old,'id','-u')==old_uid
 assert 'versionCode=67 ' in adb('shell','dumpsys','package',old)
 pathlib.Path('delivery').mkdir(exist_ok=True)
 pathlib.Path('delivery/INSTALL-PARALLEL.txt').write_text('Actual emulator installation verified: original 0.6.7 and preview 0.6.8 coexist under separate UIDs; original private data marker preserved; preview launches and renders watch interface.\nPreview app ID: '+preview+'\nPreview label: TogetherPlayer预览\nJoin the room again in preview. The original app and its data are retained.\n')
