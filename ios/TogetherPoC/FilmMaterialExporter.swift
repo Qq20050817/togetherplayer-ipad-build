@@ -7,10 +7,12 @@ import CryptoKit
 // automatically transmitted to a server or to an AI provider.
 enum FilmMaterialExportFailure:LocalizedError {
  case localFileRequired,missingSubtitles,framesUnavailable,missingDuration,tooManyFiles,sourceChanged,busy
+ case frameExtractionDiagnostic(String)
  var errorDescription:String? {switch self {
   case .localFileRequired:return "请先在 iPad“文件”中选择可读取的本地原片；网盘在线播放链接不支持直接导出原始画面。"
   case .missingSubtitles:return "未读取到完整字幕。可以先导入 SRT/ASS 字幕，再导出素材。"
   case .framesUnavailable:return "原片可读取字幕，但独立抽帧失败，未导出只有字幕的假完整素材。请使用可本地解码的影片文件。"
+  case .frameExtractionDiagnostic(let detail):return "原片字幕已读取，但电影画面提取未达标（"+detail+"）。不会导出缺少画面的假完整素材；原片未改变。请将此诊断文字反馈以继续排查。"
   case .missingDuration:return "无法确定影片时长，请确认原片完整。"
   case .sourceChanged:return "提取期间原片发生变化，本次素材已取消，请重新提取。"
   case .tooManyFiles:return "素材包超过安全容量，已取消导出。"
@@ -282,11 +284,29 @@ enum FilmMaterialExporter {
   let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
   var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url) : nil
   var attempted:[Double]=[],previousSignature:[Double]?,previousRequested:Double?
+  var lastFrameError:String?
+  var nativeFrameProbeTried=false,nativeFrameProbeWorks=false
   func decode(_ time:Double)->(Double,CGImage)? {
    attempted.append(time)
    guard !Task.isCancelled else{return nil}
    var image:CGImage?,actualTime=time
-   if directFFmpeg {image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1}
+   if directFFmpeg {
+    image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
+    if image==nil {
+     lastFrameError=ffmpeg?.lastFailure ?? "FFmpeg 无法打开 MKV 视频轨道"
+     // Some local HEVC tracks can be decoded natively, even when the
+     // container is not universally supported by AVFoundation. Probe once
+     // to avoid 250 failed image-generator calls on unsupported MKVs.
+     if !nativeFrameProbeTried || nativeFrameProbeWorks {
+      nativeFrameProbeTried=true
+      var nativeActual=CMTime.invalid
+      let nativeImage=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&nativeActual)
+      if let nativeImage,nativeActual.seconds.isFinite,nativeActual.seconds>=0 {
+       image=nativeImage;actualTime=nativeActual.seconds;nativeFrameProbeWorks=true
+      } else {nativeFrameProbeWorks=false}
+     }
+    }
+   }
    else {
     var actual=CMTime.invalid
     image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
@@ -339,7 +359,9 @@ enum FilmMaterialExporter {
   pending.removeAll();ffmpeg=nil;generator.cancelAllCGImageGeneration()
   // We cannot claim to have understood the film's images if sampling failed.
   guard frameTimes.count>=min(4,times.count),
-   Double(frameTimes.count)>=Double(attempted.count)*0.80 else{throw FilmMaterialExportFailure.framesUnavailable}
+   Double(frameTimes.count)>=Double(attempted.count)*0.80 else{
+    throw FilmMaterialExportFailure.frameExtractionDiagnostic("实际画面\(frameTimes.count)/\(attempted.count)；"+(lastFrameError ?? "视频轨道无法解码"))
+   }
   stage(.archive)
   let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; interval, dialogue-gap and sampled-histogram visual-change followups; incomplete motion evidence",requestedFrameCount:attempted.count,missingFrameTimesMs:attempted.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
