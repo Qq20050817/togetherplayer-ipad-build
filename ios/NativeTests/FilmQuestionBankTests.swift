@@ -55,6 +55,7 @@ final class FilmQuestionBankTests:XCTestCase {
   try await store.save(bank,filmKey:"same-movie")
   let loaded=await store.load(filmKey:"same-movie")
   XCTAssertEqual(bank,loaded)
-  XCTAssertNil(await store.load(filmKey:"different-movie"))
+  let missing=await store.load(filmKey:"different-movie")
+  XCTAssertNil(missing)
  }
 }
