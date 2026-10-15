@@ -1,7 +1,7 @@
-name: Verify UHD HEVC MKV film-material extraction
+name: Verify MKV video open and UHD film-material extraction
 on:
   push:
-    branches: [fix/ipad-uhd-mkv-material-frames-20261016]
+    branches: [fix/ipad-uhd-mkv-video-open-20261016]
   workflow_dispatch:
 permissions:
   contents: read
@@ -68,13 +68,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p plot-delivery
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.35-Film-Materials-Bank-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.36-Film-Materials-Bank-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           cd plot-delivery
-          shasum -a 256 TogetherPlayer-0.6.35-Film-Materials-Bank-unsigned.ipa > SHA256SUMS.txt
+          shasum -a 256 TogetherPlayer-0.6.36-Film-Materials-Bank-unsigned.ipa > SHA256SUMS.txt
           printf 'Source branch: %s\nSource SHA: %s\nStatus: compiled and tested on iOS Simulator. Physical device and original MKV test remain required.\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-0.6.35-offline-bank
+          name: TogetherPlayer-0.6.36-offline-bank
           path: plot-delivery/
           retention-days: 7
       - name: Export native test result summaries
@@ -107,21 +107,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-0.6.35-offline-bank --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-0.6.36-offline-bank --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           (cd verified && sha256sum -c SHA256SUMS.txt)
           latest=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
           test "$latest" = "$GITHUB_SHA" || { echo "Superseded release; refusing stale IPA"; exit 1; }
-          tag='v0.6.35-ipad-film-materials-bank-20261016'
+          tag='v0.6.36-ipad-film-materials-bank-20261016'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release exists; refusing to overwrite tested IPA';exit 1
           fi
-          gh release create "$tag" verified/TogetherPlayer-0.6.35-Film-Materials-Bank-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.35 - Film materials + offline question banks" \
-            --prerelease --notes "0.6.35 4K HEVC Main10 MKV compatibility preview: bounded FFmpeg cue seek alternatives, true nearby frame timestamps, one-time native decode fallback and visible per-frame errors. Keeps 0.6.34 bounded memory, subtitle OCR and bank integrity safeguards. Verified compile, native and UI results in linked Actions. Verified synthetic 3840x2160 10-bit HEVC MKV decoder fixture; user's 20 GB original and physical-device retest still required. No claim of universal 4K/Dolby Vision compatibility. Same bundle and schema; sign with original certificate. Production services and Android unchanged."
-          git archive --format=zip --output=verified/TogetherPlayer-0.6.35-Film-Bank-V2-source.zip HEAD
+          gh release create "$tag" verified/TogetherPlayer-0.6.36-Film-Materials-Bank-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.36 - Film materials + offline question banks" \
+            --prerelease --notes "0.6.36 Real UHD MKV file-provider video-open fix: NSFileCoordinator read-only path, FFmpeg container stream-info partial success fallback, decoder-backed video track enumeration, staged native codec diagnostics, early fail on unsupported container and preserved 0.6.35 sampling safeguards. Keeps 0.6.34 bounded memory, subtitle OCR and bank integrity safeguards. Verified compile, native and UI results in linked Actions. Verified synthetic 3840x2160 10-bit HEVC MKV decoder fixture; user's 20 GB original and physical-device retest still required. No claim of universal 4K/Dolby Vision compatibility. Same bundle and schema; sign with original certificate. Production services and Android unchanged."
+          git archive --format=zip --output=verified/TogetherPlayer-0.6.36-Film-Bank-V2-source.zip HEAD
           cp docs/question-bank-v1.schema.json verified/question-bank-v1.schema.json
           cp docs/CHATGPT_MOVIE_BANK_PROJECT.txt verified/ChatGPT-Movie-Bank-Project.txt
           cp docs/FILM_BANK_V2.md verified/Film-Bank-V2-Guide.md
-          (cd verified && sha256sum TogetherPlayer-0.6.35-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md > SOURCE-SHA256SUMS.txt)
-          gh release upload "$tag" verified/TogetherPlayer-0.6.35-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
+          (cd verified && sha256sum TogetherPlayer-0.6.36-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md > SOURCE-SHA256SUMS.txt)
+          gh release upload "$tag" verified/TogetherPlayer-0.6.36-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
