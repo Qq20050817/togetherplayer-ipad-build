@@ -221,7 +221,10 @@ enum WholeFilmPlan {
   if !embedded {subtitleSource="外置完整字幕（内置字幕不可读取）"}
   task?.cancel();token+=1;let request=token
   busy=true;map=nil;status="完整字幕已读取，正在准备全片分析…"
-  task=Task(priority:.background) {[weak self] in
+  // This coordinator resumes on the main actor; user-visible progress must
+  // not wait for maintenance/background scheduling. Heavy pure work remains
+  // explicitly detached at utility priority and file I/O stays in the actor.
+  task=Task {[weak self] in
    guard let self else{return}
    defer{if self.token==request {self.busy=false;self.task=nil}}
    do {
@@ -281,13 +284,18 @@ enum WholeFilmPlan {
     // Hierarchically compact long films. Every leaf section was analyzed;
     // no subtitle is silently sampled away to claim full-film coverage.
     var synthesis=self.sections
-    while (self.cloudBatching() ? WholeFilmCloudPlan.summaryInput(synthesis).count>WholeFilmCloudPlan.inputLimit : WholeFilmPlan.json(synthesis).count>3000) {
+    while true {
+     let snapshot=synthesis,isCloud=self.cloudBatching()
+     let needsReduction=await Task.detached(priority:.utility){isCloud ? WholeFilmCloudPlan.summaryInput(snapshot).count>WholeFilmCloudPlan.inputLimit : WholeFilmPlan.json(snapshot).count>3000}.value
+     try Task.checkCancellation();guard self.token==request else{return}
+     if !needsReduction {break}
      var reduced:[WholeFilmSection]=[]
-     let groups=self.cloudBatching() ? WholeFilmCloudPlan.summaryGroups(synthesis) : stride(from:0,to:synthesis.count,by:3).map{Array(synthesis[$0..<min($0+3,synthesis.count)])}
+     let groups=await Task.detached(priority:.utility){isCloud ? WholeFilmCloudPlan.summaryGroups(snapshot) : stride(from:0,to:snapshot.count,by:3).map{Array(snapshot[$0..<min($0+3,snapshot.count)])}}.value
      for group in groups {
       let evidence=group.map{PlotEvidence(id:$0.evidenceIDs[0],start:0,end:1,text:$0.summary,source:"private-full-film-summary")}
       let chunk=WholeFilmChunk(index:reduced.count,evidence:evidence)
-      let answer=try await self.respond(WholeFilmPlan.sectionInstructions,WholeFilmPlan.modelJSON(evidence,ids:evidence.map(\.id)))
+      let input=await Task.detached(priority:.utility){WholeFilmPlan.modelJSON(evidence,ids:evidence.map(\.id))}.value
+      let answer=try await self.respond(WholeFilmPlan.sectionInstructions,input)
       try Task.checkCancellation();guard self.token==request else{return}
       guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.sectionFailure(answer,chunk:chunk)}
       reduced.append(section)
@@ -295,7 +303,9 @@ enum WholeFilmPlan {
      synthesis=reduced
     }
     self.status="全部分段已分析，正在串联伏笔与结局…"
-    let answer=try await self.respond(WholeFilmPlan.mapInstructions,WholeFilmPlan.modelJSON(synthesis,ids:synthesis.flatMap(\.evidenceIDs)))
+    let finalSections=synthesis
+    let input=await Task.detached(priority:.utility){WholeFilmCloudPlan.summaryInput(finalSections)}.value
+    let answer=try await self.respond(WholeFilmPlan.mapInstructions,input)
     try Task.checkCancellation();guard self.token==request else{return}
     guard let map=WholeFilmPlan.map(answer,sections:synthesis) else{throw WholeFilmPlan.Failure.invalidModel}
     self.map=map;try await self.archive.write(WholeFilmArchiveValue(sections:self.sections,map:map,filmKey:film),key:signature)
@@ -313,6 +323,7 @@ enum WholeFilmPlan {
   if map==nil || wasRunning,let (document,film,source,embedded)=lastAnalysisSource {lastAnalysisSource=nil;accept(document,film:film,source:source,embedded:embedded)}
  }
  private func respond(_ instruction:String,_ input:String) async throws->String {
+  try Task.checkCancellation()
   let request=token
   inferenceDeadline?.cancel()
   let timeout=Task { [weak self] in
