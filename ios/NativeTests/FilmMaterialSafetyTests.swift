@@ -19,6 +19,29 @@ import Darwin
   }
   return result==KERN_SUCCESS ? UInt64(info.resident_size) : nil
  }
+ func testMKVStreamProbeFailureKeepsParsedVideoTracks() {
+  XCTAssertTrue(FilmFFmpegFrameSampler.usableStreamMetadata(infoResult:-1094995529,streamCount:2))
+  XCTAssertTrue(FilmFFmpegFrameSampler.usableStreamMetadata(infoResult:0,streamCount:1))
+  XCTAssertFalse(FilmFFmpegFrameSampler.usableStreamMetadata(infoResult:-1094995529,streamCount:0))
+ }
+ func testInvalidMKVReportsActualOpeningStage() throws {
+  let root=try directory();defer{try? FileManager.default.removeItem(at:root)}
+  let file=root.appendingPathComponent("not-a-video.mkv")
+  try Data("invalid-video-content".utf8).write(to:file)
+  var failure=""
+  let sampler=FilmFFmpegFrameSampler.openCoordinated(url:file,onFailure:{failure=$0})
+  XCTAssertNil(sampler)
+  XCTAssertTrue(failure.contains("容器打开失败"),failure)
+  XCTAssertTrue(failure.contains("错误码"),failure)
+ }
+ func testCoordinatedMKVOpensSameStreamAsStandaloneReader() throws {
+  let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-material",withExtension:"mkv"))
+  var failure=""
+  let sampler=try XCTUnwrap(FilmFFmpegFrameSampler.openCoordinated(url:movie,onFailure:{failure=$0}),failure)
+  let thumb=try XCTUnwrap(sampler.image(at:10),sampler.lastFailure ?? "No timestamped frame")
+  XCTAssertGreaterThan(thumb.width,0)
+  XCTAssertNotNil(sampler.lastDecodedTime)
+ }
  func testIndependentFourKHEVC10BitMKVFrameSamplingKeepsRealTimestamps() throws {
   let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-uhd10",withExtension:"mkv"),
    "CI must generate the 3840x2160 HEVC Main10 Matroska fixture before xcodegen")
