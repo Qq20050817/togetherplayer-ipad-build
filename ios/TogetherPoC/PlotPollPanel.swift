@@ -88,10 +88,10 @@ import UniformTypeIdentifiers
   HStack(alignment:.top,spacing:12) {
    Image(systemName:"sparkles").font(.title2).foregroundStyle(.white).frame(width:42,height:42).background(Color.indigo).clipShape(RoundedRectangle(cornerRadius:12))
    VStack(alignment:.leading,spacing:5) {
-    Text(intelligence.selectedModel).font(.headline)
-    if !auth.modelName.isEmpty && (intelligence.selectedModel.contains("ChatGPT") || !auth.requestPhase.isEmpty || !auth.lastFailure.isEmpty) {Text("本次选用："+auth.modelName).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-cloud-model-name")}
-    Text(intelligence.working && !auth.requestPhase.isEmpty ? auth.requestPhase : intelligence.reason)
-     .font(.caption).foregroundStyle(intelligence.reason.contains("失败") || intelligence.reason.contains("超时") ? Color.orange : Color.secondary).lineLimit(5).accessibilityIdentifier("plot-ai-reason")
+    Text(bank.active == nil ? intelligence.selectedModel : "离线电影题库").font(.headline)
+    if bank.active == nil && !auth.modelName.isEmpty && (intelligence.selectedModel.contains("ChatGPT") || !auth.requestPhase.isEmpty || !auth.lastFailure.isEmpty) {Text("本次选用："+auth.modelName).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-cloud-model-name")}
+    Text(bank.active != nil ? bank.status : (intelligence.working && !auth.requestPhase.isEmpty ? auth.requestPhase : intelligence.reason))
+     .font(.caption).foregroundStyle(bank.active == nil && (intelligence.reason.contains("失败") || intelligence.reason.contains("超时")) ? Color.orange : Color.secondary).lineLimit(5).accessibilityIdentifier("plot-ai-reason")
    }.frame(maxWidth:.infinity,alignment:.leading)
   }.padding(4)
  }
