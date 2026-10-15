@@ -33,6 +33,22 @@ final class FilmFFmpegFrameSampler {
  static func usableStreamMetadata(infoResult:Int32,streamCount:Int)->Bool {
   infoResult>=0 || streamCount>0
  }
+ // Keep the provider's coordinated read scope for the lifetime of the
+ // container open. The subtitle scanner already follows this pattern.
+ // Once FFmpeg opens its own read-only FD, sampling never seeks the player.
+ static func openCoordinated(url:URL,onFailure:@escaping (String)->Void={_ in})->FilmFFmpegFrameSampler? {
+  guard url.isFileURL else {onFailure("只能读取本地电影");return nil}
+  let coordinator=NSFileCoordinator(filePresenter:nil)
+  var coordinationError:NSError?
+  var sampler:FilmFFmpegFrameSampler?
+  coordinator.coordinate(readingItemAt:url,options:.withoutChanges,error:&coordinationError) { accessible in
+   sampler=FilmFFmpegFrameSampler(url:accessible,onFailure:onFailure)
+  }
+  if let coordinationError {
+   onFailure("文件提供程序读取协调失败（错误码 \(coordinationError.code)）")
+  }
+  return sampler
+ }
  init?(url:URL,onFailure:(String)->Void={_ in}) {
   guard url.isFileURL else{onFailure("容器打开失败：需要本地电影文件");return nil}
   var opened:UnsafeMutablePointer<AVFormatContext>?
