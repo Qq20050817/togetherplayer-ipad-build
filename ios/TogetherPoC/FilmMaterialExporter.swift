@@ -282,7 +282,8 @@ enum FilmMaterialExporter {
   // AVAssetImageGenerator cannot decode many MKV/HEVC containers directly.
   // Use the already-shipped FFmpeg libraries for local, independent decoding.
   let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
-  var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url) : nil
+  var ffmpegOpenFailure:String?
+  var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url,onFailure:{ffmpegOpenFailure=$0}) : nil
   var attempted:[Double]=[],previousSignature:[Double]?,previousRequested:Double?
   var lastFrameError:String?
   var nativeFrameProbeTried=false,nativeFrameProbeWorks=false
@@ -293,7 +294,7 @@ enum FilmMaterialExporter {
    if directFFmpeg {
     image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
     if image==nil {
-     lastFrameError=ffmpeg?.lastFailure ?? "FFmpeg 无法打开 MKV 视频轨道"
+     lastFrameError=ffmpeg?.lastFailure ?? ffmpegOpenFailure ?? "FFmpeg无法打开MKV视频轨道"
      // Some local HEVC tracks can be decoded natively, even when the
      // container is not universally supported by AVFoundation. Probe once
      // to avoid 250 failed image-generator calls on unsupported MKVs.
@@ -312,7 +313,7 @@ enum FilmMaterialExporter {
     image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
     if actual.seconds.isFinite {actualTime=actual.seconds} else {image=nil}
     if image==nil {
-     if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url)}
+     if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url,onFailure:{ffmpegOpenFailure=$0})}
      image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
     }
    }
@@ -338,7 +339,11 @@ enum FilmMaterialExporter {
   for (index,time) in times.enumerated() {
    try Task.checkCancellation()
    try autoreleasepool {
-   if let main=decode(time) {
+   let decoded=decode(time)
+   if directFFmpeg && ffmpeg == nil && nativeFrameProbeTried && !nativeFrameProbeWorks {
+    throw FilmMaterialExportFailure.frameExtractionDiagnostic("FFmpeg 初始化失败；"+(ffmpegOpenFailure ?? "未知视频解码初始化故障")+"；系统原生解码也未取得画面")
+   }
+   if let main=decoded {
     let signature=FilmSceneChange.signature(main.1)
     let score=FilmSceneChange.distance(previousSignature,signature)
     let nextTime=index+1<times.count ? times[index+1] : duration
