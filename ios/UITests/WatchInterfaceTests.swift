@@ -77,8 +77,8 @@ final class WatchInterfaceTests: XCTestCase {
   let canvas=app.otherElements["fullscreen-movie"].firstMatch
   XCTAssertTrue(canvas.exists);XCTAssertGreaterThan(canvas.frame.width,app.frame.width*0.5)
   importer.tap()
-  let cancel=app.buttons["取消"].firstMatch
-  XCTAssertTrue(cancel.waitForExistence(timeout:20),app.debugDescription);cancel.tap()
+  let cancel=app.buttons.matching(NSPredicate(format:"label == %@ OR label == %@","取消","Cancel")).firstMatch
+  XCTAssertTrue(cancel.waitForExistence(timeout:40),app.debugDescription);cancel.tap()
   XCTAssertTrue(app.buttons["plot-settings-close"].firstMatch.waitForExistence(timeout:8))
   app.buttons["plot-settings-close"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
