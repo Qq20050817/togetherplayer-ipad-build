@@ -18,10 +18,11 @@ import Combine
  var publishedCount:Int {published.count}
 
  func restore(filmKey:String,source:URL,durationMs:Double) {
-  let newFilm=key != filmKey
-  if newFilm {
-   active=nil;published=[];revealed=[];revealedAnswer=""
-  }
+  let newFilm=key != filmKey || sourceURL != source
+  // Never run a previously approved bank against a new decoder source before
+  // its independent fingerprint and duration checks have completed.
+  active=nil
+  if newFilm {published=[];revealed=[];revealedAnswer=""}
   key=filmKey;sourceURL=source;lastPositionMs=nil
   generation += 1
   let token=generation
@@ -85,7 +86,7 @@ import Combine
   } catch {status="导入失败："+error.localizedDescription}
  }
 
- func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,publish:(PlotQuestion)->Void) {
+ func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,publish:(PlotQuestion)->Void,reveal:(String)->Void={_ in}) {
   guard let bank=active,key==filmKey,
    FilmBankCodec.matches(bank,playbackDuration:durationMs),
    positionMs.isFinite,positionMs>=0 else {lastPositionMs=nil;return}
@@ -96,6 +97,7 @@ import Combine
    revealed.insert(q.id)
    if let index=q.answerIndex,q.options.indices.contains(index) {
     revealedAnswer="\(q.question)\n正确答案：\(q.options[index])\n\(q.explanation)"
+    reveal(String(("剧情题库答案揭晓："+revealedAnswer).prefix(490)))
    }
   }
   // Skipped sections, seeks and reconnect jumps must NOT inject stale polls.
