@@ -117,8 +117,12 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(setting.isEnabled)
   let original=setting.value as? String
   XCTAssertTrue(original=="0" || original=="1")
-  setting.tap()
+  // Lazy rows expose the label and switch as one AX frame. Tap the actual
+  // trailing switch rather than the non-interactive label at its center.
+  setting.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
   let changed=original=="1" ? "0" : "1"
+  let toggled=XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@",changed),object:setting)
+  XCTAssertEqual(XCTWaiter.wait(for:[toggled],timeout:5),.completed)
   XCTAssertEqual(setting.value as? String,changed)
   app.buttons["plot-settings-close"].firstMatch.tap()
   let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:panelScroll)
@@ -136,7 +140,7 @@ final class WatchInterfaceTests: XCTestCase {
   for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertEqual(setting.value as? String,changed,"relaunch must preserve the setting")
-  setting.tap() // Restore the prior preference for other tests.
+  setting.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap() // Restore the prior preference for other tests.
  }
  func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
