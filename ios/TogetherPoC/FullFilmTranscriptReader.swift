@@ -128,7 +128,10 @@ enum FullFilmTranscriptReader {
      print("FullFilmTranscriptReader: rect w=\(rect.w) h=\(rect.h) stride=\(rect.linesize.0) colors=\(rect.nb_colors) data=\(rect.data.0 != nil && rect.data.1 != nil)")
      #endif
     }
-    if let text=recognize(rect,language:track.language) {ocrMatches+=1;lines.append(text)}
+    // A detached full-film scan has no run-loop boundary to drain the
+    // autoreleased Vision/CG image buffers. Release every subtitle bitmap.
+    let recognized=autoreleasepool {recognize(rect,language:track.language)}
+    if let text=recognized {ocrMatches+=1;lines.append(text)}
     } else if let text=rect.text {lines.append(String(cString:text))}
     else if let ass=rect.ass {lines.append(cleanASS(String(cString:ass)))}
    }
@@ -174,6 +177,7 @@ enum FullFilmTranscriptReader {
   }
   guard let provider=CGDataProvider(data:Data(rgba) as CFData),let image=CGImage(width:width,height:height,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.last.rawValue),provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent) else{return nil}
   let request=VNRecognizeTextRequest();request.recognitionLevel = .accurate;request.usesLanguageCorrection=true
+  request.preferBackgroundProcessing=true
   let supported=(try? request.supportedRecognitionLanguages()) ?? []
   let prefix=["chi":"zh","zho":"zh","eng":"en"].first(where:{$0.key==language})?.value ?? language
   if let match=supported.first(where:{$0.lowercased().hasPrefix(prefix.lowercased())}) {request.recognitionLanguages=[match]}

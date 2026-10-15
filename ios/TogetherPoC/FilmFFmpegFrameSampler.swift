@@ -46,7 +46,10 @@ final class FilmFFmpegFrameSampler {
    var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
    avformat_close_input(&opened);return nil
   }
-  context.pointee.thread_count=2
+  // Full-resolution HEVC reference surfaces already consume substantial
+  // memory. Do not add frame-threading queues alongside the live player.
+  context.pointee.thread_count=1
+  context.pointee.thread_type=FF_THREAD_SLICE
   guard avcodec_open2(context,codec,nil)>=0,
    let allocatedPacket=av_packet_alloc(),let allocatedFrame=av_frame_alloc() else {
    var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
