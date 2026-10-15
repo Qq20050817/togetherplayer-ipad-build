@@ -366,15 +366,25 @@ final class WatchInterfaceTests: XCTestCase {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_TRACK_PLAYBACK_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   enterFullscreen(app)
-  let progress=app.sliders["movie-progress"].firstMatch
+  let fullscreenMovie=app.otherElements["fullscreen-movie"].firstMatch
+  func revealControls() {
+   if !app.otherElements["fullscreen-control-bar"].firstMatch.exists {fullscreenMovie.tap()}
+   XCTAssertTrue(app.otherElements["fullscreen-control-bar"].firstMatch.waitForExistence(timeout:5))
+  }
+  revealControls()
+  let progress=app.otherElements["fullscreen-control-bar"].sliders["movie-progress"].firstMatch
   let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:progress)
   XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
   let currentCaption=app.staticTexts["这是简体字幕测试"].firstMatch
   XCTAssertTrue(currentCaption.waitForExistence(timeout:15),app.debugDescription)
   if app.buttons["暂停"].firstMatch.exists {app.buttons["暂停"].firstMatch.tap()}
+  // Decoder/snapshot startup can consume the normal ten-second idle window.
+  // Reveal real controls again and never adjust the covered watch-page slider.
+  revealControls()
   progress.adjust(toNormalizedSliderPosition:0.5)
   let seek=XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == '剩余 00:06' OR label == '剩余 00:07'"),object:app.staticTexts["playback-remaining"].firstMatch)
   XCTAssertEqual(XCTWaiter.wait(for:[seek],timeout:8),.completed)
+  revealControls()
   app.buttons["fullscreen-subtitle-adjustments"].tap()
   let movie=app.otherElements["subtitle-live-movie"].firstMatch
   XCTAssertTrue(movie.waitForExistence(timeout:5));XCTAssertGreaterThan(movie.frame.width,app.frame.width*0.5)
