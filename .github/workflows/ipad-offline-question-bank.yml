@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   ipad:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
     runs-on: macos-15
     timeout-minutes: 55
     steps:
