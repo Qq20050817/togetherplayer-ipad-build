@@ -114,6 +114,10 @@ enum WholeFilmPlan {
  /// or resume an inaccessible movie demuxer after the user chooses this source.
  func useExternalForAI(_ document:SubtitleDocument,film:String) {
   if filmKey != film {reset(film:film)}
+  // Metadata refreshes can reenter this method frequently while analysing.
+  // Do not cancel the existing inference task for the same full transcript.
+  if manuallyProvidedFullSubtitle,externalFallback?.cues==document.cues,
+     (busy || ready(for:film)) {return}
   readerGeneration += 1
   reader?.cancel();reader=nil;readerKey=""
   readingActive=false;embeddedUnavailable=true
