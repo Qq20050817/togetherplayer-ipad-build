@@ -239,7 +239,7 @@ enum WholeFilmPlan {
     }
     guard self.available() else{throw self.unavailableModelError()}
     var preparedCloud=false
-    func prepareCloud() async throws {
+    @MainActor func prepareCloud() async throws {
      guard self.cloudBatching(),!preparedCloud else{return}
      let completed=self.sections
      let estimate=await Task.detached(priority:.utility){WholeFilmCloudPlan.estimatedRequests(plan:plan,completed:completed)}.value
