@@ -14,7 +14,7 @@ enum FullFilmTranscriptReader {
   var errorDescription:String? {switch self {
    case .localOnly:return "完整内置字幕读取目前需要本机文件；可导入完整 SRT/ASS 字幕。"
    case .noTrack:return "影片没有可读取的内置字幕，可使用完整外置字幕。"
-   case .open:return "无法打开原始影片读取字幕。"
+   case .open:return "无法打开原始影片读取字幕。可在“文件”App重新选择已下载的原片，或导入完整 SRT/ASS 字幕供 AI 分析。"
    case .decode:return "这个内置字幕轨道无法解码，可导入完整 SRT/ASS 字幕。"
    case .incomplete:return "字幕扫描未到文件结尾，不能标记全片读取完成。"
    case .tooLarge:return "字幕超出安全大小限制，未标记为全片完成。"
