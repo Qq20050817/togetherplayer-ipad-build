@@ -1,7 +1,7 @@
 name: Verify watched-file cleanup and AI playback stability
 on:
   push:
-    branches: [feat/watched-cleanup-ipad-20261015]
+    branches: [fix/cleanup-verification-ipad-20261015]
   workflow_dispatch:
 permissions:
   contents: read
@@ -53,18 +53,18 @@ jobs:
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchedCleanupReviewsAndDeletesOnlySelectedLocalFiles -retry-tests-on-failure test
       - name: Test essential watch UI regressions
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomScrollingKeepsExpandedInputsAndNavigationUsable -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck -only-testing:TogetherPoCUITests/WatchInterfaceTests/testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -retry-tests-on-failure test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotAIEntrancesRemainVisibleInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenVoiceHoldKeepsPreviewAndIndependentTools -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomScrollingKeepsExpandedInputsAndNavigationUsable -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRoomCardsKeepActionsVisibleAndRemovedToolsAbsent -only-testing:TogetherPoCUITests/WatchInterfaceTests/testPlotIntelligencePreviewKeepsFullscreenAndCloudOff -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck -only-testing:TogetherPoCUITests/WatchInterfaceTests/testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMoviePickerOpensFromRoomSettingsSheet -only-testing:TogetherPoCUITests/WatchInterfaceTests/testTappingUppercaseMP4ReturnsFromFilesAndLoadsLocalSource -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleCopyImportReturnsFromFilesAndLoadsLocalSource -retry-tests-on-failure test
       - name: Package direct unsigned IPA
         run: |
           set -euo pipefail
           mkdir -p plot-delivery
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.25-Watched-Cleanup-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.26-Watched-Cleanup-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           cd plot-delivery
-          sha256sum TogetherPlayer-0.6.25-Watched-Cleanup-unsigned.ipa > SHA256SUMS.txt
+          sha256sum TogetherPlayer-0.6.26-Watched-Cleanup-unsigned.ipa > SHA256SUMS.txt
           printf 'Source branch: %s\nSource SHA: %s\nCI: native core and watch UI tests passed\nUnsigned build: sign with your certificate for installation\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-0.6.25-Watched-Cleanup
+          name: TogetherPlayer-iPad-0.6.26-Watched-Cleanup
           path: plot-delivery/
           retention-days: 7
       - name: Export native test reports
@@ -104,21 +104,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.25-Watched-Cleanup --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.26-Watched-Cleanup --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           cd verified
           sha256sum -c SHA256SUMS.txt
           cd ..
-          git archive --format=zip --output=verified/TogetherPlayer-0.6.25-Watched-Cleanup-source.zip HEAD
-          sha256sum verified/TogetherPlayer-0.6.25-Watched-Cleanup-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
+          git archive --format=zip --output=verified/TogetherPlayer-0.6.26-Watched-Cleanup-source.zip HEAD
+          sha256sum verified/TogetherPlayer-0.6.26-Watched-Cleanup-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
       - name: Create preview release only after tests pass
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='v0.6.25-watched-cleanup-ipad-20261015'
+          tag='v0.6.26-cleanup-verification-ipad-20261015'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release already exists. Will not replace an existing package.' >&2
             exit 1
           fi
-          gh release create "$tag" verified/TogetherPlayer-0.6.25-Watched-Cleanup-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.25-Watched-Cleanup-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.25 · Watched-file cleanup' --notes 'Adds 看完清理 in 房间与片源: review current local movie and associated subtitles, select files and confirm deletion. Uses explicit folder permission for external files; App import copies can be inspected directly. Checks identity again before deletion, skips replaced or unrelated files, performs file IO in background, detaches only local playback and reports individual failures. Includes AI panel performance, watched subtitle streaming/preparation, and automatic question presentation at the end/change of the current subtitle with stale-question rejection. Core and watch UI tests must pass before release. No Android or production server changes in this package. Unsigned IPA: sign with original certificate. Physical M1 frame-time and original-film/ChatGPT acceptance remain pending.'
+          gh release create "$tag" verified/TogetherPlayer-0.6.26-Watched-Cleanup-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.26-Watched-Cleanup-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.26 · Watched-file cleanup' --notes 'Fixes imported-copy cleanup: explicitly choose the original local folder, compare the entire movie byte-for-byte in the background, review original files and App import copies separately, then confirm deletion. Checks actual absence before reporting success. Copy-only cleanup explicitly states the original remains. Adds real filesystem regressions and original/copy document picker UI checks. Retains prior playback and AI fixes; whole-film AI analysis is a separate requested change, not included in this build. Unsigned IPA: sign with original certificate. Physical-device acceptance pending.'
