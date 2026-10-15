@@ -5,6 +5,7 @@ struct FilmBankProgress:Codable {
  var published:Set<String>=[]
  var revealed:Set<String>=[]
  var answered:Set<String>=[]
+ var publicPollIDs:[String:String]=[:]
  var delivered:Set<String>=[]
  var revision=0
 }
@@ -53,13 +54,14 @@ enum FilmBankTimeline {
 }
 
 extension FilmBankProgress {
- enum CodingKeys:String,CodingKey {case roundID,published,revealed,answered,delivered,revision}
+ enum CodingKeys:String,CodingKey {case roundID,published,revealed,answered,publicPollIDs,delivered,revision}
  init(from decoder:Decoder)throws {
   let c=try decoder.container(keyedBy:CodingKeys.self)
   roundID=try c.decodeIfPresent(String.self,forKey:.roundID) ?? "legacy-round"
   published=try c.decodeIfPresent(Set<String>.self,forKey:.published) ?? []
   revealed=try c.decodeIfPresent(Set<String>.self,forKey:.revealed) ?? []
   answered=try c.decodeIfPresent(Set<String>.self,forKey:.answered) ?? []
+  publicPollIDs=try c.decodeIfPresent([String:String].self,forKey:.publicPollIDs) ?? [:]
   delivered=try c.decodeIfPresent(Set<String>.self,forKey:.delivered) ?? []
   revision=try c.decodeIfPresent(Int.self,forKey:.revision) ?? 0
  }

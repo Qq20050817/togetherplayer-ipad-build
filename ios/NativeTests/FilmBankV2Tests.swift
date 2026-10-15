@@ -90,9 +90,9 @@ import CoreGraphics
   first.tick(filmKey:"room1",positionMs:29_500,durationMs:120_000,canPublish:true,publish:{_ in sent+=1})
   first.tick(filmKey:"room1",positionMs:30_500,durationMs:120_000,canPublish:true,publish:{_ in sent+=1})
   await first.waitForProgress();XCTAssertEqual(sent,1)
-  first.observePoll(["question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":false])
+  first.observePoll(["id":"server-poll-current","question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":false])
   XCTAssertEqual(first.completedCount,0)
-  first.observePoll(["question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":true])
+  first.observePoll(["id":"server-poll-current","question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":true])
   await first.waitForProgress();XCTAssertEqual(first.completedCount,1)
   let second=FilmQuestionBankRuntime(store:store,progressStore:progress)
   second.restore(filmKey:"other-room",source:moved,durationMs:120_000);await second.waitForRestore()
@@ -137,6 +137,11 @@ import CoreGraphics
   runtime.startNewRound();await runtime.waitForProgress();sent=0
   tick(10_000,1,false);tick(80_000,1,false);await runtime.waitForProgress();XCTAssertEqual(sent,0)
   tick(29_000,1,false);tick(30_500,1,false);await runtime.waitForProgress();XCTAssertEqual(sent,1)
+  runtime.observePoll(["id":"old-round-poll","question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":true])
+  XCTAssertEqual(runtime.completedCount,0)
+  runtime.observePoll(["id":"new-round-poll","question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":false])
+  runtime.observePoll(["id":"new-round-poll","question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":true])
+  await runtime.waitForProgress();XCTAssertEqual(runtime.completedCount,1)
  }
  func testImportValidatesSourceAndPersistsMatchingBankOnly() async throws {
   let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}

@@ -123,11 +123,19 @@ import Combine
   status="已开始新一轮，题库保留；从实际播放进度触发"
  }
  func observePoll(_ poll:[String:Any]?) {
-  guard let bank=active,let poll,poll["revealed"] as? Bool==true,
+  guard let bank=active,let poll,let publicID=poll["id"] as? String,
    let text=poll["question"] as? String,let options=poll["options"] as? [String],
    let q=bank.questions.first(where:{$0.question==text && $0.options==options}),
-   progress.published.contains(q.id),!progress.answered.contains(q.id) else{return}
-  progress.answered.insert(q.id);completedCount=progress.answered.count
+   progress.published.contains(q.id) else{return}
+  if poll["revealed"] as? Bool != true {
+   // Bind only a fresh unanswered poll. A replayed completed snapshot from
+   // the previous viewing round must not complete the new round's question.
+   guard progress.publicPollIDs[q.id]==nil else{return}
+   progress.publicPollIDs[q.id]=publicID
+  } else {
+   guard progress.publicPollIDs[q.id]==publicID,!progress.answered.contains(q.id) else{return}
+   progress.answered.insert(q.id);completedCount=progress.answered.count
+  }
   let write=persist();Task {do{try await write.value}catch{self.status="答题进度未能保存；题库本身仍保留"}}
  }
  private func parts(_ q:FilmBankQuestion)->[FilmBankRevealPart] {
