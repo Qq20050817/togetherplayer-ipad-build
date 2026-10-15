@@ -268,12 +268,12 @@ struct PlotFrame {
   // before deciding whether this quiet gap is a real plot turning point.
   if publishPendingAutomaticQuestion() || pendingAutomatic != nil {return}
   guard text.isEmpty else{return}
-  guard !requireCompleteFilm || wholeFilm.ready(for:frame?()?.key ?? "") else{autoTriggerStatus=wholeFilm.status;return}
   guard eventDrivenEnabled else{autoTriggerStatus="自动暂停提问已关闭";return}
   guard mode != .fallback else{autoTriggerStatus="免费备用题库只支持手动出题；自动提问请选择真实 AI";return}
   guard !working else{autoTriggerStatus="AI 正在分析剧情";return}
   if let blocked=automaticAvailabilityReason?() {autoTriggerStatus=blocked;return}
   guard mayPublishAutomatically?()==true else{autoTriggerStatus="当前房间不满足自动提问条件";return}
+  guard !requireCompleteFilm || wholeFilm.ready(for:frame?()?.key ?? "") else{autoTriggerStatus=wholeFilm.status;return}
   guard let snapshot=frame?() else{autoTriggerStatus="暂未获得可用的影片进度";return}
   let key=snapshot.key,last=snapshot.evidence.last?.id ?? ""
   momentTask=Task {[weak self] in
