@@ -422,7 +422,7 @@ import CoreMedia
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
-  questionBankRuntime.restore(filmKey:plotKey,source:url,durationMs:adapter.duration)
+  questionBankRuntime.restore(filmKey:plotKey,source:url,durationMs:0)
   if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
   if aiOnlySubtitle?.film != plotKey {aiOnlySubtitle=nil;aiOnlySubtitleImportStatus=""}
   nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
@@ -1136,7 +1136,7 @@ import CoreMedia
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
-   questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,canPublish:bankCanPublish,
+   questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
     publish:{[weak self] question in self?.publishPlotPoll(question)})
    send(["type":"SYNC"])
    let item=adapter.player.currentItem
