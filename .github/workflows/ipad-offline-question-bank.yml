@@ -29,6 +29,16 @@ jobs:
             if [ -d "$dev" ]; then sudo xcode-select -s "$dev"; xcodebuild -version; exit 0; fi
           done
           exit 1
+      - name: Generate real 4K HEVC Main10 MKV test fixture
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
+          if ! command -v ffprobe >/dev/null 2>&1; then echo 'ffprobe unavailable'; exit 1; fi
+          ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=3840x2160:rate=2:duration=16' \
+            -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -threads 2 \
+            -x265-params 'pools=1:frame-threads=1:wpp=0:keyint=24:min-keyint=24:bframes=0:log-level=error' \
+            -an -y ios/NativeTests/Fixtures/bank-uhd10.mkv
+          python3 -c 'import json,subprocess; f="ios/NativeTests/Fixtures/bank-uhd10.mkv"; v=json.loads(subprocess.check_output(["ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=codec_name,width,height,pix_fmt","-of","json",f]))["streams"][0]; assert (v["codec_name"],v["width"],v["height"],v["pix_fmt"])==("hevc",3840,2160,"yuv420p10le"),v; print("Verified UHD HEVC Main10 fixture:",v)'
       - name: Generate project and dependencies
         run: |
           brew install xcodegen
@@ -102,6 +112,21 @@ jobs:
           (cd verified && sha256sum -c SHA256SUMS.txt)
           latest=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
           test "$latest" = "$GITHUB_SHA" || { echo "Superseded release; refusing stale IPA"; exit 1; }
+          python3 - <<'PY'
+          import zipfile,plistlib,pathlib,hashlib,json,os
+          p=pathlib.Path("verified/TogetherPlayer-0.6.39-Film-Materials-Bank-unsigned.ipa")
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              name=next(n for n in z.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist"))
+              info=plistlib.loads(z.read(name));folder=name[:-len("Info.plist")]
+              assert (info["CFBundleIdentifier"],info["CFBundleShortVersionString"],info["CFBundleVersion"])==("dev.together.poc","0.6.39","99")
+              assert z.read(folder+"question-bank-v1.schema.json")==pathlib.Path("docs/question-bank-v1.schema.json").read_bytes()
+              assert any("AppIcon" in n for n in z.namelist())
+              assert any("Licens" in n or "NOTICE" in n.upper() for n in z.namelist())
+          record={"sourceSHA":os.environ["GITHUB_SHA"],"bundleID":info["CFBundleIdentifier"],"version":info["CFBundleShortVersionString"],"build":info["CFBundleVersion"],"ipaBytes":p.stat().st_size,"ipaSHA256":hashlib.sha256(p.read_bytes()).hexdigest(),"ipaIntegrity":"passed","bundledSchema":"exact match","iconsAndLicenses":"present","verificationLocation":"GitHub Actions release runner; no local download claimed"}
+          pathlib.Path("verified/VERIFICATION.json").write_text(json.dumps(record,ensure_ascii=False,indent=2))
+          print(json.dumps(record))
+          PY
           tag='v0.6.39-ipad-film-materials-bank-20261016'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release exists; refusing to overwrite tested IPA';exit 1
@@ -113,5 +138,19 @@ jobs:
           cp docs/question-bank-v1.schema.json verified/question-bank-v1.schema.json
           cp docs/CHATGPT_MOVIE_BANK_PROJECT.txt verified/ChatGPT-Movie-Bank-Project.txt
           cp docs/FILM_BANK_V2.md verified/Film-Bank-V2-Guide.md
-          (cd verified && sha256sum TogetherPlayer-0.6.39-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md > SOURCE-SHA256SUMS.txt)
-          gh release upload "$tag" verified/TogetherPlayer-0.6.39-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
+          python3 - <<'PY'
+          import pathlib,zipfile,subprocess,json,hashlib
+          p=pathlib.Path("verified/TogetherPlayer-0.6.39-Film-Bank-V2-source.zip")
+          paths=subprocess.check_output(["git","ls-files","-z"]).decode().split("\0")
+          paths=[n for n in paths if n]
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              for n in paths:
+                  assert z.read(n)==pathlib.Path(n).read_bytes(),n
+          record=json.loads(pathlib.Path("verified/VERIFICATION.json").read_text())
+          record.update(sourceZIPIntegrity="passed",sourcePathsCompared=len(paths),sourceZIPBytes=p.stat().st_size,sourceZIPSHA256=hashlib.sha256(p.read_bytes()).hexdigest())
+          pathlib.Path("verified/VERIFICATION.json").write_text(json.dumps(record,ensure_ascii=False,indent=2))
+          print(json.dumps(record))
+          PY
+          (cd verified && sha256sum TogetherPlayer-0.6.39-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md VERIFICATION.json > SOURCE-SHA256SUMS.txt)
+          gh release upload "$tag" verified/TogetherPlayer-0.6.39-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt verified/VERIFICATION.json --repo "$GITHUB_REPOSITORY"
