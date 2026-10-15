@@ -31,7 +31,7 @@ import CoreMedia
  @Published var plotPoll:[String:Any]?
  @Published var supportsBlockingPolls=false
  var plotPollWaiting:Bool {plotPoll?["waitingForAnswers"] as? Bool == true}
- let plotIntelligence=PlotIntelligence()
+ let plotIntelligence=PlotIntelligence(requireCompleteFilm:true)
  let library=MediaLibrary()
  var plotPollSubmitted:Bool {
   guard let myID=credentials?["userId"] as? String else {return false}
@@ -275,9 +275,11 @@ import CoreMedia
     self.prepareOriginalPGSBitmap(item:item,track:self.selectedSubtitleIndex)
    }
   }
+  plotIntelligence.wholeFilm.onEmbeddedTranscript={ [weak self] document in self?.externalSubtitles.installCompleteEmbeddedForAI(document) }
   externalSubtitles.plotFullSubtitleIndexed={ [weak self] document,source,checkpoints in
    guard let self,let key=self.plotIntelligence.frame?()?.key else{return}
    self.plotIntelligence.prepareFullFilm(document,source:source,key:key,checkpoints:checkpoints)
+   if source=="external-subtitle" {self.prepareCompleteFilmForAI()}
   }
   externalSubtitles.nativeSelectionHealthCheck={ [weak self] in self?.restoreSelectedNativeSubtitleIfNeeded() }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
@@ -398,6 +400,7 @@ import CoreMedia
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
+  if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
@@ -543,8 +546,19 @@ import CoreMedia
     prepareNativeSubtitleIndex(item:item,track:selectedSubtitleIndex)
     prepareOriginalPGSBitmap(item:item,track:selectedSubtitleIndex)
    }
+   prepareCompleteFilmForAI()
    diagnostic("subtitleOptionsLoaded")
   }
+ }
+ func prepareCompleteFilmForAI(force:Bool=false) {
+  guard let source=currentOriginalURL,let key=plotDisplayPosition()?.key else{return}
+  if force {plotIntelligence.wholeFilm.reset(film:key)}
+  if let document=externalSubtitles.completeExternalForAI {plotIntelligence.wholeFilm.supplyExternal(document,film:key)}
+  let chosen=requestedSubtitleIndex ?? -1
+  let title=subtitleLabels.indices.contains(chosen) ? subtitleLabels[chosen] : nil
+  let option=subtitleGroup?.options.indices.contains(chosen)==true ? subtitleGroup?.options[chosen] : nil
+  let stream=mkvRemux.aiSubtitleStreamIndices.indices.contains(chosen) ? mkvRemux.aiSubtitleStreamIndices[chosen] : nil
+  plotIntelligence.wholeFilm.readLocalMovie(source,film:key,title:title,language:option?.extendedLanguageTag,streamIndex:stream,allowOCR:externalSubtitles.convertPGSForAI)
  }
  private func prepareNativeSubtitleIndex(item:AVPlayerItem,track:Int) {
   guard track>=0,!externalSubtitles.enabled,let source=(item.asset as? AVURLAsset)?.url,
@@ -643,6 +657,7 @@ import CoreMedia
   else if index == -2 {item.select(nil,in:group)}
   else {guard group.options.indices.contains(index) else {return};item.select(group.options[index],in:group)}
   selectedSubtitleIndex=index
+  prepareCompleteFilmForAI()
   if index>=0 {
    prepareNativeSubtitleIndex(item:item,track:index)
    prepareOriginalPGSBitmap(item:item,track:index)
@@ -1236,6 +1251,7 @@ extension TestClient {
  var cleanupSourceURL:URL? {usingLocalFile ? localFileURL : nil}
  func detachLocalFileForCleanup(_ expected:URL)->Bool {
   guard cleanupSourceURL==expected,currentOriginalURL==expected || currentOriginalURL==nil else{return false}
+  plotIntelligence.wholeFilm.cancel()
   voice.disable();setSpeedHold(false);clearOptimisticPlayback()
   plotIntelligence.preserveCurrentFilmEvidence();plotIntelligence.cancel()
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""

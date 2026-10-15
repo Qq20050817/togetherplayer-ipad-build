@@ -42,7 +42,7 @@ import SwiftUI
       interactionCard
       advancedCard
      }
-     Text("只使用已观看内容；向云端发送摘要需先取得你的同意。").font(.caption2).foregroundStyle(.secondary)
+     Text("后台理解完整字幕；题目随当前进度展示，不提前揭晓答案。向 ChatGPT 发送全片资料需单独同意。").font(.caption2).foregroundStyle(.secondary)
     }.padding(14).frame(maxWidth:560).frame(maxWidth:.infinity)
    }.accessibilityIdentifier("plot-settings-scroll").background(Color(red:0.025,green:0.035,blue:0.055))
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
@@ -75,7 +75,8 @@ import SwiftUI
   }.padding(4)
  }
  private var generationCard:some View {
-  PlotPanelCard(title:"根据已观看剧情出题",icon:"wand.and.stars") {
+  PlotPanelCard(title:"先理解整片，再随进度提问",icon:"wand.and.stars") {
+   WholeFilmStatusCard(host:intelligence.wholeFilm,retry:{model.prepareCompleteFilmForAI(force:true)})
    Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases) {mode in Text(mode.title).tag(mode)}}.pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
    Button {intelligence.generate()} label:{
     HStack {if intelligence.working {ProgressView().tint(.white)} else {Image(systemName:"sparkles")};Text(intelligence.working ? "正在分析…" : "生成问题");Spacer()}.frame(maxWidth:.infinity,minHeight:30)
@@ -168,7 +169,7 @@ import SwiftUI
      Toggle("原版 PGS 位图显示（试验）",isOn:$subtitles.originalPGSBitmapEnabled).disabled(model.adapter.player.rate>0).accessibilityIdentifier("plot-original-pgs-bitmap-experimental")
      Text("位图显示默认关闭；仅在影片暂停时切换，可能增加解码负担。OCR 不会修改影片或切换观看字幕。").font(.caption).foregroundStyle(.secondary)
      if !subtitles.nativeIndexStatus.isEmpty {Text("内置字幕：\(subtitles.nativeIndexStatus)").font(.caption2).accessibilityIdentifier("plot-native-subtitle-index")}
-     Text("预分析：\(intelligence.fullFilmPreparationStatus)").font(.caption2).accessibilityIdentifier("plot-full-film-preanalysis")
+     Text("已看线索：\(intelligence.collectedSubtitleCount)条；全片分析进度见上方").font(.caption2).accessibilityIdentifier("plot-full-film-preanalysis")
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "")").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
     }.padding(.top,14)
@@ -201,7 +202,9 @@ import SwiftUI
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary)
     }
     PlotPanelCard(title:"隐私与用量",icon:"hand.raised") {
-     Toggle("同意发送必要的已观看剧情摘要",isOn:$intelligence.consent)
+     Toggle("同意发送必要的剧情摘要",isOn:$intelligence.consent)
+     Toggle("允许 ChatGPT 提前分析全片字幕与剧情",isOn:$intelligence.wholeFilmCloudConsent)
+     Text("可能包含未播放的对白、反转和结局，仅供后台策划；全片分段分析和剧透审核均计入请求次数，不额外使用付费 API。不开启时仅在本机理解全片。").font(.caption).foregroundStyle(.secondary)
      Toggle("我已关闭本应用的 Credits 使用",isOn:$intelligence.creditsDisabled)
      Text("仅发送必要文字摘要，影片和令牌不上传房间服务器；不自动使用另行付费的 API。Credits 开关需要在官方设置中关闭，此处是你的确认。").font(.caption).foregroundStyle(.secondary)
      Link("打开官方用量设置",destination:URL(string:"https://chatgpt.com/settings/usage")!).font(.caption)
@@ -226,5 +229,19 @@ import SwiftUI
    .sheet(isPresented:Binding(get:{auth.authorizationURL != nil},set:{if !$0 {auth.cancelAuthorization()}})) {
     if let url=auth.authorizationURL {PlotSignInBrowser(url:url,cancelled:{auth.cancelAuthorization()})}
    }
+ }
+}
+
+@MainActor private struct WholeFilmStatusCard:View {
+ @ObservedObject var host:WholeFilmHost
+ let retry:()->Void
+ var body:some View {
+  VStack(alignment:.leading,spacing:8) {
+   Label("全片理解",systemImage:"film.stack").font(.subheadline.weight(.semibold))
+   Text(host.subtitleSource).font(.caption2).foregroundStyle(.secondary)
+   Text(host.status).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-whole-film-status")
+   if host.busy || host.readingActive {ProgressView(value:Double(host.completed),total:Double(max(1,host.total)));Button("暂停后台分析"){host.cancel()}}
+   else {Button("重新读取并分析全片",action:retry).font(.caption)}
+  }.frame(maxWidth:.infinity,alignment:.leading)
  }
 }

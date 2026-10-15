@@ -24,12 +24,16 @@ struct CleanupPlan {
  let source:URL
  let folder:URL
  let files:[CleanupFile]
- var bytes:Int64 {files.reduce(0){$0+$1.stamp.size}}
+ var appCopyFiles:[CleanupFile]=[]
+ var allFiles:[CleanupFile] {files+appCopyFiles}
+ var bytes:Int64 {allFiles.reduce(0){$0+$1.stamp.size}}
 }
 enum CleanupFailure:LocalizedError {
- case unsafeFile,wrongFolder,tooManyFiles,changedFile,nonLocalLocation
+ case unsafeFile,wrongFolder,tooManyFiles,changedFile,nonLocalLocation,unverifiedDeletion,copyMismatch
  var errorDescription:String? {
   switch self {
+  case .unverifiedDeletion:return "删除后文件仍存在，未计为已删除。"
+  case .copyMismatch:return "所选文件与 App 导入副本内容不同，未加入清理清单。"
   case .unsafeFile:return "只支持清理本地普通文件，不能删除文件夹或替身。"
   case .wrongFolder:return "这个文件夹中没有当前正在观看的影片，请选择影片所在文件夹。"
   case .tooManyFiles:return "此文件夹文件过多，请选择更具体的影片文件夹。"
@@ -88,21 +92,68 @@ enum WatchedFileCleanup {
   }
   return CleanupPlan(source:source,folder:folder,files:files.sorted{a,b in a.isMovie != b.isMovie ? a.isMovie : a.name.localizedStandardCompare(b.name) == .orderedAscending})
  }
- // Caller owns the folder security scope and detaches only its local player first.
- // Check identity again inside file coordination so reviewed paths cannot delete replacements.
- static func remove(_ files:[CleanupFile],in folder:URL)->(deleted:[String],failed:[String]) {
+ // Matching an imported copy requires an explicit original-folder grant and
+ // byte-for-byte comparison. A same name/size or a sampled fingerprint is insufficient.
+ static func planOriginalAndCopy(source:URL,folder:URL,importedSubtitle:URL?=nil)throws->CleanupPlan {
+  guard isAppOwned(source) else{throw CleanupFailure.unsafeFile}
+  try requireLocalLocation(folder)
+  let copyPlan=try plan(source:source,folder:source.deletingLastPathComponent(),importedSubtitle:importedSubtitle)
+  let original=folder.appendingPathComponent(source.lastPathComponent)
+  let originalPlan=try plan(source:original,folder:folder)
+  let before=try CleanupFileStamp.read(original)
+  if before==copyPlan.files.first(where:{$0.isMovie})?.stamp {return originalPlan}
+  let a=try FileHandle(forReadingFrom:source),b=try FileHandle(forReadingFrom:original)
+  defer{try? a.close();try? b.close()}
+  guard before.size==copyPlan.files.first(where:{$0.isMovie})?.stamp.size else{throw CleanupFailure.copyMismatch}
+  while true {
+   try Task.checkCancellation()
+   let left=try a.read(upToCount:1_048_576) ?? Data()
+   let right=try b.read(upToCount:1_048_576) ?? Data()
+   guard left==right else{throw CleanupFailure.copyMismatch}
+   if left.isEmpty {break}
+  }
+  guard try CleanupFileStamp.read(original)==before,
+        try CleanupFileStamp.read(source)==copyPlan.files.first(where:{$0.isMovie})?.stamp else{throw CleanupFailure.changedFile}
+  var result=originalPlan;result.appCopyFiles=copyPlan.files
+  return result
+ }
+ static func verifyAbsent(_ url:URL)throws {
+  do {_ = try FileManager.default.attributesOfItem(atPath:url.path)}
+  catch {
+   let e=error as NSError
+   if e.domain==NSCocoaErrorDomain && [NSFileNoSuchFileError,NSFileReadNoSuchFileError].contains(e.code) {return}
+   if e.domain==NSPOSIXErrorDomain && e.code==2 {return}
+   throw error // Permission failures are not evidence that a file is gone.
+  }
+  throw CleanupFailure.unverifiedDeletion
+ }
+ static func remove(_ files:[CleanupFile],from plan:CleanupPlan)->(deleted:[String],failed:[String]) {
+  let allowed=Dictionary(uniqueKeysWithValues:plan.allFiles.map{($0.id,$0.stamp)})
+  let valid=files.filter{allowed[$0.id]==$0.stamp}
+  let originals=valid.filter{file in plan.files.contains{$0.id==file.id}}
+  let copies=valid.filter{file in plan.appCopyFiles.contains{$0.id==file.id}}
+  let a=remove(originals,in:plan.folder)
+  let b=remove(copies,in:plan.appCopyFiles.first?.url.deletingLastPathComponent() ?? plan.folder)
+  return (a.deleted+b.deleted,a.failed+b.failed+files.filter{allowed[$0.id] != $0.stamp}.map{$0.name+"：不属于已确认清单"})
+ }
+ // Caller retains the folder scope until all I/O and post-delete checks finish.
+ static func remove(_ files:[CleanupFile],in folder:URL,performRemoval:(URL)throws->Void={try FileManager.default.removeItem(at:$0)})->(deleted:[String],failed:[String]) {
   var deleted=[String](),failed=[String]()
   for file in files {
    guard file.url.deletingLastPathComponent().standardizedFileURL.path==folder.standardizedFileURL.path else{failed.append(file.name+"：目录不匹配");continue}
    var coordinationError:NSError?
    var failure:Error?
+   var performed=false
    NSFileCoordinator().coordinate(writingItemAt:file.url,options:.forDeleting,error:&coordinationError) {coordinated in
     do {
      guard coordinated.standardizedFileURL.path==file.url.standardizedFileURL.path,try CleanupFileStamp.read(coordinated)==file.stamp else{throw CleanupFailure.changedFile}
-     try FileManager.default.removeItem(at:coordinated)
+     try performRemoval(coordinated)
+     try verifyAbsent(coordinated)
+     performed=true
     } catch {failure=error}
    }
    if let error=failure ?? coordinationError {failed.append(file.name+"："+error.localizedDescription)}
+   else if !performed {failed.append(file.name+"：系统未执行删除，文件已保留")}
    else {deleted.append(file.name)}
   }
   return (deleted,failed)

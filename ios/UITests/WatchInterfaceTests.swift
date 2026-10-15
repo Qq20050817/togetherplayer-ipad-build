@@ -23,7 +23,8 @@ final class WatchInterfaceTests: XCTestCase {
   delete.tap();XCTAssertTrue(alert.waitForExistence(timeout:3));alert.buttons["删除"].tap()
   let result=app.staticTexts["cleanup-result"].firstMatch
   XCTAssertTrue(result.waitForExistence(timeout:10))
-  XCTAssertEqual(result.label,"已删除2个文件。")
+  XCTAssertTrue(result.label.contains("已删除2个文件（已核验不存在）"))
+  XCTAssertTrue(result.label.contains("原文件未删除"))
   capture("32-watched-file-cleanup",app)
  }
  func testBlockingPlotQuestionPresentsAutomaticallyInWatchPage() {

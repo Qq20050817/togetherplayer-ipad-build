@@ -40,6 +40,9 @@ import CoreFoundation
  private weak var attachedItem:AVPlayerItem?
  private var nativeEnabled=true
  private var document: SubtitleDocument?
+ private var completeEmbeddedForAI:SubtitleDocument?
+ var completeExternalForAI:SubtitleDocument? {document}
+ func installCompleteEmbeddedForAI(_ value:SubtitleDocument){completeEmbeddedForAI=value;nativeIndexStatus="已读取完整内置字幕 \(value.cues.count)条（仅供 AI，观看轨道未改变）"}
  private var plannedQuestions:[PlotQuestionCheckpoint]=[]
  private var nativeIndexedDocument:SubtitleDocument?
  private var nativeIndexedQuestions:[PlotQuestionCheckpoint]=[]
@@ -151,6 +154,9 @@ import CoreFoundation
   let cutoff=min(player.currentTime().seconds,player.currentTime().seconds-delay)
   guard cutoff.isFinite,cutoff>=0 else {return []}
   func watched(_ start:Double,_ end:Double)->Bool {plotWatched.contains{$0.lowerBound<=start+0.2 && $0.upperBound>=end}}
+  if let completeEmbeddedForAI {
+   return completeEmbeddedForAI.cues.prefix(while:{$0.start<=cutoff}).filter{$0.end<=cutoff && watched($0.start,$0.end)}.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"embedded-subtitle")}
+  }
   if enabled,let document {
    return document.cues.prefix(while:{$0.start<=cutoff}).filter{$0.end<=cutoff && watched($0.start,$0.end)}.map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"external-subtitle")}
   }
@@ -189,7 +195,7 @@ import CoreFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {importedFileURL=nil;generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;clearOriginalPGS();enabled=false;delay=0}
+ func clear() {completeEmbeddedForAI=nil;importedFileURL=nil;generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;clearOriginalPGS();enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}

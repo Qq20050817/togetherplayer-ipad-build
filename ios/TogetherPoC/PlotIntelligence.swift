@@ -46,6 +46,24 @@ struct PlotFrame {
  @Published private(set) var autoSuggestion:PlotQuestion?
  @Published private(set) var fullFilmPreparationStatus="等待已播放字幕，边播放边整理剧情"
  let auth=ChatGPTAuthProbe()
+ let wholeFilm=WholeFilmHost()
+ let requireCompleteFilm:Bool
+ @Published var wholeFilmCloudConsent:Bool {didSet {preferences.set(wholeFilmCloudConsent,forKey:"plot-whole-film-cloud-consent");if !wholeFilmCloudConsent {wholeFilm.cancel()}}}
+ private var fullFilmCloudBatchStarted=false
+ private var fullFilmCloudBatchKey=""
+ var inferenceForWholeFilm:(String,String) async throws->String { { [weak self] instruction,input in
+  guard let self else{throw CancellationError()}
+  if PlotLocalAI.available {return try await PlotLocalAI.respond(instructions:instruction,input:input)}
+  guard self.mode != .local,self.mode != .fallback,self.wholeFilmCloudConsent,self.consent,self.automaticAllowed,self.creditsDisabled,self.auth.integrationReady,!self.auth.usagePaused else{throw WholeFilmPlan.Failure.unavailable}
+  let key=self.wholeFilm.filmKey
+  if self.fullFilmCloudBatchKey != key {self.fullFilmCloudBatchKey=key;self.fullFilmCloudBatchStarted=false}
+  let segment = -1-Int(PlotMemoryStore.key(instruction+input).prefix(8),radix:16)!
+  guard try await self.memory.reserve(key:key,segment:segment,manual:false,limit:self.limit,interval:self.fullFilmCloudBatchStarted ? 0 : 180) else{throw NSError(domain:"WholeFilmBudget",code:1,userInfo:[NSLocalizedDescriptionKey:"全片分析已达到请求上限或冷却限制；已分析片段保留，未标记全片完成。"]) }
+  self.fullFilmCloudBatchStarted=true
+  let state=await self.memory.load(key);self.requests=state.budget.total;self.automaticRequests=state.budget.automatic
+  return try await self.auth.performInference(instructions:instruction,input:input,canSend:{self.wholeFilm.filmKey==key && self.wholeFilmCloudConsent && self.consent && self.automaticAllowed && self.creditsDisabled})
+ }}
+
  private let memory:PlotMemoryStore
  private let preferences:UserDefaults
  private var operationIsAutomatic=false
@@ -99,10 +117,14 @@ struct PlotFrame {
  }
  func prepareFullFilm(_ document:SubtitleDocument,source:String,key:String,checkpoints:[PlotQuestionCheckpoint]) {
   guard let snapshot=frame?(),snapshot.key==key else{return}
+  if requireCompleteFilm {
+   if source != "embedded-subtitle" {wholeFilm.supplyExternal(document,film:key)}
+   return
+  }
   prepareWatchedStory(snapshot.evidence,key:key,position:snapshot.position)
  }
  func prepareWatchedStory(_ evidence:[PlotEvidence],key:String,position:Double) {
-  guard !key.isEmpty,position.isFinite,position>=0,(!working || mode == .chatgpt),pendingAutomatic==nil,fullFilmTask==nil else{return}
+  guard !requireCompleteFilm,!key.isEmpty,position.isFinite,position>=0,(!working || mode == .chatgpt),pendingAutomatic==nil,fullFilmTask==nil else{return}
   let watched=evidence.filter{$0.end<=position && $0.source != "ondevice-vision"}.sorted{$0.start<$1.start}
   guard watched.count>=3,let first=watched.first else {
    fullFilmPreparationStatus="正在积累已播放字幕；无需等完整索引"
@@ -196,8 +218,9 @@ struct PlotFrame {
   storyGeneration+=1;fullFilmTask?.cancel();fullFilmTask=nil
   storyDeadline?.cancel();storyDeadline=nil
  }
- init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard,storyArchive:PlotStoryArchive=PlotStoryArchive()) {
-  self.memory=memory;self.preferences=preferences;self.storyArchive=storyArchive
+ init(memory:PlotMemoryStore=PlotMemoryStore(),preferences:UserDefaults = .standard,storyArchive:PlotStoryArchive=PlotStoryArchive(),requireCompleteFilm:Bool=false) {
+  self.memory=memory;self.preferences=preferences;self.storyArchive=storyArchive;self.requireCompleteFilm=requireCompleteFilm
+  wholeFilmCloudConsent=preferences.bool(forKey:"plot-whole-film-cloud-consent")
   mode=PlotMode(rawValue:preferences.string(forKey:"plot-mode") ?? "") ?? .smart
   pauseForQuestions=preferences.object(forKey:"plot-pause-for-questions") as? Bool ?? true
   eventDrivenEnabled=preferences.object(forKey:"plot-event-driven") as? Bool ?? true
@@ -205,6 +228,8 @@ struct PlotFrame {
   consent=preferences.bool(forKey:"plot-cloud-consent")
   creditsDisabled=preferences.bool(forKey:"plot-cloud-no-credits")
   limit=min(50,max(1,preferences.object(forKey:"plot-cloud-limit") as? Int ?? 10))
+  wholeFilm.inference=inferenceForWholeFilm
+  wholeFilm.available={ [weak self] in PlotLocalAI.available || (self?.wholeFilmCloudConsent==true && self?.auth.integrationReady==true && self?.automaticAllowed==true && self?.consent==true && self?.creditsDisabled==true) }
  }
  func start() {
   guard timer==nil else {return}
@@ -243,6 +268,7 @@ struct PlotFrame {
   // before deciding whether this quiet gap is a real plot turning point.
   if publishPendingAutomaticQuestion() || pendingAutomatic != nil {return}
   guard text.isEmpty else{return}
+  guard !requireCompleteFilm || wholeFilm.ready(for:frame?()?.key ?? "") else{autoTriggerStatus=wholeFilm.status;return}
   guard eventDrivenEnabled else{autoTriggerStatus="自动暂停提问已关闭";return}
   guard mode != .fallback else{autoTriggerStatus="免费备用题库只支持手动出题；自动提问请选择真实 AI";return}
   guard !working else{autoTriggerStatus="AI 正在分析剧情";return}
@@ -303,6 +329,7 @@ struct PlotFrame {
  var previewUsable:Bool {guard let current=currentDisplayPosition else {return false};return current.key==lastKey && current.position>=previewCutoff}
  func generate(manualDeep:Bool=false,regenerate:Bool=false,autoMoment:Bool=false,plannedMoment:Bool=false) {
   guard !working,let snapshot=frame?() else {reason="请先加载影片；本机出题无需房间在线";return}
+  guard !requireCompleteFilm || mode == .fallback || wholeFilm.ready(for:snapshot.key) else {result=nil;reason=wholeFilm.status;selectedModel="全片分析尚未完成";return}
   cancel()
   if mode != .chatgpt {cancelStoryPreparation()}
   lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
@@ -331,6 +358,7 @@ struct PlotFrame {
    let explicitlyCloud=manualDeep || mode == .chatgpt
    let explicitlyLocal=mode == .local && !manualDeep
    func matchesSelection(_ item:PlotQuestion)->Bool {
+    if requireCompleteFilm && item.planningScope != "full-film-v1" {return false}
     if explicitlyCloud {return item.source=="ChatGPT"}
     if explicitlyLocal {return item.source=="Apple 设备端 AI"}
     if mode == .fallback {return item.source=="免费备用题库"}
@@ -363,13 +391,16 @@ struct PlotFrame {
     // Even without subtitles, use the REAL on-device model for an honest
     // context-free question; never claim it analyzed unobserved movie content.
     if let prepared {local=prepared}
-    else if context.sufficient {local=await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment)}
+    else if context.sufficient {
+     if requireCompleteFilm,let input=wholeFilm.questionInput(context,film:snapshot.key,local:true) {local=(try? await PlotLocalAI.respond(instructions:WholeFilmPlan.questionInstructions,input:input)).flatMap{wholeFilm.parseQuestion($0,context:context,film:snapshot.key)}}
+     else {local=await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment)}
+    }
     else {local=await PlotLocalAI.genericQuestion(at:snapshot.position)}
    }
    guard valid(snapshot,token:token) else {cancel();return}
    var localGeneric = !context.sufficient
    var localGood=local.map{PlotQuality.check($0,context:context,history:history,allowGeneric:localGeneric && $0.evidenceIDs.isEmpty)} ?? false
-   if !localGood && context.sufficient && (mode == .local || mode == .smart) && PlotLocalAI.available {
+   if !requireCompleteFilm && !localGood && context.sufficient && (mode == .local || mode == .smart) && PlotLocalAI.available {
     // Try one genuine zero-cost model question, without claiming to know
     // a movie scene that the strict subtitle-evidence validator rejected.
     local=await PlotLocalAI.genericQuestion(at:snapshot.position)
@@ -394,18 +425,18 @@ struct PlotFrame {
     // context-free ChatGPT question when subtitle evidence is missing.
     // Automatic moments still require evidence before any cloud request.
     let allowed=consent && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working && !auth.loadingModels &&
-       (context.sufficient || explicitlyCloud || (!autoMoment && mode == .smart)) &&
+       (context.sufficient || explicitlyCloud || (!autoMoment && mode == .smart)) && (!requireCompleteFilm || wholeFilmCloudConsent) &&
        (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
     if allowed {
      if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:limit,interval:180) {
       let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
       do {
        guard valid(snapshot,token:token) else {cancel();return}
-       let instruction=context.sufficient ? (plannedMoment ? PlotLocalAI.plannedMomentInstructions : (autoMoment ? PlotLocalAI.importantMomentInstructions : PlotLocalAI.questionInstructions)) : PlotLocalAI.noEvidenceInstructions
-       let input=context.sufficient ? context.boundedInput : "当前影片播放到约\(Int(snapshot.position/60))分钟，暂无足够的已观看字幕；请生成一道不依赖任何虚构细节的通用讨论问题。"
+       let instruction=requireCompleteFilm ? WholeFilmPlan.questionInstructions : (context.sufficient ? (plannedMoment ? PlotLocalAI.plannedMomentInstructions : (autoMoment ? PlotLocalAI.importantMomentInstructions : PlotLocalAI.questionInstructions)) : PlotLocalAI.noEvidenceInstructions)
+       let input=requireCompleteFilm ? (wholeFilm.questionInput(context,film:snapshot.key) ?? "") : (context.sufficient ? context.boundedInput : "当前影片播放到约\(Int(snapshot.position/60))分钟，暂无足够的已观看字幕；请生成一道不依赖任何虚构细节的通用讨论问题。")
        let text=try await auth.performInference(instructions:instruction,input:input,canSend:{self.valid(snapshot,token:token)})
        guard valid(snapshot,token:token) else {return}
-       if let cloud=PlotPromptMaker.parse(text),PlotQuality.check(cloud,context:context,history:history,allowGeneric:!context.sufficient && cloud.evidenceIDs.isEmpty) {
+       if let cloud=(requireCompleteFilm ? wholeFilm.parseQuestion(text,context:context,film:snapshot.key) : PlotPromptMaker.parse(text)),PlotQuality.check(cloud,context:context,history:history,allowGeneric:!context.sufficient && cloud.evidenceIDs.isEmpty) {
         chosen=PlotQuestion(text:cloud.text,choices:cloud.choices,source:"ChatGPT",evidenceIDs:cloud.evidenceIDs,kind:cloud.kind)
         explanation=context.sufficient ? "ChatGPT 已根据已观看的字幕生成问题" : "ChatGPT 已生成通用讨论题，未读取或编造影片剧情"
        } else {
@@ -419,6 +450,8 @@ struct PlotFrame {
      } else {
       explanation="该片段已请求过或仍在3分钟冷却期，为防止重复消耗额度暂不再次调用 ChatGPT"
      }
+    } else if requireCompleteFilm && !wholeFilmCloudConsent {
+     explanation="尚未同意向 ChatGPT 发送全片剧情资料；可先使用苹果本地 AI，或在连接与隐私中明确授权全片分析"
     } else if !consent {
      explanation="尚未同意向 ChatGPT 发送必要剧情摘要，请到授权与隐私设置开启"
     } else if !creditsDisabled {
@@ -457,6 +490,20 @@ struct PlotFrame {
     autoTriggerStatus=chosen == nil ? "剧情候选有效，但真实 AI 未生成合格问题：\(explanation)" : "AI 问题缺乏当前剧情证据，已避免打断"
     reason=autoTriggerStatus;working=false;deadline?.cancel();deadline=nil;return
    }
+   if requireCompleteFilm,let draft=chosen {
+    let safe=try await wholeFilm.verify(draft,context:context,film:snapshot.key,audit:{instructions,input in
+     if PlotLocalAI.available {return try await PlotLocalAI.respond(instructions:instructions,input:input)}
+     guard self.wholeFilmCloudConsent,self.consent,self.creditsDisabled,self.auth.integrationReady,self.automaticAllowed,
+      try await self.memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:self.limit,interval:0) else{throw WholeFilmPlan.Failure.spoiler}
+     let current=await self.memory.load(snapshot.key);self.requests=current.budget.total;self.automaticRequests=current.budget.automatic
+     return try await self.auth.performInference(instructions:instructions,input:input,canSend:{self.valid(snapshot,token:token) && self.wholeFilmCloudConsent})
+    })
+    guard valid(snapshot,token:token) else{return}
+    guard safe else{self.result=nil;self.reason=WholeFilmPlan.Failure.spoiler.localizedDescription;self.working=false;self.deadline?.cancel();self.deadline=nil;return}
+    var verified=draft;verified.planningScope="full-film-v1";chosen=verified
+    explanation="已依据全片剧情策划，并通过独立剧透检查；未提前揭晓答案"
+   }
+   if requireCompleteFilm && mode != .fallback && chosen==nil {reason="全片已分析，但本次没有生成通过核验的问题；未用通用题冒充全片出题";working=false;deadline?.cancel();deadline=nil;return}
    let question=chosen ?? PlotFallback.question(context:context,history:history)
    guard chosen != nil || PlotQuality.check(question,context:context,history:history,allowGeneric:true) else {
     cancel();reason="生成的问题没有通过安全或重复检查，请稍后重试";return
@@ -471,7 +518,7 @@ struct PlotFrame {
    }
   } catch {
    guard generation==token else {return}
-   cancel();reason="本地剧情记忆保存失败；没有消耗新的云端请求，请稍后再试"
+   cancel();reason="分析或保存未完成："+error.localizedDescription
   }
  }
  // Wait only for the caption currently on screen to end/change, including

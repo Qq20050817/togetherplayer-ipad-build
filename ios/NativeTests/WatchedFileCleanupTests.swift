@@ -67,6 +67,53 @@ final class WatchedFileCleanupTests:XCTestCase {
    XCTAssertTrue(FileManager.default.fileExists(atPath:movie.path))
   }
  }
+ func testOriginalAndImportCopyAreBothReviewedAndDeleted()throws {
+  try fixture {root in
+   let original=root.appendingPathComponent("Original"),copies=root.appendingPathComponent("Copy")
+   for folder in [original,copies] {try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)}
+   let movie=try file("Movie.mkv",in:original,"identical full movie bytes")
+   let copy=try file("Movie.mkv",in:copies,"identical full movie bytes")
+   let originalSubtitle=try file("Movie.zh-Hans.srt",in:original)
+   let copySubtitle=try file("Movie.zh-Hans.srt",in:copies)
+   let keep=try file("Other.srt",in:original)
+   let plan=try WatchedFileCleanup.planOriginalAndCopy(source:copy,folder:original)
+   XCTAssertEqual(plan.files.count,2);XCTAssertEqual(plan.appCopyFiles.count,2)
+   let result=WatchedFileCleanup.remove(plan.allFiles,from:plan)
+   XCTAssertEqual(result.deleted.count,4);XCTAssertTrue(result.failed.isEmpty)
+   for url in [movie,copy,originalSubtitle,copySubtitle] {XCTAssertFalse(FileManager.default.fileExists(atPath:url.path))}
+   XCTAssertTrue(FileManager.default.fileExists(atPath:keep.path))
+  }
+ }
+ func testSameNameAndSizeButDifferentContentCannotDeleteOriginal()throws {
+  try fixture {root in
+   let original=root.appendingPathComponent("Original"),copies=root.appendingPathComponent("Copy")
+   for folder in [original,copies] {try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)}
+   let movie=try file("Movie.mkv",in:original,"abcXdef")
+   let copy=try file("Movie.mkv",in:copies,"abcYdef")
+   XCTAssertThrowsError(try WatchedFileCleanup.planOriginalAndCopy(source:copy,folder:original))
+   for url in [movie,copy] {XCTAssertTrue(FileManager.default.fileExists(atPath:url.path))}
+  }
+ }
+ func testSilentNoOpDeletionCannotReportSuccess()throws {
+  try fixture {root in
+   let movie=try file("Movie.mkv",in:root)
+   let plan=try WatchedFileCleanup.plan(source:movie,folder:root)
+   let result=WatchedFileCleanup.remove(plan.files,in:root,performRemoval:{_ in})
+   XCTAssertTrue(result.deleted.isEmpty);XCTAssertEqual(result.failed.count,1)
+   XCTAssertTrue(FileManager.default.fileExists(atPath:movie.path))
+  }
+ }
+ func testOriginalCanBeUncheckedWhileDeletingOnlyImportCopy()throws {
+  try fixture {root in
+   let original=root.appendingPathComponent("Original"),copies=root.appendingPathComponent("Copy")
+   for folder in [original,copies] {try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)}
+   let movie=try file("Movie.mkv",in:original),copy=try file("Movie.mkv",in:copies)
+   let plan=try WatchedFileCleanup.planOriginalAndCopy(source:copy,folder:original)
+   let result=WatchedFileCleanup.remove(plan.appCopyFiles,from:plan)
+   XCTAssertEqual(result.deleted.count,1);XCTAssertTrue(result.failed.isEmpty)
+   XCTAssertTrue(FileManager.default.fileExists(atPath:movie.path));XCTAssertFalse(FileManager.default.fileExists(atPath:copy.path))
+  }
+ }
  func testForeignFolderAndRemoteURLAreRejected()throws {
   try fixture {root in
    let movie=try file("Movie.mkv",in:root)
