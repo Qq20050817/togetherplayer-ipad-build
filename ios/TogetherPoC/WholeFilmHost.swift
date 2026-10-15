@@ -12,7 +12,7 @@ struct WholeFilmMap:Codable,Equatable {
  let evidenceIDs:[String]
  var questionMomentEvidenceIDs:[String]?=nil
 }
-struct WholeFilmArchiveValue:Codable {var sections:[WholeFilmSection]=[];var map:WholeFilmMap?}
+struct WholeFilmArchiveValue:Codable {var sections:[WholeFilmSection]=[];var map:WholeFilmMap?;var filmKey:String?=nil}
 actor WholeFilmArchive {
  let directory:URL?
  init(directory:URL?=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first?.appendingPathComponent("WholeFilmHost-v1")){self.directory=directory}
@@ -25,6 +25,18 @@ actor WholeFilmArchive {
   try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
   var folder=directory;var attributes=URLResourceValues();attributes.isExcludedFromBackup=true;try? folder.setResourceValues(attributes)
   try JSONEncoder().encode(value).write(to:directory.appendingPathComponent(key+".json"),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+ }
+ func remove(film:String,legacyKey:String) throws->Int {
+  guard let directory,!film.isEmpty,FileManager.default.fileExists(atPath:directory.path) else{return 0}
+  let files=try FileManager.default.contentsOfDirectory(at:directory,includingPropertiesForKeys:nil)
+  var count=0
+  for url in files where url.pathExtension=="json" {
+   let key=url.deletingPathExtension().lastPathComponent
+   guard key.count==64,key.allSatisfy({"0123456789abcdef".contains($0)}) else{continue}
+   let belongs=key==legacyKey || read(key).filmKey==film
+   if belongs {try FileManager.default.removeItem(at:url);count+=1}
+  }
+  return count
  }
 }
 struct WholeFilmChunk {let index:Int;let evidence:[PlotEvidence]}
@@ -112,6 +124,7 @@ enum WholeFilmPlan {
  @Published private(set) var analysisBackend=""
  @Published private(set) var completed=0
  @Published private(set) var total=0
+ @Published private(set) var estimatedCloudRequests=0
  private(set) var filmKey=""
  private var map:WholeFilmMap?
  private var sections:[WholeFilmSection]=[]
@@ -131,11 +144,13 @@ enum WholeFilmPlan {
  private var token=0
  private let archive:WholeFilmArchive
  var inference:(String,String) async throws->String={try await PlotLocalAI.respond(instructions:$0,input:$1)}
+ var cloudBatching:()->Bool={false}
+ var cloudPreflight:(Int) async throws->Void={_ in}
  var available:()->Bool={PlotLocalAI.available}
  var unavailableModelError:()->Error={WholeFilmPlan.Failure.unavailable}
  init(archive:WholeFilmArchive=WholeFilmArchive()){self.archive=archive}
  func ready(for key:String)->Bool {filmKey==key && map != nil && completed==total && total>0}
- func reset(film:String="") {readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;reader?.cancel();reader=nil;readerKey="";embeddedUnavailable=false;manuallyProvidedFullSubtitle=false;externalFallback=nil;token+=1;task?.cancel();task=nil;map=nil;sections=[];chunks=[];transcriptKey="";sourceRank=0;lastAnalysisSource=nil;analysisBackend="";filmKey=film;busy=false;readingActive=false;completed=0;total=0;status="等待完整内置字幕；读取完成后分析整片"}
+ func reset(film:String="") {readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;reader?.cancel();reader=nil;readerKey="";embeddedUnavailable=false;manuallyProvidedFullSubtitle=false;externalFallback=nil;token+=1;task?.cancel();task=nil;map=nil;sections=[];chunks=[];transcriptKey="";sourceRank=0;lastAnalysisSource=nil;analysisBackend="";filmKey=film;busy=false;readingActive=false;completed=0;total=0;estimatedCloudRequests=0;status="等待完整内置字幕；读取完成后分析整片"}
  func reading(_ progress:Double){guard map==nil,!busy else{return};status="正在读取全片内置字幕：\(Int(max(0,min(1,progress))*100))%（尚未完成分析）"}
  func unavailable(_ text:String){guard map==nil,!busy else{return};status=text}
  func supplyExternal(_ document:SubtitleDocument,film:String) {
@@ -149,8 +164,7 @@ enum WholeFilmPlan {
   if filmKey != film {reset(film:film)}
   // Metadata refreshes can reenter this method frequently while analysing.
   // Do not cancel the existing inference task for the same full transcript.
-  if manuallyProvidedFullSubtitle,externalFallback?.cues==document.cues,
-     (busy || ready(for:film)) {return}
+  if manuallyProvidedFullSubtitle,externalFallback?.cues==document.cues {return}
   readerGeneration += 1
   reader?.cancel();reader=nil;readerKey=""
   readingActive=false;embeddedUnavailable=true
@@ -201,6 +215,8 @@ enum WholeFilmPlan {
   if filmKey != film {reset(film:film)}
   let rank=embedded ? 2 : 1
   guard rank>=sourceRank else{return}
+  if let (previous,previousFilm,previousSource,previousEmbedded)=lastAnalysisSource,
+     previousFilm==film,previousSource==source,previousEmbedded==embedded,previous.cues==document.cues {return}
   sourceRank=rank;lastAnalysisSource=(document,film,source,embedded)
   if !embedded {subtitleSource="外置完整字幕（内置字幕不可读取）"}
   task?.cancel();token+=1;let request=token
@@ -222,26 +238,53 @@ enum WholeFilmPlan {
      self.map=map;self.status="全片分析完成 · 已恢复\(plan.count)段剧情；题目不提前揭晓答案";return
     }
     guard self.available() else{throw self.unavailableModelError()}
-    for chunk in plan where !self.sections.contains(where:{$0.index==chunk.index}) {
+    var preparedCloud=false
+    func prepareCloud() async throws {
+     guard self.cloudBatching(),!preparedCloud else{return}
+     let completed=self.sections
+     let estimate=await Task.detached(priority:.utility){WholeFilmCloudPlan.estimatedRequests(plan:plan,completed:completed)}.value
+     self.estimatedCloudRequests=estimate
+     try await self.cloudPreflight(estimate)
+     try Task.checkCancellation();guard self.token==request else{throw CancellationError()}
+     preparedCloud=true
+    }
+    try await prepareCloud()
+    while let chunk=plan.first(where:{candidate in !self.sections.contains(where:{$0.index==candidate.index})}) {
      try Task.checkCancellation();guard self.token==request else{return}
+     try await prepareCloud()
      self.status="正在理解整片：\(self.completed)/\(plan.count)段 · 仅后台处理"
      let previous=self.sections.sorted{$0.index<$1.index}.suffix(2).map(\.summary).joined(separator:"\n")
-     let input="此前片段概要："+String(previous.suffix(600))+"\n当前完整片段字幕："+WholeFilmPlan.modelJSON(chunk.evidence,ids:chunk.evidence.map(\.id))
-     let answer=try await self.respond(WholeFilmPlan.sectionInstructions,input)
-     try Task.checkCancellation();guard self.token==request else{return}
-     guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.sectionFailure(answer,chunk:chunk)}
-     self.sections.append(section);self.completed=self.sections.count
-     cache=WholeFilmArchiveValue(sections:self.sections,map:nil);try await self.archive.write(cache,key:signature)
+     if self.cloudBatching() {
+      let missing=plan.filter{candidate in !self.sections.contains(where:{$0.index==candidate.index})}
+      guard let batch=await Task.detached(priority:.utility,operation:{WholeFilmCloudPlan.batches(missing).first}).value else{throw WholeFilmPlan.Failure.invalidModel}
+      let input=await Task.detached(priority:.utility){WholeFilmCloudPlan.input(batch,previous:previous)}.value
+      try Task.checkCancellation();guard self.token==request else{return}
+      let answer=try await self.respond(WholeFilmCloudPlan.instructions,input)
+      try Task.checkCancellation();guard self.token==request else{return}
+      guard let verified=WholeFilmCloudPlan.sections(answer,chunks:batch) else {
+       throw NSError(domain:"WholeFilmValidation",code:2,userInfo:[NSLocalizedDescriptionKey:"云端批次未通过字幕证据核验（未完整覆盖每段或引用不符），已停止，未自动重试；已完成片段保留。"])
+      }
+      self.sections.append(contentsOf:verified)
+     } else {
+      let input="此前片段概要："+String(previous.suffix(600))+"\n当前完整片段字幕："+WholeFilmPlan.modelJSON(chunk.evidence,ids:chunk.evidence.map(\.id))
+      let answer=try await self.respond(WholeFilmPlan.sectionInstructions,input)
+      try Task.checkCancellation();guard self.token==request else{return}
+      guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.sectionFailure(answer,chunk:chunk)}
+      self.sections.append(section)
+     }
+     self.completed=self.sections.count
+     cache=WholeFilmArchiveValue(sections:self.sections,map:nil,filmKey:film);try await self.archive.write(cache,key:signature)
      try await Task.sleep(nanoseconds:100_000_000)
     }
+    try await prepareCloud()
     self.sections.sort{$0.index<$1.index}
     // Hierarchically compact long films. Every leaf section was analyzed;
     // no subtitle is silently sampled away to claim full-film coverage.
     var synthesis=self.sections
-    while WholeFilmPlan.json(synthesis).count>3000 {
+    while (self.cloudBatching() ? WholeFilmCloudPlan.summaryInput(synthesis).count>WholeFilmCloudPlan.inputLimit : WholeFilmPlan.json(synthesis).count>3000) {
      var reduced:[WholeFilmSection]=[]
-     for offset in stride(from:0,to:synthesis.count,by:3) {
-      let group=Array(synthesis[offset..<min(offset+3,synthesis.count)])
+     let groups=self.cloudBatching() ? WholeFilmCloudPlan.summaryGroups(synthesis) : stride(from:0,to:synthesis.count,by:3).map{Array(synthesis[$0..<min($0+3,synthesis.count)])}
+     for group in groups {
       let evidence=group.map{PlotEvidence(id:$0.evidenceIDs[0],start:0,end:1,text:$0.summary,source:"private-full-film-summary")}
       let chunk=WholeFilmChunk(index:reduced.count,evidence:evidence)
       let answer=try await self.respond(WholeFilmPlan.sectionInstructions,WholeFilmPlan.modelJSON(evidence,ids:evidence.map(\.id)))
@@ -255,7 +298,7 @@ enum WholeFilmPlan {
     let answer=try await self.respond(WholeFilmPlan.mapInstructions,WholeFilmPlan.modelJSON(synthesis,ids:synthesis.flatMap(\.evidenceIDs)))
     try Task.checkCancellation();guard self.token==request else{return}
     guard let map=WholeFilmPlan.map(answer,sections:synthesis) else{throw WholeFilmPlan.Failure.invalidModel}
-    self.map=map;try await self.archive.write(WholeFilmArchiveValue(sections:self.sections,map:map),key:signature)
+    self.map=map;try await self.archive.write(WholeFilmArchiveValue(sections:self.sections,map:map,filmKey:film),key:signature)
     guard !Task.isCancelled,self.token==request else{return}
     self.status="全片分析完成 · \(plan.count)段剧情已串联；题目不提前揭晓答案"
    } catch is CancellationError {if self.token==request {self.status="全片分析已暂停，未标记完成"}}
@@ -267,7 +310,7 @@ enum WholeFilmPlan {
   let wasRunning=task != nil
   token+=1;task?.cancel();task=nil;inferenceDeadline?.cancel();inferenceDeadline=nil;busy=false;analysisBackend=""
   guard analyse else{status="已选免费备用题库，后台 AI 分析已暂停";return}
-  if map==nil || wasRunning,let (document,film,source,embedded)=lastAnalysisSource {accept(document,film:film,source:source,embedded:embedded)}
+  if map==nil || wasRunning,let (document,film,source,embedded)=lastAnalysisSource {lastAnalysisSource=nil;accept(document,film:film,source:source,embedded:embedded)}
  }
  private func respond(_ instruction:String,_ input:String) async throws->String {
   let request=token
@@ -315,6 +358,14 @@ enum WholeFilmPlan {
   let answer=try await audit(WholeFilmPlan.auditInstructions,input)
   guard let data=PlotJSON.object(answer),let value=try? JSONSerialization.jsonObject(with:data) as? [String:Any] else{return false}
   return value["safe"] as? Bool == true
+ }
+ func clearSavedAnalysis(expectedFilm:String?=nil) async throws->Int {
+  guard expectedFilm==nil || expectedFilm==filmKey else {throw NSError(domain:"WholeFilmCleanup",code:1,userInfo:[NSLocalizedDescriptionKey:"当前影片已改变，原分析缓存未清理。"])}
+  let film=filmKey,key=transcriptKey
+  cancel();let request=token
+  let count=try await archive.remove(film:film,legacyKey:key)
+  if token==request,filmKey==film {reset(film:film);status="已清理本片全片分析缓存；请求计数保留。"}
+  return count
  }
  func cancel(){readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;readingActive=false;reader?.cancel();reader=nil;readerKey="";token+=1;task?.cancel();task=nil;busy=false;if map==nil {status="全片分析已暂停，未标记完成"}}
  #if DEBUG

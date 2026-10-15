@@ -810,7 +810,7 @@ struct RoomActionStyle:ButtonStyle {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
     case .cleanup(let source,let subtitle):
-     WatchedCleanupSheet(source:source,importedSubtitle:subtitle,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0})
+     WatchedCleanupSheet(source:source,importedSubtitle:subtitle,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0},clearAnalysis:{[film=model.plotIntelligence.wholeFilm.filmKey] in try await model.plotIntelligence.wholeFilm.clearSavedAnalysis(expectedFilm:film)})
     case .local,.localCopy:
      LocalMovieDocumentPicker(asCopy:selection == .localCopy,onPick:{url in
       picker=nil

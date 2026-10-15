@@ -1,7 +1,7 @@
 name: Verify watched-file cleanup and AI playback stability
 on:
   push:
-    branches: [fix/ipad-wholefilm-routing-20261015]
+    branches: [fix/ipad-ai-quota-batching-20261015]
   workflow_dispatch:
 permissions:
   contents: read
@@ -45,9 +45,9 @@ jobs:
           echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
-      - name: Diagnose PGS subtitle extraction regression
+      - name: Validate PGS extraction and bounded cloud analysis
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/WholeFilmHostTests/testRealPGSOCRReadsWholeTrackWithoutChangingPlayer test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/WholeFilmHostTests/testRealPGSOCRReadsWholeTrackWithoutChangingPlayer -only-testing:TogetherPoCCoreTests/WholeFilmCloudBudgetTests test
       - name: Test all native core regressions including control interleaving
         run: |
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests -retry-tests-on-failure test
@@ -61,13 +61,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p plot-delivery
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.30-AI-Routing-Subtitle-Recovery-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.31-AI-Quota-Batching-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           cd plot-delivery
-          sha256sum TogetherPlayer-0.6.30-AI-Routing-Subtitle-Recovery-unsigned.ipa > SHA256SUMS.txt
+          sha256sum TogetherPlayer-0.6.31-AI-Quota-Batching-unsigned.ipa > SHA256SUMS.txt
           printf 'Source branch: %s\nSource SHA: %s\nCI: native core and watch UI tests passed\nUnsigned build: sign with your certificate for installation\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-0.6.30-AI-Routing-Subtitle-Recovery
+          name: TogetherPlayer-iPad-0.6.31-AI-Quota-Batching
           path: plot-delivery/
           retention-days: 7
       - name: Export native test reports
@@ -107,21 +107,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.30-AI-Routing-Subtitle-Recovery --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.31-AI-Quota-Batching --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           cd verified
           sha256sum -c SHA256SUMS.txt
           cd ..
-          git archive --format=zip --output=verified/TogetherPlayer-0.6.30-AI-Routing-Subtitle-Recovery-source.zip HEAD
-          sha256sum verified/TogetherPlayer-0.6.30-AI-Routing-Subtitle-Recovery-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
+          git archive --format=zip --output=verified/TogetherPlayer-0.6.31-AI-Quota-Batching-source.zip HEAD
+          sha256sum verified/TogetherPlayer-0.6.31-AI-Quota-Batching-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
       - name: Create preview release only after tests pass
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='v0.6.30-ai-routing-subtitle-ipad-20261015'
+          tag='v0.6.31-ai-quota-batching-ipad-20261015'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release already exists. Will not replace an existing package.' >&2
             exit 1
           fi
-          gh release create "$tag" verified/TogetherPlayer-0.6.30-AI-Routing-Subtitle-Recovery-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.30-AI-Routing-Subtitle-Recovery-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.30 · Local embedded subtitle reader' --notes 'Fixes ChatGPT-only mode invoking Apple AI during full-film analysis or spoiler checks. Smart mode can fall back from an unsupported local language only with existing full-film consent, authorization and counted budget; local-only never sends to cloud. Shows the actual analysis backend and current failure without stale header errors. Recovers missing selected native subtitles from only the current local HLS subtitle segment, preserving playback position and selected track. Uses adaptive legible callback advance. Includes existing whole-film, AI-only import and original-file cleanup fixes. Requires all core/watch UI tests before packaging. Unsigned IPA, sign with original certificate. Actual account/movie/physical-device validation remains necessary.'
+          gh release create "$tag" verified/TogetherPlayer-0.6.31-AI-Quota-Batching-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.31-AI-Quota-Batching-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.31 · Cloud analysis batching and persistent progress' --notes 'Batches cloud full-film analysis while preserving canonical subtitle IDs and existing verified caches. Estimates remaining calls before dispatch, reserves interactive budget, separates counted purposes without resetting legacy totals, allows a user-selected automatic ceiling up to 200, and never silently raises saved limits. Adds opt-in confirmed cleanup of this film’s analysis cache while retaining usage counters. Includes all 0.6.30 model-routing and native-caption recovery fixes. Smart mode can fall back from an unsupported local language only with existing full-film consent, authorization and counted budget; local-only never sends to cloud. Shows the actual analysis backend and current failure without stale header errors. Recovers missing selected native subtitles from only the current local HLS subtitle segment, preserving playback position and selected track. Uses adaptive legible callback advance. Includes existing whole-film, AI-only import and original-file cleanup fixes. Requires all core/watch UI tests before packaging. Unsigned IPA, sign with original certificate. Actual account/movie/physical-device validation remains necessary.'

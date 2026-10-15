@@ -39,17 +39,42 @@ struct PlotContext:Codable,Equatable {
   return String(data:(try? encoder.encode(self)) ?? Data(),encoding:.utf8) ?? "{}"
  }
 }
+enum PlotRequestPurpose:String {case wholeFilm,question,spoilerAudit}
 struct PlotBudget:Codable,Equatable {
  var automatic=0
  var manual=0
  var lastRequest:Double=0
  var failedSegments:Set<Int>=[]
+ var wholeFilmRequests=0
+ var questionRequests=0
+ var auditRequests=0
  var total:Int {automatic+manual}
+ var legacyRequests:Int {max(0,total-wholeFilmRequests-questionRequests-auditRequests)}
+ enum CodingKeys:String,CodingKey {case automatic,manual,lastRequest,failedSegments,wholeFilmRequests,questionRequests,auditRequests}
+ init(){}
+ init(from decoder:Decoder)throws {
+  let c=try decoder.container(keyedBy:CodingKeys.self)
+  automatic=try c.decodeIfPresent(Int.self,forKey:.automatic) ?? 0
+  manual=try c.decodeIfPresent(Int.self,forKey:.manual) ?? 0
+  lastRequest=try c.decodeIfPresent(Double.self,forKey:.lastRequest) ?? 0
+  failedSegments=try c.decodeIfPresent(Set<Int>.self,forKey:.failedSegments) ?? []
+  wholeFilmRequests=try c.decodeIfPresent(Int.self,forKey:.wholeFilmRequests) ?? 0
+  questionRequests=try c.decodeIfPresent(Int.self,forKey:.questionRequests) ?? 0
+  auditRequests=try c.decodeIfPresent(Int.self,forKey:.auditRequests) ?? 0
+ }
+ func canPrepareWholeFilm(requests:Int,totalLimit:Int,analysisLimit:Int,questionReserve:Int=0)->Bool {
+  requests>0 && requests+max(0,questionReserve)<=max(0,totalLimit-automatic) && requests<=max(0,analysisLimit-wholeFilmRequests)
+ }
  // Count dispatched requests, including failures, before doing network I/O.
- mutating func reserve(segment:Int,now:Double,manualRequest:Bool,limit:Int=10,interval:Double=180)->Bool {
+ mutating func reserve(segment:Int,now:Double,manualRequest:Bool,limit:Int=10,interval:Double=180,purpose:PlotRequestPurpose = .question,purposeLimit:Int?=nil)->Bool {
   guard now-lastRequest>=interval,!failedSegments.contains(segment) else {return false}
+  if purpose == .wholeFilm,let purposeLimit,wholeFilmRequests>=max(0,purposeLimit) {return false}
   if manualRequest {manual+=1} else {guard automatic<max(0,limit) else {return false};automatic+=1}
-  lastRequest=now;return true
+  switch purpose {case .wholeFilm:wholeFilmRequests+=1;case .question:questionRequests+=1;case .spoilerAudit:auditRequests+=1}
+  // Full-film preparation is one bounded batch job, not an interactive question.
+  // It must not postpone the first valid question by the 3-minute question gap.
+  if purpose != .wholeFilm {lastRequest=now}
+  return true
  }
 }
 struct PlotCacheEntry:Codable {
@@ -146,9 +171,9 @@ actor PlotMemoryStore {
   }
   try save(state,key:key);return state
  }
- func reserve(key:String,segment:Int,manual:Bool,limit:Int,interval:Double,now:Double=Date().timeIntervalSince1970) throws -> Bool {
+ func reserve(key:String,segment:Int,manual:Bool,limit:Int,interval:Double,now:Double=Date().timeIntervalSince1970,purpose:PlotRequestPurpose = .question,purposeLimit:Int?=nil) throws -> Bool {
   var state=load(key)
-  guard state.budget.reserve(segment:segment,now:now,manualRequest:manual,limit:limit,interval:interval) else {return false}
+  guard state.budget.reserve(segment:segment,now:now,manualRequest:manual,limit:limit,interval:interval,purpose:purpose,purposeLimit:purposeLimit) else {return false}
   try save(state,key:key);return true
  }
  func finish(key:String,question:PlotQuestion,cutoff:Double,clues:[PlotClue],context:PlotContext) throws {

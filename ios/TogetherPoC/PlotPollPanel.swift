@@ -95,7 +95,9 @@ import SwiftUI
     Button(auth.connected ? "连接与隐私" : "连接 ChatGPT") {authOpen=true}.accessibilityIdentifier("plot-chatgpt-settings")
    }.font(.caption).buttonStyle(.bordered)
    Toggle("允许智能调用 ChatGPT",isOn:$intelligence.automaticAllowed).font(.subheadline)
-   Text("本片自动请求 \(intelligence.automaticRequests)/\(intelligence.limit) · 总尝试 \(intelligence.requests)").font(.caption).foregroundStyle(.secondary)
+   Text("App 自动请求总计 \(intelligence.automaticRequests)/\(intelligence.limit) · 全部尝试 \(intelligence.requests)").font(.caption).foregroundStyle(.secondary)
+   Text("全片分析 \(intelligence.analysisRequests)/\(intelligence.analysisLimit) · 出题 \(intelligence.questionRequests) · 审核 \(intelligence.auditRequests)").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-request-breakdown")
+   if intelligence.legacyRequests>0 {Text("旧版未分类请求 \(intelligence.legacyRequests) 次（保留计数，未清零）").font(.caption2).foregroundStyle(.secondary)}
    if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange);Button("检查连接（不消耗推理额度）") {authOpen=true}.font(.caption)}
    if !model.isConnected {Label("当前离线，可预览，连接房间后再发布",systemImage:"wifi.slash").font(.caption).foregroundStyle(.orange)}
   }
@@ -166,8 +168,9 @@ import SwiftUI
  }
  var body:some View {
     VStack(alignment:.leading,spacing:14) {
-     Stepper("自动请求上限：\(intelligence.limit) 次",value:$intelligence.limit,in:1...50)
-     Text("同片段优先复用，自动请求至少间隔3分钟；失败计数，不自动重试。手动深度推理单独计数。").font(.caption).foregroundStyle(.secondary)
+     Stepper("本片自动请求总上限：\(intelligence.limit) 次",value:$intelligence.limit,in:1...200)
+     Stepper("全片分析子上限：\(intelligence.analysisLimit) 次",value:$intelligence.analysisLimit,in:1...32)
+     Text("分析、出题和审核均计入自动总上限；分析另有子上限，并为自动出题预留4次，不会自行提高预算。互动出题至少间隔3分钟；整片分析合并批次、复用缓存，失败不自动重试。手动深度推理单独计数。").font(.caption).foregroundStyle(.secondary)
      Text("苹果本地 AI：\(localAvailability) · 已采集 \(intelligence.collectedSubtitleCount) 条字幕线索").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
      Toggle("本机画面分析（试验）",isOn:$visuals.enabled).accessibilityIdentifier("plot-visual-experiment")
      Text("仅分析已播放画面，保存粗略场景标签，不上传图像。").font(.caption).foregroundStyle(.secondary)
@@ -195,7 +198,9 @@ import SwiftUI
      Label(auth.connected ? "本机授权已保存" : "尚未连接",systemImage:auth.connected ? "checkmark.circle" : "person.crop.circle").font(.headline)
      Text(auth.status).font(.caption).foregroundStyle(.secondary)
      if !auth.modelName.isEmpty {Text("最近选用的订阅模型："+auth.modelName).font(.caption).foregroundStyle(.secondary)}
-     if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange)}
+     Text("全片分析 \(intelligence.analysisRequests)/\(intelligence.analysisLimit) · 出题 \(intelligence.questionRequests) · 审核 \(intelligence.auditRequests)").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-request-breakdown")
+   if intelligence.legacyRequests>0 {Text("旧版未分类请求 \(intelligence.legacyRequests) 次（保留计数，未清零）").font(.caption2).foregroundStyle(.secondary)}
+   if !auth.lastFailure.isEmpty {Text(auth.lastFailure).font(.caption).foregroundStyle(.orange)}
      Button("Continue with ChatGPT") {auth.connect()}.buttonStyle(.borderedProminent).disabled(auth.working || auth.loadingModels || intelligence.working)
      if auth.connected {
       Picker("推理模型",selection:$auth.preferredModelID) {
@@ -211,7 +216,7 @@ import SwiftUI
     PlotPanelCard(title:"隐私与用量",icon:"hand.raised") {
      Toggle("同意发送必要的剧情摘要",isOn:$intelligence.consent)
      Toggle("允许 ChatGPT 提前分析全片字幕与剧情",isOn:$intelligence.wholeFilmCloudConsent)
-     Text("可能包含未播放的对白、反转和结局，仅供后台策划；全片分段分析和剧透审核均计入请求次数，不额外使用付费 API。不开启时仅在本机理解全片。").font(.caption).foregroundStyle(.secondary)
+     Text("可能包含未播放的对白、反转和结局，仅供后台策划；全片分析、出题和剧透审核分别显示，仍共同受自动请求总上限保护，不额外使用付费 API。不开启时仅在本机理解全片。").font(.caption).foregroundStyle(.secondary)
      Toggle("我已关闭本应用的 Credits 使用",isOn:$intelligence.creditsDisabled)
      Text("仅发送必要文字摘要，影片和令牌不上传房间服务器；不自动使用另行付费的 API。Credits 开关需要在官方设置中关闭，此处是你的确认。").font(.caption).foregroundStyle(.secondary)
      Link("打开官方用量设置",destination:URL(string:"https://chatgpt.com/settings/usage")!).font(.caption)
@@ -248,10 +253,11 @@ import SwiftUI
   VStack(alignment:.leading,spacing:8) {
    Label("全片理解",systemImage:"film.stack").font(.subheadline.weight(.semibold))
    if !host.analysisBackend.isEmpty {Text(host.analysisBackend).font(.caption2).accessibilityIdentifier("plot-whole-film-backend")}
+   if host.estimatedCloudRequests>0 {Text("本次续分析预计最多 \(host.estimatedCloudRequests) 次云端请求 · 完成 \(host.completed)/\(host.total) 段").font(.caption2).accessibilityIdentifier("plot-analysis-estimate")}
    Text(host.subtitleSource).font(.caption2).foregroundStyle(.secondary)
    Text(host.status).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-whole-film-status")
    if host.busy || host.readingActive {ProgressView(value:Double(host.completed),total:Double(max(1,host.total)));Button("暂停后台分析"){host.cancel()}}
-   else {Button("重新读取并分析全片",action:retry).font(.caption)}
+   else {Button("继续分析（复用已完成片段）",action:retry).font(.caption)}
    Button("导入完整字幕供 AI 分析（不改变播放字幕）",action:importSubtitle)
     .font(.caption).accessibilityIdentifier("plot-import-ai-only-full-subtitle")
    if !importStatus.isEmpty {

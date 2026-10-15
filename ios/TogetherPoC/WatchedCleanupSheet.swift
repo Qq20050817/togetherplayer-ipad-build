@@ -6,11 +6,13 @@ struct WatchedCleanupSheet:View {
  let importedSubtitle:URL?
  let detach:(URL)->Bool
  let report:(String)->Void
+ var clearAnalysis:(() async throws->Int)?=nil
  @Environment(\.dismiss) private var dismiss
  @State private var choosing=false
  @State private var loading=false
  @State private var deleting=false
  @State private var confirm=false
+ @State private var cleanAnalysis=true
  @State private var plan:CleanupPlan?
  @State private var selected:Set<String>=[]
  @State private var folderScope:URL?
@@ -44,6 +46,10 @@ struct WatchedCleanupSheet:View {
         }
        }.disabled(deleting || finished).accessibilityIdentifier("cleanup-file-"+file.name)
       }
+      if clearAnalysis != nil {
+       Toggle("同时清理本片全片分析缓存",isOn:$cleanAnalysis).disabled(deleting).accessibilityIdentifier("cleanup-analysis-cache")
+       Text("退房、断线和重启会保留分析进度；仅在这里确认后清理。请求计数保留，避免重新计费判断失真。").font(.caption).foregroundStyle(.secondary)
+      }
       Text("已选\(selected.count)个文件 · \(ByteCountFormatter.string(fromByteCount:plan.allFiles.filter{selected.contains($0.id)}.reduce(0){$0+$1.stamp.size},countStyle:.file))").font(.subheadline)
      }
 
@@ -62,7 +68,7 @@ struct WatchedCleanupSheet:View {
     .alert("确认删除所选本地文件？",isPresented:$confirm) {
      Button("删除",role:.destructive){remove()}
      Button("取消",role:.cancel){}
-    } message:{Text("将删除清单中勾选的\(selected.count)个文件，并停止本机播放。云端和好友文件不受影响。")}
+    } message:{Text("将删除清单中勾选的\(selected.count)个文件，并停止本机播放。云端和好友文件不受影响。"+(cleanAnalysis && clearAnalysis != nil ? "同时清理本片全片分析缓存，保留请求计数。" : ""))}
     .interactiveDismissDisabled(deleting || loading)
     .onDisappear {inspectionTask?.cancel();if let folderScope {folderScope.stopAccessingSecurityScopedResource()}}
   }
@@ -97,6 +103,10 @@ struct WatchedCleanupSheet:View {
    if !result.deleted.isEmpty {message+="\n"+result.deleted.joined(separator:"\n")}
    message+="\n清理范围："+plan.folder.lastPathComponent
    if !result.failed.isEmpty {message+="\n以下文件未删除：\n"+result.failed.joined(separator:"\n")}
+   if cleanAnalysis,let clearAnalysis {
+    do {let count=try await clearAnalysis();message+="\n已清理\(count)份本片全片分析缓存；请求计数保留。"}
+    catch {message+="\n分析缓存未完整清理："+error.localizedDescription}
+   }
    status=message;report(message);deleting=false;finished=true
   }
  }

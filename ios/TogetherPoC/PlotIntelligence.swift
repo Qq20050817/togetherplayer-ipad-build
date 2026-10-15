@@ -18,7 +18,7 @@ struct PlotFrame {
  @Published var consent:Bool {didSet {preferences.set(consent,forKey:"plot-cloud-consent");if !consent && working {cancel()}}}
  @Published var creditsDisabled:Bool {didSet {preferences.set(creditsDisabled,forKey:"plot-cloud-no-credits");if !creditsDisabled && working {cancel()}}}
  @Published var limit:Int {didSet {
-  let bounded=min(50,max(1,limit))
+  let bounded=min(200,max(1,limit))
   // @Published assignments invoke its wrapped setter again. Never write the
   // same value back inside the observer: that recurses until the process dies.
   if limit != bounded {limit=bounded;return}
@@ -30,6 +30,18 @@ struct PlotFrame {
  @Published private(set) var selectedModel="尚未出题"
  @Published private(set) var requests=0
  @Published private(set) var automaticRequests=0
+ @Published private(set) var analysisRequests=0
+ @Published private(set) var questionRequests=0
+ @Published private(set) var auditRequests=0
+ @Published private(set) var legacyRequests=0
+ @Published var analysisLimit:Int {didSet {
+  let bounded=min(32,max(1,analysisLimit));if analysisLimit != bounded {analysisLimit=bounded;return}
+  preferences.set(bounded,forKey:"plot-analysis-limit")
+ }}
+ private func updateUsage(_ budget:PlotBudget) {
+  requests=budget.total;automaticRequests=budget.automatic;analysisRequests=budget.wholeFilmRequests
+  questionRequests=budget.questionRequests;auditRequests=budget.auditRequests;legacyRequests=budget.legacyRequests
+ }
  @Published private(set) var savedSubtitleCount=0
  var collectedSubtitleCount:Int {
   if let displayPosition {guard let current=displayPosition(),current.key==lastKey else{return 0};return savedSubtitleCount}
@@ -51,8 +63,6 @@ struct PlotFrame {
  @Published var wholeFilmCloudConsent:Bool {didSet {preferences.set(wholeFilmCloudConsent,forKey:"plot-whole-film-cloud-consent");if !wholeFilmCloudConsent {wholeFilm.cancel()}}}
  private let wholeFilmRouter=WholeFilmModelRouter()
  private var wholeFilmStatusSubscription:AnyCancellable?
- private var fullFilmCloudBatchStarted=false
- private var fullFilmCloudBatchKey=""
  private var canUseWholeFilmCloud:Bool {
   wholeFilmCloudConsent && consent && automaticAllowed && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working && !auth.loadingModels
  }
@@ -72,11 +82,11 @@ struct PlotFrame {
  private func requestWholeFilmCloud(_ instruction:String,_ input:String) async throws->String {
   guard canUseWholeFilmCloud else{throw WholeFilmRoutingFailure.cloudBlocked(wholeFilmCloudBlockedReason)}
   let key=wholeFilm.filmKey
-  if fullFilmCloudBatchKey != key {fullFilmCloudBatchKey=key;fullFilmCloudBatchStarted=false}
   let segment = -1-Int(PlotMemoryStore.key(instruction+input).prefix(8),radix:16)!
-  guard try await memory.reserve(key:key,segment:segment,manual:false,limit:limit,interval:fullFilmCloudBatchStarted ? 0 : 180) else{throw NSError(domain:"WholeFilmBudget",code:1,userInfo:[NSLocalizedDescriptionKey:"全片分析已达到请求上限或冷却限制；已分析片段保留，未标记全片完成。"]) }
-  fullFilmCloudBatchStarted=true
-  let state=await memory.load(key);requests=state.budget.total;automaticRequests=state.budget.automatic
+  guard try await memory.reserve(key:key,segment:segment,manual:false,limit:limit,interval:0,purpose:.wholeFilm,purposeLimit:analysisLimit) else {
+   throw NSError(domain:"WholeFilmBudget",code:1,userInfo:[NSLocalizedDescriptionKey:"已达到本片 App 自动请求总上限或全片分析子上限；不代表 ChatGPT 账号额度用完。已完成片段保留，可调整上限后手动继续。"])
+  }
+  let state=await memory.load(key);updateUsage(state.budget)
   return try await auth.performInference(instructions:instruction,input:input,canSend:{self.wholeFilm.filmKey==key && self.wholeFilmCloudConsent && self.consent && self.automaticAllowed && self.creditsDisabled})
  }
 
@@ -243,18 +253,33 @@ struct PlotFrame {
   automaticAllowed=preferences.bool(forKey:"plot-cloud-allowed")
   consent=preferences.bool(forKey:"plot-cloud-consent")
   creditsDisabled=preferences.bool(forKey:"plot-cloud-no-credits")
-  limit=min(50,max(1,preferences.object(forKey:"plot-cloud-limit") as? Int ?? 10))
+  limit=min(200,max(1,preferences.object(forKey:"plot-cloud-limit") as? Int ?? 10))
+  analysisLimit=min(32,max(1,preferences.object(forKey:"plot-analysis-limit") as? Int ?? 8))
   wholeFilmRouter.cloudAllowed={ [weak self] in self?.canUseWholeFilmCloud==true }
   wholeFilmRouter.cloudBlockedReason={ [weak self] in self?.wholeFilmCloudBlockedReason ?? "ChatGPT 全片分析尚未就绪。" }
   wholeFilmRouter.cloudInference={ [weak self] instruction,input in guard let self else{throw CancellationError()};return try await self.requestWholeFilmCloud(instruction,input) }
   wholeFilmRouter.onBackend={ [weak self] backend in self?.wholeFilm.showBackend(backend) }
+  wholeFilm.cloudBatching={ [weak self] in
+   guard let self else{return false}
+   return self.mode == .chatgpt || (self.mode == .smart && !self.wholeFilmRouter.canUseLocal && self.canUseWholeFilmCloud)
+  }
+  wholeFilm.cloudPreflight={ [weak self] needed in
+   guard let self else{throw CancellationError()}
+   let key=self.wholeFilm.filmKey
+   let state=await self.memory.load(key);guard self.wholeFilm.filmKey==key else{throw CancellationError()};self.updateUsage(state.budget)
+   guard state.budget.canPrepareWholeFilm(requests:needed,totalLimit:self.limit,analysisLimit:self.analysisLimit,questionReserve:self.eventDrivenEnabled ? 4 : 0) else {
+    throw NSError(domain:"WholeFilmBudget",code:2,userInfo:[NSLocalizedDescriptionKey:"预算不足，尚未发送新请求：续分析预计最多 \(needed) 次，本片自动总预算剩余 \(max(0,self.limit-state.budget.automatic)) 次，分析子预算剩余 \(max(0,self.analysisLimit-state.budget.wholeFilmRequests)) 次。另为自动出题与审核预留4次（自动提问关闭时不预留）。这是 App 上限，不是账号余量；已完成片段保留。请调整上限后手动继续。"])
+   }
+  }
   wholeFilm.inference=inferenceForWholeFilm
   wholeFilm.available={ [weak self] in guard let self else{return false};return self.wholeFilmRouter.available(mode:self.mode) }
   wholeFilm.unavailableModelError={ [weak self] in guard let self else{return CancellationError()};return self.wholeFilmRouter.unavailableError(mode:self.mode) }
   wholeFilmStatusSubscription=wholeFilm.$status.dropFirst().sink { [weak self] status in
-   guard let self,!self.working,self.selectedModel=="全片分析尚未完成" || self.selectedModel=="全片分析已完成" else{return}
-   self.reason=status
-   if self.wholeFilm.ready(for:self.wholeFilm.filmKey) {self.selectedModel="全片分析已完成"}
+   guard let self,!self.working else{return}
+   if self.result==nil,self.wholeFilm.ready(for:self.wholeFilm.filmKey) {
+    self.selectedModel="全片分析已完成"
+    self.reason=self.eventDrivenEnabled ? "整片资料已保存；继续播放，等待有效剧情线索和字幕结束后提问。" : "整片资料已保存，可手动生成问题或开启重要剧情自动提问。"
+   } else if self.selectedModel=="全片分析尚未完成" || self.selectedModel=="全片分析已完成" {self.reason=status}
   }
  }
  func start() {
@@ -267,7 +292,7 @@ struct PlotFrame {
   if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;autoTriggerStatus="已加载新影片，正在积累字幕";savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;automaticQuestionCount=0;automaticPublishCount=0;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
-  if frame?()?.key==snapshot.key {requests=state.budget.total;automaticRequests=state.budget.automatic;savedSubtitleCount=state.evidence.count}
+  if frame?()?.key==snapshot.key {updateUsage(state.budget);savedSubtitleCount=state.evidence.count}
   prepareWatchedStory(state.evidence,key:snapshot.key,position:snapshot.position)
   if publishPendingAutomaticQuestion() {return}
   // AVPlayerItemLegibleOutput does not promise an empty end callback for every
@@ -372,7 +397,7 @@ struct PlotFrame {
   do {
    var state=try await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
    if !visualEvidenceEnabled {state.evidence.removeAll{$0.source=="ondevice-vision"}}
-   requests=state.budget.total;automaticRequests=state.budget.automatic
+   updateUsage(state.budget)
    if frame?()?.key==snapshot.key {savedSubtitleCount=state.evidence.count}
    let originalContext=state.context(at:snapshot.position)
    let arcClues=PlotStoryStructure.observedClues(storyNodes,watched:state.evidence,at:snapshot.position)
@@ -454,8 +479,12 @@ struct PlotFrame {
        (context.sufficient || explicitlyCloud || (!autoMoment && mode == .smart)) && (!requireCompleteFilm || wholeFilmCloudConsent) &&
        (!autoMoment || automaticAllowed) && (explicitlyCloud || automaticAllowed)
     if allowed {
+     if autoMoment,requireCompleteFilm,limit-state.budget.automatic<2 {
+      reason="本片自动请求预算不足：生成与防剧透审核至少需要2次，尚未发送新请求；请调整 App 上限。"
+      autoTriggerStatus=reason;working=false;deadline?.cancel();deadline=nil;return
+     }
      if try await memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:limit,interval:180) {
-      let current=await memory.load(snapshot.key);requests=current.budget.total;automaticRequests=current.budget.automatic
+      let current=await memory.load(snapshot.key);updateUsage(current.budget)
       do {
        guard valid(snapshot,token:token) else {cancel();return}
        let instruction=requireCompleteFilm ? WholeFilmPlan.questionInstructions : (context.sufficient ? (plannedMoment ? PlotLocalAI.plannedMomentInstructions : (autoMoment ? PlotLocalAI.importantMomentInstructions : PlotLocalAI.questionInstructions)) : PlotLocalAI.noEvidenceInstructions)
@@ -521,8 +550,8 @@ struct PlotFrame {
      let allowed=self.wholeFilmCloudConsent && self.consent && self.creditsDisabled && self.auth.integrationReady && (self.automaticAllowed || !autoMoment)
      return try await self.wholeFilmRouter.respond(mode:self.mode,instructions:instructions,input:input,cloudPermission:allowed,cloud:{instructions,input in
      guard self.wholeFilmCloudConsent,self.consent,self.creditsDisabled,self.auth.integrationReady,(self.automaticAllowed || !autoMoment),
-      try await self.memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:self.limit,interval:0) else{throw WholeFilmPlan.Failure.spoiler}
-     let current=await self.memory.load(snapshot.key);self.requests=current.budget.total;self.automaticRequests=current.budget.automatic
+      try await self.memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:self.limit,interval:0,purpose:.spoilerAudit) else{throw WholeFilmPlan.Failure.spoiler}
+     let current=await self.memory.load(snapshot.key);self.updateUsage(current.budget)
      return try await self.auth.performInference(instructions:instructions,input:input,canSend:{self.valid(snapshot,token:token) && self.wholeFilmCloudConsent})
      })
     })
