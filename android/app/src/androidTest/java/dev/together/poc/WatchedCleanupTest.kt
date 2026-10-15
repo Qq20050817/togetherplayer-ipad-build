@@ -40,7 +40,7 @@ class WatchedCleanupTest {
     val device=UiDevice.getInstance(i)
     assertNotNull(device.wait(Until.findObject(By.text("选择影片所在文件夹")),5000))
     device.findObject(By.text("选择影片所在文件夹")).click()
-    assertTrue(device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")),5000))
+    assertTrue(device.wait(Until.hasObject(By.pkg(java.util.regex.Pattern.compile("com[.](google[.]android|android)[.]documentsui"))),5000))
     // Navigate through real system folder authorization, never grant broad storage access.
     device.wait(Until.findObject(By.desc("Show roots")),4000)?.click()
     device.wait(Until.findObject(By.text("Downloads")),4000)?.click()
