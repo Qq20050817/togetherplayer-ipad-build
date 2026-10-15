@@ -43,6 +43,7 @@ import CoreMedia
   if let ai=aiOnlySubtitle,ai.film==plotDisplayPosition()?.key {return ai.document}
   return externalSubtitles.enabled ? externalSubtitles.completeExternalForAI : nil
  }
+ var hasMaterialOnlySubtitle:Bool {aiOnlySubtitle?.film==plotDisplayPosition()?.key}
  var bankSubtitleSourceLabel:String {
   if let ai=aiOnlySubtitle,ai.film==plotDisplayPosition()?.key,!ai.document.cues.isEmpty {return "素材专用备用字幕"}
   if externalSubtitles.enabled && externalSubtitles.completeExternalForAI != nil {return "当前播放的外挂字幕"}
@@ -642,11 +643,18 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     return
    }
    aiOnlySubtitle=(film:key,document:document)
-   aiOnlySubtitleImportStatus="已导入 \(document.cues.count) 条完整字幕，仅供素材；播放字幕保持不变，不自动调用 AI。"
+   filmMaterials.invalidateSubtitleSelection()
+   aiOnlySubtitleImportStatus="已选用 \(document.cues.count) 条完整备用字幕作为 AI 素材来源；播放字幕保持不变，不自动调用 AI。"
    // V2 import is data-only. Legacy analysis requires its explicit Continue action.
   } catch {
    aiOnlySubtitleImportStatus=(error as? SubtitleParseError)==(.size) ? "字幕超过 5MB，请换用较小的完整字幕文件。" : "完整字幕读取失败；请确认文件格式、编码及文件访问权限。"
   }
+ }
+ func clearFullFilmSubtitleForAI() {
+  guard hasMaterialOnlySubtitle else{return}
+  aiOnlySubtitle=nil
+  filmMaterials.invalidateSubtitleSelection()
+  aiOnlySubtitleImportStatus="已取消素材专用备用字幕，下次导出按当前播放字幕选择读取。"
  }
  private func recoverCurrentNativeSubtitleWindow(item:AVPlayerItem,position:Double) {
   guard nativeWindowRecoveryTask==nil,!externalSubtitles.enabled,selectedSubtitleIndex>=0,
@@ -734,7 +742,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   diagnostic("nativeSubtitleOptionRecovered")
  }
  func importSubtitle(_ url: URL) {
-  Task {if await externalSubtitles.importFile(url) {enableExternalSubtitle()}}
+  Task {if await externalSubtitles.importFile(url) {enableExternalSubtitle();filmMaterials.invalidateSubtitleSelection()}}
  }
  func enableExternalSubtitle() {
   guard externalSubtitles.available else {return}
@@ -757,6 +765,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
   nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
+  filmMaterials.invalidateSubtitleSelection()
   externalSubtitles.nativeSelectionChanged(enabled:index != -2);externalSubtitles.enabled=false;selectedSubtitleIndex=index
   guard let item=adapter.player.currentItem,let group=subtitleGroup else {return}
   if index == -1 {item.selectMediaOptionAutomatically(in:group)}
