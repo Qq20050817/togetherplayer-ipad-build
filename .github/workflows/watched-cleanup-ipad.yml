@@ -1,7 +1,7 @@
 name: Verify watched-file cleanup and AI playback stability
 on:
   push:
-    branches: [feat/full-transcript-host-20261015]
+    branches: [fix/full-transcript-host-compile-20261015]
   workflow_dispatch:
 permissions:
   contents: read
