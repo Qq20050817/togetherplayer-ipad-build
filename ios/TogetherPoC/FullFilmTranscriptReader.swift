@@ -44,11 +44,21 @@ enum FullFilmTranscriptReader {
   guard let track=preferred(tracks,title:preferredTitle,language:preferredLanguage,streamIndex:preferredStreamIndex),let stream=format.pointee.streams[track.index] else{throw Failure.noTrack}
   let bitmap=track.codec==AV_CODEC_ID_HDMV_PGS_SUBTITLE
   guard !bitmap || allowOCR else{throw Failure.decode}
-  guard let decoder=avcodec_find_decoder(track.codec),let context=avcodec_alloc_context3(decoder) else{throw Failure.decode}
+  guard let decoder=avcodec_find_decoder(track.codec),let context=avcodec_alloc_context3(decoder) else{
+   #if DEBUG
+   print("FullFilmTranscriptReader: missing subtitle decoder for \(track.codec)")
+   #endif
+   throw Failure.decode
+  }
   var allocatedContext:UnsafeMutablePointer<AVCodecContext>?=context;defer{avcodec_free_context(&allocatedContext)}
   guard avcodec_parameters_to_context(context,stream.pointee.codecpar)>=0 else{throw Failure.decode}
   context.pointee.pkt_timebase=stream.pointee.time_base
-  guard avcodec_open2(context,decoder,nil)>=0,let packet=av_packet_alloc() else{throw Failure.decode}
+  guard avcodec_open2(context,decoder,nil)>=0,let packet=av_packet_alloc() else{
+   #if DEBUG
+   print("FullFilmTranscriptReader: failed opening subtitle decoder")
+   #endif
+   throw Failure.decode
+  }
   var allocatedPacket:UnsafeMutablePointer<AVPacket>?=packet;defer{av_packet_free(&allocatedPacket)}
   let videoIndex=av_find_best_stream(format,AVMEDIA_TYPE_VIDEO,-1,-1,nil,0)
   var origin=0.0
@@ -74,7 +84,12 @@ enum FullFilmTranscriptReader {
    if packets%256==0 {Thread.sleep(forTimeInterval:0.002)}
    guard Int(packet.pointee.stream_index)==track.index else{continue}
    var subtitle=AVSubtitle();var got:Int32=0
-   guard avcodec_decode_subtitle2(context,&subtitle,&got,packet)>=0 else{throw Failure.decode}
+   guard avcodec_decode_subtitle2(context,&subtitle,&got,packet)>=0 else{
+    #if DEBUG
+    print("FullFilmTranscriptReader: failed decoding PGS packet at \(packet.pointee.pts)")
+    #endif
+    throw Failure.decode
+   }
    guard got != 0 else{continue};defer{avsubtitle_free(&subtitle)}
    let pts=subtitle.pts != Int64.min ? Double(subtitle.pts)/Double(AV_TIME_BASE) : Double(packet.pointee.pts)*av_q2d(stream.pointee.time_base)
    let start=pts+Double(subtitle.start_display_time)/1000-origin
@@ -100,6 +115,9 @@ enum FullFilmTranscriptReader {
   }
   guard ended else{throw Failure.incomplete}
   if let pending {try append(pending.text,start:pending.start,end:max(pending.start+0.01,min(pending.start+10,duration>0 ? duration : pending.start+10)))}
+  #if DEBUG
+  if bitmap {print("FullFilmTranscriptReader: PGS decoded OCR cues=\(cues.count), bytes=\(bytes), packets=\(packets)")}
+  #endif
   guard let document=NativeSubtitleIndexReader.merge(cues),document.cues.count>=3 else{throw Failure.decode}
   progress(1)
   return Output(document:document,track:track.index,label:track.title.isEmpty ? track.language : track.title,duration:duration,ocr:bitmap)
