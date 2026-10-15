@@ -727,9 +727,11 @@ struct RoomActionStyle:ButtonStyle {
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
- private enum Picker: String, Identifiable {case baidu,local,localCopy,cleanup;var id:String {rawValue}}
+ private enum Picker:Identifiable,Equatable {
+  case baidu,local,localCopy,cleanup(URL,URL?)
+  var id:String {switch self {case .baidu:return "baidu";case .local:return "local";case .localCopy:return "localCopy";case .cleanup(let source,_):return "cleanup-"+source.absoluteString}}
+ }
  @State private var picker: Picker?
- @State private var cleanupSource:URL?
  var body: some View {
   ScrollView {
    VStack(alignment:.leading,spacing:14) {
@@ -775,7 +777,7 @@ struct RoomActionStyle:ButtonStyle {
      Text("直接选择只读取原文件；兼容导入会复制一份，需要额外影片大小的空间。均不上传影片。").font(.caption).foregroundStyle(.secondary)
      if !model.sourceNotice.isEmpty {Text(model.sourceNotice).font(.caption).foregroundStyle(.orange)}
      if model.cleanupSourceURL != nil {
-      Button(role:.destructive) {cleanupSource=model.cleanupSourceURL;picker = .cleanup} label:{Label("看完清理 · 影片与字幕",systemImage:"trash.circle").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("watched-cleanup")
+      Button(role:.destructive) {if let source=model.cleanupSourceURL {picker = .cleanup(source,model.externalSubtitles.importedFileURL)}} label:{Label("看完清理 · 影片与字幕",systemImage:"trash.circle").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("watched-cleanup")
      }
      if model.usingLocalFile {Button(role:.destructive) {model.clearLocalFileSource()} label:{Label("清除本地影片并恢复房间片源",systemImage:"trash").frame(maxWidth:.infinity,alignment:.leading)}}
      DisclosureGroup("仅本机使用另一播放链接") {
@@ -807,10 +809,8 @@ struct RoomActionStyle:ButtonStyle {
     switch selection {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
-    case .cleanup:
-     if let source=cleanupSource {
-      WatchedCleanupSheet(source:source,importedSubtitle:model.externalSubtitles.importedFileURL,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0})
-     } else {Text("本地影片已变化，请重新打开清理。")}
+    case .cleanup(let source,let subtitle):
+     WatchedCleanupSheet(source:source,importedSubtitle:subtitle,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0})
     case .local,.localCopy:
      LocalMovieDocumentPicker(asCopy:selection == .localCopy,onPick:{url in
       picker=nil

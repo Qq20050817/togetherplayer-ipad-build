@@ -34,7 +34,7 @@ struct WatchedCleanupSheet:View {
          Label(file.name,systemImage:file.isMovie ? "film" : "captions.bubble").lineLimit(3)
          Text(ByteCountFormatter.string(fromByteCount:file.stamp.size,countStyle:.file)).font(.caption).foregroundStyle(.secondary)
         }
-       }.disabled(deleting || finished)
+       }.disabled(deleting || finished).accessibilityIdentifier("cleanup-file-"+file.name)
       }
       Text("已选\(selected.count)个文件 · \(ByteCountFormatter.string(fromByteCount:plan.files.filter{selected.contains($0.id)}.reduce(0){$0+$1.stamp.size},countStyle:.file))").font(.subheadline)
      }

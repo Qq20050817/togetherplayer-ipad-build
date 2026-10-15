@@ -12,8 +12,9 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(cleanup.isHittable);cleanup.tap()
   let check=app.buttons["cleanup-choose-folder"].firstMatch
   XCTAssertTrue(check.waitForExistence(timeout:5));check.tap()
-  XCTAssertTrue(app.staticTexts["CleanupMovie.zh-Hans.srt"].firstMatch.waitForExistence(timeout:8))
-  XCTAssertFalse(app.staticTexts["Other.srt"].firstMatch.exists)
+  let subtitle=app.switches["cleanup-file-CleanupMovie.zh-Hans.srt"].firstMatch
+  XCTAssertTrue(subtitle.waitForExistence(timeout:8));XCTAssertTrue(subtitle.label.contains("CleanupMovie.zh-Hans.srt"))
+  XCTAssertFalse(app.switches["cleanup-file-Other.srt"].firstMatch.exists)
   let delete=app.buttons["cleanup-delete"].firstMatch
   XCTAssertTrue(delete.waitForExistence(timeout:5));delete.tap()
   let alert=app.alerts.firstMatch
