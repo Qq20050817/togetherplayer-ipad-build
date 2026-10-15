@@ -61,9 +61,12 @@ final class FakePlayer: PlayerAdapter {
   // A normally improving correction must not be interrupted after ten seconds.
   engine.receive(room("playing",10));player.duration=3_900_000
   let beforeImproving=player.seekCount
-  for i in 0...20 {now=50_000+Double(i)*1000;error(1450-Double(i)*50)}
+  // Preserve a monotonic clock across reset / pause-to-play. The new
+  // playback startup settling gate intentionally suppresses early seeks.
+  let improvingStart=now+3000
+  for i in 0...20 {now=improvingStart+Double(i)*1000;error(1450-Double(i)*50)}
   precondition(player.seekCount==beforeImproving,"improving drift caused unnecessary seek")
-  now=71_000;error(600);now=81_000;error(600)
+  now=improvingStart+21_000;error(600);now=improvingStart+31_000;error(600)
   precondition(player.seekCount==beforeImproving+1,"stalled correction no longer resyncs")
   precondition(!RecoveryBufferPolicy.ready(prepared:true,bufferedMs:3000,positionMs:10000,durationMs:100000,recovering:true))
   precondition(RecoveryBufferPolicy.ready(prepared:true,bufferedMs:12000,positionMs:10000,durationMs:100000,recovering:true))
