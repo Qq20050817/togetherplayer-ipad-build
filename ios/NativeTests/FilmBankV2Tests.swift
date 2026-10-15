@@ -1,5 +1,6 @@
 import XCTest
 import CryptoKit
+import CoreGraphics
 @testable import TogetherPoC
 
 @MainActor final class FilmBankV2Tests:XCTestCase {

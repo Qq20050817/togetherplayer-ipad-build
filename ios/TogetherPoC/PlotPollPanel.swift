@@ -145,7 +145,7 @@ import UniformTypeIdentifiers
     bankPickerOpen=true
    } label:{
     Label("导入 ChatGPT 制作的 JSON 题库",systemImage:"square.and.arrow.down")
-   }.buttonStyle(.borderedProminent).disabled(model.bankMovieURL == nil)
+   }.buttonStyle(.borderedProminent).disabled(model.bankMovieURL == nil || bank.importing)
     .accessibilityIdentifier("plot-import-question-bank")
    Text(bank.status).font(.caption).foregroundStyle(.secondary)
     .accessibilityIdentifier("plot-question-bank-status")

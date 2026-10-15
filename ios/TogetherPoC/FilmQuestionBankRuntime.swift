@@ -9,6 +9,7 @@ import Combine
  @Published private(set) var revealedAnswer=""
  @Published private(set) var publishedCount=0
  @Published private(set) var completedCount=0
+ @Published private(set) var importing=false
  var onBankReady:(()->Void)?
  #if DEBUG
  var onFullFingerprint:(()->Void)?
@@ -21,6 +22,7 @@ import Combine
  private var generation=0
  private var restoring:Task<Void,Never>?
  private var fingerprinting:Task<String,Error>?
+ private var importWorker:Task<(FilmQuestionBank,String,String),Error>?
  private var lastPositionMs:Double?
  private var progress=FilmBankProgress()
  private var pendingQuestion:FilmBankQuestion?
@@ -39,6 +41,7 @@ import Combine
  }
  func restore(filmKey:String,source:URL,durationMs:Double) {
   if key==filmKey,sourceURL==source,active != nil {return}
+  importWorker?.cancel();importWorker=nil;importing=false
   active=nil;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer=""
   generation+=1;let token=generation
   restoring?.cancel();fingerprinting?.cancel();publishing?.cancel()
@@ -57,6 +60,7 @@ import Combine
     let indexed=await store.loadCandidate(candidate)
     let legacy:FilmQuestionBank?
     if indexed==nil {legacy=await store.load(filmKey:filmKey)} else {legacy=nil}
+    guard generation==token,!Task.isCancelled else{return}
     guard let bank=indexed ?? legacy else{status="当前原片尚无题库；可制作素材或导入 JSON";return}
     guard generation==token,!Task.isCancelled else{return}
     #if DEBUG
@@ -79,16 +83,20 @@ import Combine
 
  func importFile(_ url:URL,filmKey:String?,source:URL?,durationMs:Double) async {
   guard let filmKey,!filmKey.isEmpty,let source,source.isFileURL,key==filmKey,sourceURL==source else {status="请先加载本地原片，再导入题库";return}
-  let token=generation
+  guard !importing else{return}
+  importing=true;let token=generation
+  defer{if generation==token {importing=false;importWorker=nil}}
   status="正在校验 Schema、完整原片 SHA256 与时间轴…"
   do {
-   let result=try await Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
+   let worker=Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
     let access=url.startAccessingSecurityScopedResource();defer{if access {url.stopAccessingSecurityScopedResource()}}
     let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()}
     let data=try handle.read(upToCount:FilmBankCodec.maxBytes+1) ?? Data(),bank=try FilmBankCodec.decode(data)
     let scoped=source.startAccessingSecurityScopedResource();defer{if scoped {source.stopAccessingSecurityScopedResource()}}
     return (bank,try FilmMaterialFingerprint.source(source),try FilmMaterialFingerprint.candidate(source))
-   }.value
+   }
+   importWorker=worker
+   let result=try await worker.value
    guard generation==token,key==filmKey,sourceURL==source else{return}
    let (bank,fingerprint,candidate)=result
    guard bank.sourceFingerprint?.lowercased()==fingerprint.lowercased() else{status="原片指纹不匹配，未加载。请用当前原片导出的素材制作题库。";return}
@@ -143,7 +151,9 @@ import Combine
  }
  func reconnected() {sendingParts.removeAll()}
  func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,revealPositionMs:Double?=nil,subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
-  guard let bank=active,key==filmKey,FilmBankCodec.matches(bank,playbackDuration:durationMs),positionMs.isFinite,positionMs>=0 else{lastPositionMs=nil;return}
+  guard let bank=active,key==filmKey,positionMs.isFinite,positionMs>=0 else{lastPositionMs=nil;return}
+  guard durationMs.isFinite,durationMs>0 else{lastPositionMs=nil;return}
+  guard FilmBankCodec.matches(bank,playbackDuration:durationMs) else{active=nil;pendingQuestion=nil;lastPositionMs=nil;status="题库与播放器确认的原片时长不匹配，自动提问已停止";return}
   defer{lastPositionMs=positionMs}
   if canReveal {
    for q in bank.questions where progress.published.contains(q.id) && !progress.revealed.contains(q.id) {
@@ -180,5 +190,5 @@ import Combine
  func waitForRestore() async {await restoring?.value}
  func waitForProgress() async {await publishing?.value;try? await progressWrite?.value}
  #endif
- deinit {restoring?.cancel();fingerprinting?.cancel()}
+ deinit {restoring?.cancel();fingerprinting?.cancel();importWorker?.cancel()}
 }
