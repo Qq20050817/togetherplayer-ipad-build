@@ -95,6 +95,8 @@ import CoreMedia
  private var originalPGSDecodeTask:Task<Void,Never>?
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
  private var currentOriginalURL: URL?
+ private var aiOnlySubtitle:(film:String,document:SubtitleDocument)?
+ @Published private(set) var aiOnlySubtitleImportStatus=""
  private var activeLocalSource=""
  private var localSourceRoomURL=""
  private var localSourceRoomID=""
@@ -401,6 +403,7 @@ import CoreMedia
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
   if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
+  if aiOnlySubtitle?.film != plotKey {aiOnlySubtitle=nil;aiOnlySubtitleImportStatus=""}
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
@@ -553,12 +556,49 @@ import CoreMedia
  func prepareCompleteFilmForAI(force:Bool=false) {
   guard let source=currentOriginalURL,let key=plotDisplayPosition()?.key else{return}
   if force {plotIntelligence.wholeFilm.reset(film:key)}
+  if let ai=aiOnlySubtitle,ai.film==key {
+   plotIntelligence.wholeFilm.useExternalForAI(ai.document,film:key)
+   return
+  }
   if let document=externalSubtitles.completeExternalForAI {plotIntelligence.wholeFilm.supplyExternal(document,film:key)}
   let chosen=requestedSubtitleIndex ?? -1
   let title=subtitleLabels.indices.contains(chosen) ? subtitleLabels[chosen] : nil
   let option=subtitleGroup?.options.indices.contains(chosen)==true ? subtitleGroup?.options[chosen] : nil
   let stream=mkvRemux.aiSubtitleStreamIndices.indices.contains(chosen) ? mkvRemux.aiSubtitleStreamIndices[chosen] : nil
   plotIntelligence.wholeFilm.readLocalMovie(source,film:key,title:title,language:option?.extendedLanguageTag,streamIndex:stream,allowOCR:externalSubtitles.convertPGSForAI)
+ }
+ /// Importing a complete subtitle for AI leaves the viewer's actual subtitle
+ /// selection, rendering, audio, and playback timeline completely unchanged.
+ func importFullFilmSubtitleForAI(_ url:URL) async {
+  guard let key=plotDisplayPosition()?.key else {
+   aiOnlySubtitleImportStatus="请先加载影片，再导入用于 AI 的完整字幕。"
+   return
+  }
+  let ext=url.pathExtension.lowercased()
+  guard ["srt","vtt","ass","ssa"].contains(ext) else {
+   aiOnlySubtitleImportStatus="请选择 SRT、VTT、ASS 或 SSA 完整字幕。"
+   return
+  }
+  aiOnlySubtitleImportStatus="正在读取供 AI 分析的完整字幕…"
+  do {
+   let document=try await Task.detached(priority:.userInitiated) {() throws->SubtitleDocument in
+    let access=url.startAccessingSecurityScopedResource()
+    defer {if access {url.stopAccessingSecurityScopedResource()}}
+    let handle=try FileHandle(forReadingFrom:url)
+    defer {try? handle.close()}
+    let bytes=try handle.read(upToCount:SubtitleParser.maxBytes+1) ?? Data()
+    return try SubtitleParser.parse(bytes,extension:ext)
+   }.value
+   guard plotDisplayPosition()?.key==key else {
+    aiOnlySubtitleImportStatus="导入期间已切换影片，请重新选择当前影片的字幕。"
+    return
+   }
+   aiOnlySubtitle=(film:key,document:document)
+   aiOnlySubtitleImportStatus="已导入 \(document.cues.count) 条完整字幕，仅供 AI；播放字幕保持不变。"
+   plotIntelligence.wholeFilm.useExternalForAI(document,film:key)
+  } catch {
+   aiOnlySubtitleImportStatus=(error as? SubtitleParseError)==(.size) ? "字幕超过 5MB，请换用较小的完整字幕文件。" : "完整字幕读取失败；请确认文件格式、编码及文件访问权限。"
+  }
  }
  private func prepareNativeSubtitleIndex(item:AVPlayerItem,track:Int) {
   guard track>=0,!externalSubtitles.enabled,let source=(item.asset as? AVURLAsset)?.url,
