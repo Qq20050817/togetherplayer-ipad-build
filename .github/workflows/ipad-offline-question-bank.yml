@@ -1,0 +1,86 @@
+name: Verify AI film materials and offline question banks
+on:
+  push:
+    branches: [feat/ipad-offline-film-materials-questionbank-20261016]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ipad-offline-bank-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ipad:
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select available Xcode 26
+        run: |
+          set -euo pipefail
+          for version in 26.3 26.2 26.1.1 26.0.1; do
+            dev="/Applications/Xcode_${version}.app/Contents/Developer"
+            if [ -d "$dev" ]; then sudo xcode-select -s "$dev"; xcodebuild -version; exit 0; fi
+          done
+          exit 1
+      - name: Generate project and dependencies
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath plot-build
+          python3 tools/patch_prism_swift61.py plot-build/SourcePackages/checkouts/PrismCore
+      - name: Build device Release candidate
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO build
+      - name: Boot iPad simulator
+        run: |
+          xcrun simctl list devices available -j > /tmp/plot-simulators.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/plot-simulators.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
+          echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Test full native core including offline bank
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests -retry-tests-on-failure test
+      - name: Regression test double-sided playback and question UI
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie -retry-tests-on-failure test
+      - name: Package unsigned IPA only after tests
+        run: |
+          set -euo pipefail
+          mkdir -p plot-delivery
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.32-Film-Materials-Bank-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          cd plot-delivery
+          shasum -a 256 TogetherPlayer-0.6.32-Film-Materials-Bank-unsigned.ipa > SHA256SUMS.txt
+          printf 'Source branch: %s\nSource SHA: %s\nStatus: compiled and tested on iOS Simulator. Physical device and original MKV test remain required.\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-0.6.32-offline-bank
+          path: plot-delivery/
+          retention-days: 7
+  release:
+    name: Publish unsigned IPA (no ZIP)
+    if: ${{ success() }}
+    needs: ipad
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate SHA256 and publish direct IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-0.6.32-offline-bank --dir verified
+          grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
+          (cd verified && sha256sum -c SHA256SUMS.txt)
+          tag='v0.6.32-ipad-film-materials-bank-20261016'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release exists; refusing to overwrite tested IPA';exit 1
+          fi
+          gh release create "$tag" verified/TogetherPlayer-0.6.32-Film-Materials-Bank-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.32 - Film materials + offline question banks" \
+            --notes "iPad preview IPA (unsigned). Manual local movie material export and imported JSON question banks. Subtitles and sampled contact sheets require locally accessible files. Existing Android room poll protocol reused. Full native tests and 3 watch UI regressions must pass. Physical-device and original movie validation not included."
