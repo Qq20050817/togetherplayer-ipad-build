@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Qq20050817/togetherplayer-ipad-build/blob/feat/film-bank-v2-completion-20261016/docs/question-bank-v1.schema.json",
+  "title": "TogetherPlayer AI Question Bank v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "title",
+    "durationMs",
+    "sourceFingerprint",
+    "subtitleFingerprint",
+    "questions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180
+    },
+    "year": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "edition": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 60000,
+      "maximum": 43200000
+    },
+    "sourceFingerprint": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "subtitleFingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": {
+        "$ref": "#/$defs/question"
+      }
+    }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "startMs",
+        "endMs",
+        "text"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "subtitle",
+            "frame"
+          ]
+        },
+        "startMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 350
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "triggerAtMs",
+        "revealAtMs",
+        "type",
+        "question",
+        "options",
+        "answerIndex",
+        "evidence",
+        "revealEvidence",
+        "explanation",
+        "confidence",
+        "qualityScore"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "triggerAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "revealAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "type": {
+          "enum": [
+            "prediction",
+            "motive",
+            "mystery",
+            "foreshadowing",
+            "twist",
+            "timeline",
+            "discussion"
+          ]
+        },
+        "question": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "answerIndex": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 3
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "revealEvidence": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "qualityScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "answerIndex": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "discussion"
+              },
+              "revealAtMs": {
+                "type": "null"
+              },
+              "revealEvidence": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "revealAtMs": {
+                "type": "integer"
+              },
+              "revealEvidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

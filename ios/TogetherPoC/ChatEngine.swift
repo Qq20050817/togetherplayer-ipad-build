@@ -44,7 +44,7 @@ struct ReactionBubble: Identifiable {
   messages.append(message);messages.sort {$0.id<$1.id}
   if messages.count>500 {messages.removeFirst(messages.count-500)}
   if !visible && !mine {unread += 1}
-  if live {
+  if live && !message.clientMessageId.hasPrefix("bank:") {
    let voice=message.clientMessageId.hasPrefix("voice:")
    let speed=UserDefaults.standard.double(forKey:"danmakuSpeed")
    danmakuQueue.enqueue(id:message.id,text:"\(message.name)：\(message.text)",now:now,durationMs:DanmakuSpeed.duration(voice ? 5000 : 10000,speed:speed),characterLimit:voice ? 500 : 120)

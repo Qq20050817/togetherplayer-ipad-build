@@ -31,6 +31,8 @@ import UniformTypeIdentifiers
  @State private var advancedOpen=false
  @State private var aiOnlySubtitlePickerOpen=false
  @State private var bankPickerOpen=false
+ @State private var materialsPreviewOpen=false
+ @State private var restartBankRound=false
  init(model:TestClient,onClose:(()->Void)?=nil) {
   self.model=model;intelligence=model.plotIntelligence;auth=model.plotIntelligence.auth
   materials=model.filmMaterials;bank=model.questionBankRuntime
@@ -43,17 +45,18 @@ import UniformTypeIdentifiers
      if model.plotPoll != nil {questionCard}
      overview
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
-      generationCard
       offlineMaterialsAndQuestionBank
-      if intelligence.result != nil && intelligence.previewUsable {previewCard}
-      interactionCard
-      advancedCard
+      if bank.active==nil {generationCard}
+      if bank.active==nil && intelligence.result != nil && intelligence.previewUsable {previewCard}
+      if bank.active==nil {interactionCard;advancedCard}
      }
      Text("后台理解完整字幕；题目随当前进度展示，不提前揭晓答案。向 ChatGPT 发送全片资料需单独同意。").font(.caption2).foregroundStyle(.secondary)
     }.padding(14).frame(maxWidth:560).frame(maxWidth:.infinity)
    }.accessibilityIdentifier("plot-settings-scroll").background(Color(red:0.025,green:0.035,blue:0.055))
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
     .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {if let onClose {onClose()} else {dismiss()}}.accessibilityIdentifier("plot-settings-close")}}
+    .sheet(isPresented:$materialsPreviewOpen) {FilmMaterialsPreview(session:materials)}
+    .confirmationDialog("开始新一轮题库？已发布记录会重置，原题库保留。",isPresented:$restartBankRound,titleVisibility:.visible) {Button("开始新一轮",role:.destructive){bank.startNewRound()}}
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
     .fileImporter(isPresented:$bankPickerOpen,allowedContentTypes:[.json]) { result in
      if case .success(let url)=result {
@@ -114,7 +117,7 @@ import UniformTypeIdentifiers
   }
  }
  private var offlineMaterialsAndQuestionBank:some View {
-  PlotPanelCard(title:"电影素材与离线题库",icon:"square.and.arrow.up.on.square") {
+  PlotPanelCard(title:"制作 AI 电影题库",icon:"square.and.arrow.up.on.square") {
    Text("你主动导出字幕与关键画面，交给 ChatGPT 聊天生成题库；播放时不再调用 AI。").font(.caption).foregroundStyle(.secondary)
    Button {
     model.beginFilmMaterialsExport()
@@ -122,12 +125,15 @@ import UniformTypeIdentifiers
     Label(materials.working ? "正在提取完整字幕和关键画面…" : "一键导出电影 AI 素材",systemImage:"film.stack")
    }.buttonStyle(.borderedProminent).disabled(materials.working || model.bankMovieURL == nil)
     .accessibilityIdentifier("plot-export-film-materials")
-   if materials.working {ProgressView(value:materials.progress).accessibilityIdentifier("plot-film-export-progress")}
+   Text(model.playbackTitle.isEmpty ? "未选择电影" : model.playbackTitle).font(.caption).lineLimit(2)
+   if materials.working {ProgressView(value:materials.progress).accessibilityIdentifier("plot-film-export-progress");Button("取消提取",role:.cancel){materials.cancel()}.accessibilityIdentifier("plot-cancel-film-materials")}
    Text(materials.status).font(.caption).foregroundStyle(.secondary)
     .accessibilityIdentifier("plot-film-export-status")
    if let zip=materials.file {
+    Button("预览字幕与分镜") {materialsPreviewOpen=true}.buttonStyle(.bordered).accessibilityIdentifier("plot-preview-film-materials")
     ShareLink(item:zip) {Label("分享素材包给 ChatGPT",systemImage:"square.and.arrow.up")}
      .buttonStyle(.bordered).accessibilityIdentifier("plot-share-film-materials")
+    ShareLink(items:materials.individualFiles) {Label("单独分享字幕、分镜和 Schema",systemImage:"square.stack")}.buttonStyle(.bordered).accessibilityIdentifier("plot-share-material-files")
     Text("已保存至“文件 → 我的 iPad → TogetherPlayer → AI素材”")
      .font(.caption2).foregroundStyle(.secondary)
    }
@@ -143,6 +149,8 @@ import UniformTypeIdentifiers
    if let active=bank.active {
     Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本次已发布 \(bank.publishedCount) 道")
      .font(.caption).foregroundStyle(.secondary)
+    Text("原片指纹已核对；题目随播放触发，正确答案仅在揭晓后发送。").font(.caption2).foregroundStyle(.secondary)
+    Button("开始新一轮题库") {restartBankRound=true}.accessibilityIdentifier("plot-restart-bank-round")
    }
    if !bank.revealedAnswer.isEmpty {
     Text("剧情已揭晓").font(.headline)

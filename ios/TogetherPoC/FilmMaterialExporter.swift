@@ -36,12 +36,15 @@ enum FilmMaterialFingerprint {
   let size=try handle.seekToEnd()
   guard size>0 else{throw FilmMaterialExportFailure.localFileRequired}
   try handle.seek(toOffset:0)
-  let first=try handle.read(upToCount:65_536) ?? Data()
-  try handle.seek(toOffset:size>65_536 ? size-65_536 : 0)
-  let last=try handle.read(upToCount:65_536) ?? Data()
-  var sha=SHA256()
-  sha.update(data:Data(String(size).utf8));sha.update(data:first);sha.update(data:last)
+  // Full file SHA256, not the old first/last 64 KiB sample. Two files with
+  // altered middle bytes must not silently share a strict-version bank.
+  var sha=SHA256(),read:UInt64=0
+  while let bytes=try handle.read(upToCount:4*1024*1024),!bytes.isEmpty {
+   try Task.checkCancellation();sha.update(data:bytes);read+=UInt64(bytes.count)
+  }
+  guard read==size,try handle.seekToEnd()==size else{throw FilmMaterialExportFailure.localFileRequired}
   return sha.finalize().map{String(format:"%02x",$0)}.joined()
+
  }
  static func subtitles(_ srt:String)->String {
   SHA256.hash(data:Data(srt.utf8)).map{String(format:"%02x",$0)}.joined()
@@ -67,11 +70,11 @@ enum FilmMaterialZip {
    guard !name.isEmpty,name.count<Int(UInt16.max),!path.contains(".."),
      !path.hasPrefix("/"),data.count<20_000_000,result.count<150_000_000 else{return nil}
    let offset=UInt32(result.count),size=UInt32(data.count),checksum=crc(data)
-   u32(0x04034b50,into:&result);u16(20,into:&result);u16(0,into:&result);u16(0,into:&result)
+   u32(0x04034b50,into:&result);u16(20,into:&result);u16(0x0800,into:&result);u16(0,into:&result)
    u16(0,into:&result);u16(0,into:&result);u32(checksum,into:&result);u32(size,into:&result);u32(size,into:&result)
    u16(UInt16(name.count),into:&result);u16(0,into:&result);result.append(name);result.append(data)
    u32(0x02014b50,into:&central);u16(20,into:&central);u16(20,into:&central)
-   u16(0,into:&central);u16(0,into:&central);u16(0,into:&central);u16(0,into:&central)
+   u16(0x0800,into:&central);u16(0,into:&central);u16(0,into:&central);u16(0,into:&central)
    u32(checksum,into:&central);u32(size,into:&central);u32(size,into:&central)
    u16(UInt16(name.count),into:&central);u16(0,into:&central);u16(0,into:&central)
    u16(0,into:&central);u16(0,into:&central);u32(0,into:&central);u32(offset,into:&central);central.append(name)
@@ -98,24 +101,35 @@ enum FilmMaterialExporter {
     if gap>=20,gap<300 {gaps.append(((cues[i-1].end+cues[i].start)/2,gap))}
    }
   }
-  let additions=gaps.sorted{$0.1>$1.1}.prefix(30).map{$0.0}
+  let additions=gaps.sorted{$0.1>$1.1}.prefix(40).flatMap{gap in [gap.0-2,gap.0,gap.0+2]}
+  // Subtitle-density changes and decisions are heuristic sampling hints, not
+  // claims that this app already understands an action or a visual twist.
+  let changes=cues.enumerated().filter{index,cue in
+   index>0 && index%7==0 && (cue.text.contains("？") || cue.text.contains("!") || cue.start-cues[index-1].end>8)
+  }.prefix(25).flatMap{[max(0,$0.element.start-1.5),$0.element.end+1.5]}
   var selected:[Double]=[]
-  for t in (baseline+additions).sorted() {
-   if t>=0,t<duration,selected.last.map({t-$0>=7}) ?? true {selected.append(t)}
+  for t in (baseline+additions+changes).sorted() {
+   if t>=0,t<duration,selected.last.map({t-$0>=0.8}) ?? true {selected.append(t)}
   }
-  return Array(selected.prefix(180))
+  // Cover the whole film even if the optional hints exceed the total cap.
+  if selected.count>250 {return (0..<250).map{selected[$0*(selected.count-1)/249]}}
+  return selected
  }
+
  private static func contactSheet(_ frames:[(Double,CGImage)])->Data? {
   guard !frames.isEmpty else{return nil}
   let columns=4,cellW=250,cellH=165
   let rows=(frames.count+columns-1)/columns
-  let renderer=UIGraphicsImageRenderer(size:CGSize(width:columns*cellW,height:rows*cellH))
+  let format=UIGraphicsImageRendererFormat();format.preferredRange = .standard;format.scale=1
+  let renderer=UIGraphicsImageRenderer(size:CGSize(width:columns*cellW,height:rows*cellH),format:format)
   let image=renderer.image { context in
    UIColor.black.setFill();context.cgContext.fill(CGRect(x:0,y:0,width:columns*cellW,height:rows*cellH))
    for (index,value) in frames.enumerated() {
     let x=(index%columns)*cellW,y=(index/columns)*cellH
     let image=UIImage(cgImage:value.1)
-    image.draw(in:CGRect(x:x,y:y,width:cellW,height:cellH-25))
+    let scale=min(Double(cellW)/Double(image.size.width),Double(cellH-25)/Double(image.size.height))
+    let width=Double(image.size.width)*scale,height=Double(image.size.height)*scale
+    image.draw(in:CGRect(x:Double(x)+(Double(cellW)-width)/2,y:Double(y)+(Double(cellH-25)-height)/2,width:width,height:height))
     let seconds=Int(value.0.rounded())
     let timestamp=String(format:"%02d:%02d:%02d",seconds/3600,(seconds/60)%60,seconds%60)
     let text=timestamp as NSString
@@ -124,48 +138,57 @@ enum FilmMaterialExporter {
   }
   return image.jpegData(compressionQuality:0.76)
  }
- static func create(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,progress:@escaping (Double)->Void)throws->URL {
+ static func create(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,progress:@escaping (Double)->Void)throws->URL {
   guard url.isFileURL else{throw FilmMaterialExportFailure.localFileRequired}
   let scoped=url.startAccessingSecurityScopedResource()
   defer {if scoped {url.stopAccessingSecurityScopedResource()}}
   guard FileManager.default.isReadableFile(atPath:url.path) else{throw FilmMaterialExportFailure.localFileRequired}
   let fingerprint=try FilmMaterialFingerprint.source(url)
   let extracted:FullFilmTranscriptReader.Output?
-  if external != nil {extracted=nil}
-  else {extracted=try FullFilmTranscriptReader.extract(url,preferredTitle:nil,allowOCR:allowOCR,progress:{value in progress(value*0.25)})}
-  guard let subtitles=external ?? extracted?.document else{throw FilmMaterialExportFailure.missingSubtitles}
+  do {extracted=try FullFilmTranscriptReader.extract(url,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:{value in progress(value*0.25)})}
+  catch is CancellationError {throw CancellationError()}
+  catch {guard external != nil else{throw error};extracted=nil}
+  try Task.checkCancellation()
+  guard let subtitles=extracted?.document ?? external else{throw FilmMaterialExportFailure.missingSubtitles}
   let srt=SubtitleSRTEncoder.encode(subtitles)
   guard !srt.isEmpty else{throw FilmMaterialExportFailure.missingSubtitles}
   let asset=AVURLAsset(url:url)
   let assetDuration=asset.duration.seconds
-  let duration=extracted?.duration ?? (assetDuration.isFinite ? assetDuration : subtitles.cues.last?.end ?? 0)
+  let duration=extracted?.duration ?? (assetDuration.isFinite && assetDuration>0 ? assetDuration : FilmFFmpegFrameSampler.mediaDuration(url) ?? 0)
   guard duration.isFinite,duration>=60,duration<=43_200 else{throw FilmMaterialExportFailure.missingDuration}
   let times=selectedTimes(duration:duration,subtitles:subtitles)
   let generator=AVAssetImageGenerator(asset:asset)
   generator.appliesPreferredTrackTransform=true
+  if #available(iOS 18.0,*) {generator.dynamicRangePolicy = .forceSDR}
   generator.maximumSize=CGSize(width:500,height:300)
   generator.requestedTimeToleranceBefore=CMTime(seconds:1,preferredTimescale:600)
   generator.requestedTimeToleranceAfter=CMTime(seconds:1,preferredTimescale:600)
   var sheets:[(String,Data)]=[]
   var pending:[(Double,CGImage)]=[]
   var frameTimes:[Int]=[]
+  var timeline:[FilmFrameRecord]=[]
   // AVAssetImageGenerator cannot decode many MKV/HEVC containers directly.
   // Use the already-shipped FFmpeg libraries for local, independent decoding.
   let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
   var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url) : nil
   for (index,time) in times.enumerated() {
    try Task.checkCancellation()
-   var frame:CGImage?
-   if directFFmpeg {frame=ffmpeg?.image(at:time)}
+   var frame:CGImage?;var actualTime=time
+   if directFFmpeg {frame=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? time}
    else {
-    frame=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:nil)
+    var actual=CMTime.invalid
+    frame=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
+    if actual.seconds.isFinite {actualTime=actual.seconds}
     if frame==nil {
      if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url)}
-     frame=ffmpeg?.image(at:time)
+     frame=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? time
     }
    }
    if let image=frame {
-    pending.append((time,image));frameTimes.append(Int((time*1000).rounded()))
+    guard actualTime.isFinite,actualTime>=0,actualTime<=duration else{continue}
+    let actualMs=Int((actualTime*1000).rounded())
+    timeline.append(FilmFrameRecord(requestedMs:Int((time*1000).rounded()),actualMs:actualMs,sheet:String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),row:pending.count/4,column:pending.count%4,visualEvidenceComplete:false))
+    pending.append((actualTime,image));frameTimes.append(actualMs)
     if pending.count==16,let bytes=contactSheet(pending) {
      sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes));pending=[]
     }
@@ -175,12 +198,16 @@ enum FilmMaterialExporter {
   if !pending.isEmpty,let bytes=contactSheet(pending) {sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes))}
   // We cannot claim to have understood the film's images if sampling failed.
   guard frameTimes.count>=min(4,times.count),
-   Double(frameTimes.count)>=Double(times.count)*0.25 else{throw FilmMaterialExportFailure.framesUnavailable}
+   Double(frameTimes.count)>=Double(times.count)*0.80 else{throw FilmMaterialExportFailure.framesUnavailable}
   let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVFoundation/FFmpeg sampled frames; dialogue gaps supplemented; missing motion between still frames is not inferred")
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
   let instructions="TogetherPlayer 电影素材包 v1\n本包含完整时间轴字幕、按时间顺序的多张分镜图以及严格对应的时间信息。\n请用 ChatGPT 项目指令制作 AI 题库。每道题提供已观看证据、未来揭晓依据、触发时间和安全答案揭晓时间。\n图片是离散截图，无法证明缺失画面之间的连续动作。不要编造未覆盖的视觉情节。\n生成 JSON 时 schemaVersion=1，影片 durationMs、sourceFingerprint、subtitleFingerprint 必须从 manifest.json 原样复制。\n题库还需通过 App 的校验再运行。\n"
-  var entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("README.txt",Data(instructions.utf8))]
+  let schemaURL=Bundle.main.url(forResource:"question-bank-v1.schema",withExtension:"json")
+  guard let schemaURL else{throw FilmBankValidation.detail("安装包缺少正式题库Schema，素材未发布。")}
+  let schema=try Data(contentsOf:schemaURL)
+  let projectGuide=FilmBankProjectInstructions.text
+  var entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n原片指纹采用完整文件SHA256；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]
   entries.append(contentsOf:sheets)
   guard let archive=FilmMaterialZip.make(entries) else{throw FilmMaterialExportFailure.tooManyFiles}
   let document=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("AI素材",isDirectory:true)
@@ -188,11 +215,31 @@ enum FilmMaterialExporter {
   let name=url.deletingPathExtension().lastPathComponent
    .replacingOccurrences(of:"[^a-zA-Z0-9_\\-一-龥]",with:"_",options:.regularExpression)
   let filename=String(name.prefix(52))
-  let output=document.appendingPathComponent(filename+"-"+String(fingerprint.prefix(12))+".zip")
-  try archive.write(to:output,options:.atomic)
+  let bundle=document.appendingPathComponent(filename+"-"+String(fingerprint.prefix(12))+"-"+String(UUID().uuidString.prefix(8)),isDirectory:true)
+  let staging=document.appendingPathComponent(".export-"+UUID().uuidString,isDirectory:true)
+  try FileManager.default.createDirectory(at:staging,withIntermediateDirectories:true)
+  var installed=false
+  defer {if !installed {try? FileManager.default.removeItem(at:staging)}}
+  for (path,data) in entries {
+   try Task.checkCancellation()
+   let file=staging.appendingPathComponent(path)
+   try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
+   try data.write(to:file,options:.atomic)
+  }
+  try archive.write(to:staging.appendingPathComponent("电影_AI素材.zip"),options:.atomic)
+  try Task.checkCancellation()
+  try FileManager.default.moveItem(at:staging,to:bundle);installed=true
   progress(1)
-  return output
+  return bundle.appendingPathComponent("电影_AI素材.zip")
  }
+}
+struct FilmFrameRecord:Codable {
+ let requestedMs:Int
+ let actualMs:Int
+ let sheet:String
+ let row:Int
+ let column:Int
+ let visualEvidenceComplete:Bool
 }
 
 @MainActor final class FilmMaterialExportSession:ObservableObject {
@@ -200,20 +247,45 @@ enum FilmMaterialExporter {
  @Published private(set) var progress=0.0
  @Published private(set) var status="请先加载本地原片"
  @Published private(set) var file:URL?
- func begin(url:URL?,title:String,external:SubtitleDocument?,allowOCR:Bool) {
+ @Published private(set) var individualFiles:[URL]=[]
+ @Published private(set) var previewSubtitle=""
+ private var generation=0
+ private var source:URL?
+ private var worker:Task<URL,Error>?
+ func selectMovie(_ url:URL?) {if source != url {cancel();source=url;file=nil;individualFiles=[];previewSubtitle="";status="点击提取后，仅在本机扫描完整字幕和画面"}}
+ func cancel() {generation+=1;worker?.cancel();worker=nil;working=false;status="已取消提取，未上传原片"}
+ func begin(url:URL?,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil) {
   guard !working else{return}
   guard let url,url.isFileURL else{status=FilmMaterialExportFailure.localFileRequired.localizedDescription;return}
-  working=true;progress=0;file=nil;status="正在导出字幕和关键画面…"
-  Task {
+  selectMovie(url);generation+=1;let token=generation
+  working=true;progress=0;file=nil;individualFiles=[];status="正在提取全片字幕、分镜与精确时间轴…"
+  let job=Task.detached(priority:.utility) {
+   try FilmMaterialExporter.create(url:url,title:title,external:external,allowOCR:allowOCR,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,progress:{[weak self] value in
+    Task {@MainActor in guard let self,self.generation==token else{return};self.progress=value}
+   })
+  }
+  worker=job
+  Task {[weak self] in
    do {
-    let output=try await Task.detached(priority:.utility) {
-     try FilmMaterialExporter.create(url:url,title:title,external:external,allowOCR:allowOCR,progress:{value in
-      Task {@MainActor in self.progress=value}
-     })
+    let output=try await job.value
+    guard let self,self.generation==token,self.source==url else {
+     try? FileManager.default.removeItem(at:output.deletingLastPathComponent());return
+    }
+    let prepared=await Task.detached(priority:.utility){() -> ([URL],String) in
+     let folder=output.deletingLastPathComponent()
+     let all=(FileManager.default.enumerator(at:folder,includingPropertiesForKeys:[.isRegularFileKey])?.allObjects as? [URL]) ?? []
+     return (all.filter{$0.pathExtension != "zip" && (try? $0.resourceValues(forKeys:[.isRegularFileKey]).isRegularFile)==true}.sorted{$0.path<$1.path},String((try? String(contentsOf:folder.appendingPathComponent("subtitles/whole-film.srt"),encoding:.utf8))?.prefix(1800) ?? ""))
     }.value
-    file=output;status="素材包已就绪，点击“分享给 ChatGPT”或在“文件”中查找。"
-   } catch {status="素材导出失败："+error.localizedDescription}
-   working=false
+    guard self.generation==token else{return}
+    self.file=output;self.individualFiles=prepared.0;self.previewSubtitle=prepared.1
+    self.status="素材已保存；可预览、分享ZIP或单独分享字幕与分镜。未上传原片。"
+   } catch {
+    guard let self,self.generation==token else{return}
+    self.status=error is CancellationError ? "已取消提取，未上传原片" : "素材导出失败："+error.localizedDescription
+   }
+   guard let self,self.generation==token else{return}
+   self.worker=nil;self.working=false
   }
  }
+ deinit {worker?.cancel()}
 }

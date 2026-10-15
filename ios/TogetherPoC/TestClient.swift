@@ -40,13 +40,16 @@ import CoreMedia
  var bankCanPublish:Bool {
   isConnected && isRoomHost && clock.ready && supportsBlockingPolls &&
    variantDurationCheck == .compatible && adapter.player.rate>0 &&
-   !adapter.isSeeking && engine.room?.state=="playing" && speedHoldID==nil &&
+   !adapter.isSeeking && engine.room?.state=="playing" &&
    (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
  }
  var bankPlaybackPositionMs:Double {max(0,adapter.position-engine.timelineOffset)}
  func beginFilmMaterialsExport() {
   let title=playbackTitle.isEmpty ? bankMovieURL?.deletingPathExtension().lastPathComponent ?? "电影" : playbackTitle
-  filmMaterials.begin(url:bankMovieURL,title:title,external:bankSubtitle,allowOCR:externalSubtitles.convertPGSForAI)
+  let chosen=requestedSubtitleIndex ?? -1
+  let option=subtitleGroup?.options.indices.contains(chosen)==true ? subtitleGroup?.options[chosen] : nil
+  let stream=mkvRemux.aiSubtitleStreamIndices.indices.contains(chosen) ? mkvRemux.aiSubtitleStreamIndices[chosen] : nil
+  filmMaterials.begin(url:bankMovieURL,title:title,external:bankSubtitle,allowOCR:true,preferredTitle:subtitleLabels.indices.contains(chosen) ? subtitleLabels[chosen] : nil,preferredLanguage:option?.extendedLanguageTag,preferredStreamIndex:stream)
  }
  let library=MediaLibrary()
  var plotPollSubmitted:Bool {
@@ -226,33 +229,11 @@ import CoreMedia
    return PlotFrame(key:key,position:position,evidence:observed+visuals,
     prediction:prediction,plannedCheckpoint:checkpoint)
   }
-  // Hosts can receive automatic questions alone or with a peer.
-  // A pending unanswered poll cannot be overwritten.
-  plotIntelligence.mayPublishAutomatically={ [weak self] in
-   if self?.questionBankRuntime.active != nil {return false}
-   guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,
-    self.adapter.player.rate>0 else{return false}
-   return self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true
-  }
+  // V2 automation is owned solely by the imported bank. Legacy AI remains
+  // available for an explicit manual request, never a background cloud call.
+  plotIntelligence.mayPublishAutomatically={false}
   plotIntelligence.automaticAvailabilityReason={ [weak self] in
-   guard let self else{return "房间控制器不可用"}
-   guard self.isConnected else{return "房间尚未连接；自动提问需房主在线"}
-   guard self.isRoomHost else{return "当前是观众端，由房主负责触发自动提问"}
-   guard self.supportsBlockingPolls else{return "服务器未开启自动暂停答题能力"}
-   guard self.adapter.player.rate>0 else{return "播放器暂停中，等待继续播放"}
-   guard self.plotPoll == nil || self.plotPoll?["revealed"] as? Bool == true else{return "上一道题尚未完成"}
-   let settings=self.plotIntelligence
-   if settings.mode == .local && !PlotLocalAI.available {return "设备端 Apple AI 当前不可用；请查看 AI 模式"}
-   let auth=settings.auth
-   let cloudReady=settings.automaticAllowed && settings.consent && settings.creditsDisabled &&
-    auth.integrationReady && !auth.usagePaused && !auth.working
-   if settings.mode == .chatgpt && !cloudReady {
-    return "ChatGPT 自动提问未就绪，请检查授权、智能调用开关、隐私及额度保护"
-   }
-   if settings.mode == .smart && !PlotLocalAI.available && !cloudReady {
-    return "智能模式尚无可用真实 AI：苹果本地模型或 ChatGPT 自动授权至少需要一种"
-   }
-   return nil
+   self?.questionBankRuntime.active == nil ? "请先制作并导入电影题库；正常播放不会请求 AI" : "已导入题库负责时间节点提问，不再实时生成"
   }
   plotIntelligence.isSubtitleCurrentlyShown={ [weak self] in
    guard let self else{return true}
@@ -267,7 +248,11 @@ import CoreMedia
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
    self.publishPlotPoll(question)
   }
-  questionBankRuntime.onBankReady={ [weak self] in self?.plotIntelligence.wholeFilm.cancel() }
+  questionBankRuntime.onBankReady={ [weak self] in
+   guard let self else{return}
+   self.plotIntelligence.cancel();self.plotIntelligence.wholeFilm.cancel()
+   self.pendingPlotPredictionReview=nil;self.plotPredictionReviewTask?.cancel()
+  }
   plotIntelligence.start()
   plotIntelligence.visualEvidenceEnabled=visualSampler.enabled
   visualSampler.onEnabledChanged={ [weak self] enabled in
@@ -423,6 +408,7 @@ import CoreMedia
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
+  filmMaterials.selectMovie(url)
   questionBankRuntime.restore(filmKey:plotKey,source:url,durationMs:0)
   if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
   if aiOnlySubtitle?.film != plotKey {aiOnlySubtitle=nil;aiOnlySubtitleImportStatus=""}
@@ -577,6 +563,8 @@ import CoreMedia
   }
  }
  func prepareCompleteFilmForAI(force:Bool=false) {
+  // V2 never initiates a full-film scan from playback metadata callbacks.
+  guard force else{return}
   if questionBankRuntime.active != nil && !force {return}
   guard let source=currentOriginalURL,let key=plotDisplayPosition()?.key else{return}
   if force {plotIntelligence.wholeFilm.reset(film:key)}
@@ -891,7 +879,7 @@ import CoreMedia
    // Capture an answered prediction only AFTER the server has revealed both
    // votes. Its correct outcome is deliberately unknown until future scenes
    // have actually played. Replay of WELCOME/STATE cannot duplicate a review.
-   if isHost,let poll=incoming,poll["revealed"] as? Bool == true,
+   if questionBankRuntime.active == nil,isHost,let poll=incoming,poll["revealed"] as? Bool == true,
       poll["questionType"] as? String == "prediction",
       let id=poll["id"] as? String,!reviewedPlotPollIDs.contains(id),
       let room=engine.room,let question=poll["question"] as? String,
@@ -1077,6 +1065,7 @@ import CoreMedia
   if current?.target(clock.serverNow()).1 == "paused" {recoveryRebuilds=0}
  }
  private func reviewPlotPredictionIfReady() {
+  guard questionBankRuntime.active == nil else{return}
   guard connected,isHost,plotPredictionReviewTask == nil,
    let review=pendingPlotPredictionReview,let room=engine.room else{return}
   guard room.roomId==review.roomId,room.mediaUrl==review.mediaId else {
@@ -1139,13 +1128,14 @@ import CoreMedia
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
    questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
+    canReveal:isRoomHost && isConnected,
+    subtitleShown:plotIntelligence.isSubtitleCurrentlyShown?() ?? true,
+    captionSequence:externalSubtitles.plotCaptionSequence,
     publish:{[weak self] question in self?.publishPlotPoll(question)},
-    reveal:{[weak self] text in
+    reveal:{[weak self] message in
      guard let self,self.isRoomHost,self.isConnected else{return}
-     let message=String(text.prefix(500))
-     let id="bank:"+UUID().uuidString
-     let payload:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message,"clientMessageId":id]]
-     self.outbox[id]=payload;self.send(payload)
+     let payload:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message.text,"clientMessageId":message.id]]
+     self.outbox[message.id]=payload;self.send(payload)
     })
    send(["type":"SYNC"])
    let item=adapter.player.currentItem
@@ -1197,6 +1187,7 @@ extension TestClient {
  private func acceptChat(_ raw: [String:Any],live: Bool=false) {
   guard let data=try? JSONSerialization.data(withJSONObject:raw),let message=try? JSONDecoder().decode(ChatMessage.self,from:data) else {return}
   outbox.removeValue(forKey:message.clientMessageId)
+  if message.userId == credentials?["userId"] as? String {questionBankRuntime.acknowledgeReveal(message.clientMessageId)}
   chat.accept(message,mine:message.userId == credentials?["userId"] as? String,live:live,now:clock.localNow())
  }
  private var hasBaiduMatch: Bool {(baiduPlaybackURL != nil || localFileURL != nil) && baiduSourceID==engine.room?.mediaUrl && baiduSourceRoom==engine.room?.roomId}

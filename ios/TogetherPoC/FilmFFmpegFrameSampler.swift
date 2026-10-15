@@ -15,7 +15,17 @@ final class FilmFFmpegFrameSampler {
  private let index:Int32
  private let secondsPerTick:Double
  private let firstTimestamp:Int64
+ private(set) var lastDecodedTime:Double?
 
+ static func mediaDuration(_ url:URL)->Double? {
+  guard url.isFileURL,!Task.isCancelled else{return nil}
+  var pointer:UnsafeMutablePointer<AVFormatContext>?
+  guard avformat_open_input(&pointer,url.path,nil,nil)>=0,let format=pointer else{return nil}
+  defer{avformat_close_input(&pointer)}
+  guard avformat_find_stream_info(format,nil)>=0 else{return nil}
+  let value=Double(format.pointee.duration)/1_000_000
+  return value.isFinite && value>0 ? value : nil
+ }
  init?(url:URL) {
   guard url.isFileURL else{return nil}
   var opened:UnsafeMutablePointer<AVFormatContext>?
@@ -61,7 +71,8 @@ final class FilmFFmpegFrameSampler {
   if format != nil {avformat_close_input(&format)}
  }
  func image(at seconds:Double)->CGImage? {
-  guard seconds.isFinite,seconds>=0,let format,let decoder,let packet,let frame else{return nil}
+  lastDecodedTime=nil
+  guard !Task.isCancelled,seconds.isFinite,seconds>=0,let format,let decoder,let packet,let frame else{return nil}
   let target=firstTimestamp+Int64((seconds/secondsPerTick).rounded(.towardZero))
   // Some one-frame MP4 fixtures do not carry a seek index. At time zero
   // the demuxer is already positioned correctly, so decoding can continue.
@@ -70,6 +81,7 @@ final class FilmFFmpegFrameSampler {
   avcodec_flush_buffers(decoder)
   var visited=0,decoded=0
   while visited<900,decoded<380 {
+   if Task.isCancelled {return nil}
    visited+=1
    guard av_read_frame(format,packet)>=0 else{break}
    defer {av_packet_unref(packet)}
@@ -79,7 +91,7 @@ final class FilmFFmpegFrameSampler {
     let stamp=frame.pointee.best_effort_timestamp
     let position=stamp==Int64.min ? -1 : Double(stamp-firstTimestamp)*secondsPerTick
     if position>=seconds-0.35,let converted=Self.convert(frame) {
-     av_frame_unref(frame);return converted
+     lastDecodedTime=position;av_frame_unref(frame);return converted
     }
     av_frame_unref(frame)
     if decoded>=380 {break}
@@ -93,7 +105,7 @@ final class FilmFFmpegFrameSampler {
     let position=stamp==Int64.min ? -1 : Double(stamp-firstTimestamp)*secondsPerTick
     if (position>=seconds-0.35 || (seconds<=0.5 && stamp==Int64.min)),
       let converted=Self.convert(frame) {
-     av_frame_unref(frame);return converted
+     lastDecodedTime=position;av_frame_unref(frame);return converted
     }
     av_frame_unref(frame)
    }
@@ -104,11 +116,17 @@ final class FilmFFmpegFrameSampler {
   let w=Int(frame.pointee.width),h=Int(frame.pointee.height)
   guard w>=16,h>=16,w<=8192,h<=8192,frame.pointee.format>=0 else{return nil}
   let inputFormat=AVPixelFormat(rawValue:frame.pointee.format)
-  let outputW=min(480,w)
-  let outputH=max(1,min(270,Int((Double(outputW)*Double(h)/Double(w)).rounded())))
+  let scale=min(480.0/Double(w),270.0/Double(h),1.0)
+  let outputW=max(1,Int(Double(w)*scale)),outputH=max(1,Int(Double(h)*scale))
   guard let scaler=sws_getContext(Int32(w),Int32(h),inputFormat,
    Int32(outputW),Int32(outputH),AV_PIX_FMT_BGRA,Int32(SWS_BILINEAR.rawValue),nil,nil,nil) else{return nil}
   defer{sws_freeContext(scaler)}
+  // FFmpeg coefficient IDs: 9=BT.2020, 1=BT.709, 5=BT.601.
+  let colors=frame.pointee.colorspace.rawValue
+  let coefficient:Int32=(colors==9 || colors==10) ? 9 : (colors==1 ? 1 : 5)
+  if let table=sws_getCoefficients(coefficient) {
+   _=sws_setColorspaceDetails(scaler,table,frame.pointee.color_range.rawValue==2 ? 1 : 0,table,1,0,1<<16,1<<16)
+  }
   let bytesPerRow=outputW*4
   var imageBytes=Data(count:bytesPerRow*outputH)
   let sourcePlanes:[UnsafePointer<UInt8>?]=[
@@ -136,11 +154,50 @@ final class FilmFFmpegFrameSampler {
     }
    }
   }
-  guard rows==Int32(outputH),let provider=CGDataProvider(data:imageBytes as CFData) else{return nil}
+  guard rows==Int32(outputH) else{return nil}
+  let transfer=frame.pointee.color_trc.rawValue
+  // 16=PQ (ST2084), 18=HLG. Swscale performs YUV conversion but not HDR
+  // tone mapping. Apply an explicit SDR transform at thumbnail resolution.
+  if transfer==16 || transfer==18 {
+   FilmHDRToneMap.apply(&imageBytes,pq:transfer==16,bt2020:colors==9 || colors==10)
+  }
+  guard let provider=CGDataProvider(data:imageBytes as CFData) else{return nil}
   let bitmap=CGBitmapInfo(rawValue:CGImageAlphaInfo.premultipliedFirst.rawValue).union(.byteOrder32Little)
   return CGImage(width:outputW,height:outputH,bitsPerComponent:8,bitsPerPixel:32,
    bytesPerRow:bytesPerRow,space:CGColorSpaceCreateDeviceRGB(),
    bitmapInfo:bitmap,provider:provider,decode:nil,
    shouldInterpolate:true,intent:.defaultIntent)
+ }
+}
+
+// Bounded thumbnail transform; never applied to the actual playback surface.
+enum FilmHDRToneMap {
+ static func apply(_ bytes:inout Data,pq:Bool,bt2020:Bool) {
+  let linear=(0..<256).map{index -> Double in
+   let v=Double(index)/255
+   if pq {
+    let p=pow(v,1/(2523.0/32)),n=max(p-3424.0/4096,0),d=max(2413.0/128-2392.0/128*p,0.000001)
+    return 100*pow(n/d,1/(2610.0/16384)) // units of SDR 100 nits
+   }
+   let a=0.17883277,b=0.28466892,c=0.55991073
+   return (v<=0.5 ? v*v/3 : (exp((v-c)/a)+b)/12)*10
+  }
+  func encode(_ value:Double)->UInt8 {
+   let x=max(0,min(1,value)),s=x<=0.0031308 ? x*12.92 : 1.055*pow(x,1/2.4)-0.055
+   return UInt8(max(0,min(255,(s*255).rounded())))
+  }
+  bytes.withUnsafeMutableBytes{(raw:UnsafeMutableRawBufferPointer) in
+   let p=raw.bindMemory(to:UInt8.self)
+   for i in stride(from:0,to:max(0,p.count-3),by:4) {
+    var r=linear[Int(p[i+2])],g=linear[Int(p[i+1])],b=linear[Int(p[i])]
+    if bt2020 {
+     let rr=1.6605*r-0.5876*g-0.0728*b,gg = -0.1246*r+1.1329*g-0.0083*b,bb = -0.0182*r-0.1006*g+1.1187*b
+     r=max(0,rr);g=max(0,gg);b=max(0,bb)
+    }
+    let l=0.2126*r+0.7152*g+0.0722*b
+    let mapped=l/(1+l),scale=l>0.000001 ? mapped/l : 0
+    p[i]=encode(b*scale);p[i+1]=encode(g*scale);p[i+2]=encode(r*scale);p[i+3]=255
+   }
+  }
  }
 }

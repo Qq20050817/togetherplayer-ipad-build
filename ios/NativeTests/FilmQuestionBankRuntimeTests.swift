@@ -21,7 +21,7 @@ import XCTest
   let hash=try FilmMaterialFingerprint.source(movie)
   let store=FilmQuestionBankStore(directory:root.appendingPathComponent("bank"))
   try await store.save(bank(fingerprint:hash),filmKey:"room-film")
-  let runtime=FilmQuestionBankRuntime(store:store)
+  let runtime=FilmQuestionBankRuntime(store:store,progressStore:FilmBankProgressStore(directory:root.appendingPathComponent("progress")))
   runtime.restore(filmKey:"room-film",source:movie,durationMs:120_000)
   for _ in 0..<150 {
    if runtime.active != nil {break}
@@ -29,21 +29,22 @@ import XCTest
   }
   XCTAssertNotNil(runtime.active)
   var sent:[String]=[];var revealed:[String]=[]
-  func clock(_ t:Double,enabled:Bool=true) {
+  func clock(_ t:Double,enabled:Bool=true) async {
    runtime.tick(filmKey:"room-film",positionMs:t,durationMs:120_000,
-    canPublish:enabled,publish:{sent.append($0.text)},reveal:{revealed.append($0)})
+    canPublish:enabled,publish:{sent.append($0.text)},reveal:{revealed.append($0.text);runtime.acknowledgeReveal($0.id)})
+   await runtime.waitForProgress()
   }
-  clock(29_000);clock(30_050)
+  await clock(29_000);await clock(30_050)
   XCTAssertEqual(sent.count,1)
-  clock(32_000);clock(59_500);XCTAssertTrue(revealed.isEmpty)
-  clock(60_100,enabled:false)
+  await clock(32_000);await clock(59_500);XCTAssertTrue(revealed.isEmpty)
+  await clock(60_100,enabled:false)
   XCTAssertEqual(revealed.count,1)
   XCTAssertTrue(revealed[0].contains("正确答案"))
-  clock(60_800)
+  await clock(60_800)
   XCTAssertEqual(revealed.count,1)
   XCTAssertEqual(sent.count,1)
   // Jump backwards/forwards must not reinject an answered poll.
-  clock(4_000);clock(85_000)
+  await clock(4_000);await clock(85_000)
   XCTAssertEqual(sent.count,1)
   let unrelated=root.appendingPathComponent("different.mp4")
   try Data(repeating:0x46,count:400).write(to:unrelated)
