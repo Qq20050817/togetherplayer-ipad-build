@@ -68,6 +68,7 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["fullscreen-plot-ai-button"].tap()
   let panel=app.descendants(matching:.any)["plot-settings-panel"].firstMatch
   XCTAssertTrue(panel.waitForExistence(timeout:5))
+  XCTAssertTrue(app.buttons["plot-import-ai-only-full-subtitle"].firstMatch.waitForExistence(timeout:5),"AI-only subtitle import should appear without obscuring the movie")
   let movie=app.otherElements["fullscreen-movie"].firstMatch
   XCTAssertGreaterThan(movie.frame.width,app.frame.width*0.5)
   XCTAssertGreaterThanOrEqual(panel.frame.minX,movie.frame.maxX-2,"settings must reserve their own area")
