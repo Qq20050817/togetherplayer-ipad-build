@@ -34,11 +34,12 @@ import CoreMedia
  let plotIntelligence=PlotIntelligence(requireCompleteFilm:true)
  let filmMaterials=FilmMaterialExportSession()
  let questionBankRuntime=FilmQuestionBankRuntime()
+ private var lastBankPollDispatch = -Double.infinity
  var bankMovieURL:URL? {currentOriginalURL}
  var bankMovieKey:String? {plotDisplayPosition()?.key}
  var bankSubtitle:SubtitleDocument? {aiOnlySubtitle?.film==plotDisplayPosition()?.key ? aiOnlySubtitle?.document : externalSubtitles.completeExternalForAI}
  var bankCanPublish:Bool {
-  isConnected && isRoomHost && clock.ready && supportsBlockingPolls &&
+  isConnected && isRoomHost && clock.ready && supportsBlockingPolls && clock.localNow()-lastBankPollDispatch>=15_000 &&
    variantDurationCheck == .compatible && adapter.player.rate>0 &&
    !adapter.isSeeking && engine.room?.state=="playing" &&
    (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
@@ -1141,7 +1142,7 @@ import CoreMedia
     canReveal:isRoomHost && isConnected,revealPositionMs:bankSafeRevealPositionMs,
     subtitleShown:plotIntelligence.isSubtitleCurrentlyShown?() ?? true,
     captionSequence:externalSubtitles.plotCaptionSequence,
-    publish:{[weak self] question in self?.publishPlotPoll(question)},
+    publish:{[weak self] question in guard let self,self.bankCanPublish else{return};self.lastBankPollDispatch=self.clock.localNow();self.publishPlotPoll(question)},
     reveal:{[weak self] message in
      guard let self,self.isRoomHost,self.isConnected else{return}
      let payload:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message.text,"clientMessageId":message.id]]

@@ -82,7 +82,7 @@ import CryptoKit
   let movie=directory.appendingPathComponent("first.mkv"),moved=directory.appendingPathComponent("second.mkv")
   try Data(repeating:45,count:200_000).write(to:movie);try FileManager.default.copyItem(at:movie,to:moved)
   let bank=sample(try FilmMaterialFingerprint.source(movie)),store=FilmQuestionBankStore(directory:directory.appendingPathComponent("bank")),progress=FilmBankProgressStore(directory:directory.appendingPathComponent("progress"))
-  try await store.saveForSource(bank)
+  try await store.saveForSource(bank,candidate:FilmMaterialFingerprint.candidate(movie))
   let first=FilmQuestionBankRuntime(store:store,progressStore:progress)
   first.restore(filmKey:"room1",source:movie,durationMs:120_000);await first.waitForRestore();XCTAssertNotNil(first.active)
   var sent=0
@@ -126,7 +126,7 @@ import CryptoKit
   let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}
   let movie=directory.appendingPathComponent("film.mkv");try Data([1,2,3]).write(to:movie)
   let bank=sample(try FilmMaterialFingerprint.source(movie)),store=FilmQuestionBankStore(directory:directory.appendingPathComponent("bank"))
-  try await store.saveForSource(bank)
+  try await store.saveForSource(bank,candidate:FilmMaterialFingerprint.candidate(movie))
   let runtime=FilmQuestionBankRuntime(store:store,progressStore:FilmBankProgressStore(directory:directory.appendingPathComponent("progress")))
   runtime.restore(filmKey:"f",source:movie,durationMs:120_000);await runtime.waitForRestore()
   var sent=0
@@ -173,6 +173,22 @@ import CryptoKit
   XCTAssertEqual(FilmSceneChange.distance(FilmSceneChange.signature(dark),FilmSceneChange.signature(dark)),0)
   XCTAssertGreaterThan(try XCTUnwrap(FilmSceneChange.distance(FilmSceneChange.signature(dark),FilmSceneChange.signature(bright))),0.9)
   XCTAssertNil(FilmSceneChange.distance(nil,FilmSceneChange.signature(bright)))
+ }
+
+ func testNoBankDoesNotReadCompleteMovieAndCandidateNeverReplacesFullHash() async throws {
+  let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}
+  let movie=directory.appendingPathComponent("first.mkv"),other=directory.appendingPathComponent("changed-middle.mkv")
+  let bytes=Data(repeating:8,count:200_000);var different=bytes;different[100_000]=9
+  try bytes.write(to:movie);try different.write(to:other)
+  let store=FilmQuestionBankStore(directory:directory.appendingPathComponent("bank")),progress=FilmBankProgressStore(directory:directory.appendingPathComponent("progress"))
+  let runtime=FilmQuestionBankRuntime(store:store,progressStore:progress);var fullReads=0;runtime.onFullFingerprint={fullReads+=1}
+  runtime.restore(filmKey:"f",source:movie,durationMs:120_000);await runtime.waitForRestore()
+  XCTAssertNil(runtime.active);XCTAssertEqual(fullReads,0,"No known bank must not cause a full movie scan")
+  let candidate=try FilmMaterialFingerprint.candidate(movie)
+  XCTAssertEqual(candidate,try FilmMaterialFingerprint.candidate(other))
+  try await store.saveForSource(sample(FilmMaterialFingerprint.source(movie)),candidate:candidate)
+  runtime.restore(filmKey:"f",source:other,durationMs:120_000);await runtime.waitForRestore()
+  XCTAssertEqual(fullReads,1);XCTAssertNil(runtime.active);XCTAssertTrue(runtime.status.contains("不匹配"))
  }
 
 }

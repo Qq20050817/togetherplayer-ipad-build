@@ -17,7 +17,11 @@ extension FilmQuestionBankStore {
  // Source fingerprint keys survive moving/reimporting the same movie or
  // joining another room. Answers stay in the local bank, never in progress.
  func loadForSource(_ fingerprint:String)->FilmQuestionBank? {load(filmKey:"source:"+fingerprint.lowercased())}
- func saveForSource(_ bank:FilmQuestionBank)throws {try save(bank,filmKey:"source:"+(bank.sourceFingerprint ?? "").lowercased())}
+ func saveForSource(_ bank:FilmQuestionBank,candidate:String?=nil)throws {
+  try save(bank,filmKey:"source:"+(bank.sourceFingerprint ?? "").lowercased())
+  if let candidate {try save(bank,filmKey:"candidate:"+candidate)}
+ }
+ func loadCandidate(_ candidate:String)->FilmQuestionBank? {load(filmKey:"candidate:"+candidate)}
 }
 
 actor FilmBankProgressStore {

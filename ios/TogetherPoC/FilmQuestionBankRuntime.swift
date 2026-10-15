@@ -10,6 +10,9 @@ import Combine
  @Published private(set) var publishedCount=0
  @Published private(set) var completedCount=0
  var onBankReady:(()->Void)?
+ #if DEBUG
+ var onFullFingerprint:(()->Void)?
+ #endif
  private let store:FilmQuestionBankStore
  private let progressStore:FilmBankProgressStore
  init(store:FilmQuestionBankStore=FilmQuestionBankStore(),progressStore:FilmBankProgressStore=FilmBankProgressStore()){self.store=store;self.progressStore=progressStore}
@@ -43,43 +46,54 @@ import Combine
   status="正在校验本地原片指纹和已保存题库…"
   let job=Task.detached(priority:.utility){() throws->String in
    let access=source.startAccessingSecurityScopedResource();defer{if access {source.stopAccessingSecurityScopedResource()}}
-   return try FilmMaterialFingerprint.source(source)
+   return try FilmMaterialFingerprint.candidate(source)
   }
   fingerprinting=job
   restoring=Task {[weak self] in
    guard let self else{return}
    do {
-    let fingerprint=try await job.value
+    let candidate=try await job.value
     guard generation==token,!Task.isCancelled else{return}
-    // Migrate a matching prior room-keyed bank without discarding it.
-    let cached=await store.loadForSource(fingerprint)
+    let indexed=await store.loadCandidate(candidate)
     let legacy:FilmQuestionBank?
-    if cached==nil {legacy=await store.load(filmKey:filmKey)} else {legacy=nil}
-    guard let bank=cached ?? legacy else {status="当前原片尚无题库；可制作素材或导入 JSON";return}
-    guard bank.sourceFingerprint?.lowercased()==fingerprint.lowercased() else {status="旧题库原片指纹不匹配，请重新导出素材制作题库";return}
-    guard durationMs<=0 || FilmBankCodec.matches(bank,playbackDuration:durationMs) else {status="题库与电影时长不匹配，自动提问未启用";return}
-    if cached==nil {try await store.saveForSource(bank)}
+    if indexed==nil {legacy=await store.load(filmKey:filmKey)} else {legacy=nil}
+    guard let bank=indexed ?? legacy else{status="当前原片尚无题库；可制作素材或导入 JSON";return}
+    guard generation==token,!Task.isCancelled else{return}
+    #if DEBUG
+    onFullFingerprint?()
+    #endif
+    let full=Task.detached(priority:.utility){() throws->String in
+     let access=source.startAccessingSecurityScopedResource();defer{if access {source.stopAccessingSecurityScopedResource()}}
+     return try FilmMaterialFingerprint.source(source)
+    }
+    fingerprinting=full
+    let fingerprint=try await full.value
+    guard generation==token,!Task.isCancelled else{return}
+    guard bank.sourceFingerprint?.lowercased()==fingerprint.lowercased() else{status="旧题库原片指纹不匹配，请重新导出素材制作题库";return}
+    guard durationMs<=0 || FilmBankCodec.matches(bank,playbackDuration:durationMs) else{status="题库与电影时长不匹配，自动提问未启用";return}
+    if indexed==nil {try await store.saveForSource(bank,candidate:candidate)}
     await activate(bank,token:token)
    } catch {if generation==token {status="原片校验失败："+error.localizedDescription}}
   }
  }
+
  func importFile(_ url:URL,filmKey:String?,source:URL?,durationMs:Double) async {
   guard let filmKey,!filmKey.isEmpty,let source,source.isFileURL,key==filmKey,sourceURL==source else {status="请先加载本地原片，再导入题库";return}
   let token=generation
   status="正在校验 Schema、完整原片 SHA256 与时间轴…"
   do {
-   let result=try await Task.detached(priority:.utility){() throws->(FilmQuestionBank,String) in
+   let result=try await Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
     let access=url.startAccessingSecurityScopedResource();defer{if access {url.stopAccessingSecurityScopedResource()}}
     let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()}
     let data=try handle.read(upToCount:FilmBankCodec.maxBytes+1) ?? Data(),bank=try FilmBankCodec.decode(data)
     let scoped=source.startAccessingSecurityScopedResource();defer{if scoped {source.stopAccessingSecurityScopedResource()}}
-    return (bank,try FilmMaterialFingerprint.source(source))
+    return (bank,try FilmMaterialFingerprint.source(source),try FilmMaterialFingerprint.candidate(source))
    }.value
    guard generation==token,key==filmKey,sourceURL==source else{return}
-   let (bank,fingerprint)=result
+   let (bank,fingerprint,candidate)=result
    guard bank.sourceFingerprint?.lowercased()==fingerprint.lowercased() else{status="原片指纹不匹配，未加载。请用当前原片导出的素材制作题库。";return}
    guard FilmBankCodec.matches(bank,playbackDuration:durationMs) else{status="影片时长/剪辑版本不匹配，未加载题库。";return}
-   try await store.saveForSource(bank)
+   try await store.saveForSource(bank,candidate:candidate)
    guard generation==token else{return}
    restoring?.cancel();fingerprinting?.cancel();publishing?.cancel();lastPositionMs=nil;pendingQuestion=nil
    await activate(bank,token:token)

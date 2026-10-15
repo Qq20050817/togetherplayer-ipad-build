@@ -51,6 +51,16 @@ enum FilmMaterialFingerprint {
   return sha.finalize().map{String(format:"%02x",$0)}.joined()
 
  }
+ // Candidate lookup only; never accepted as a strict source match.
+ static func candidate(_ url:URL)throws->String {
+  let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()}
+  let size=try handle.seekToEnd();try handle.seek(toOffset:0)
+  let first=try handle.read(upToCount:65_536) ?? Data()
+  try handle.seek(toOffset:size>65_536 ? size-65_536 : 0)
+  let last=try handle.read(upToCount:65_536) ?? Data()
+  var hash=SHA256();hash.update(data:Data(String(size).utf8));hash.update(data:first);hash.update(data:last)
+  return hash.finalize().map{String(format:"%02x",$0)}.joined()
+ }
  static func subtitles(_ srt:String)->String {
   SHA256.hash(data:Data(srt.utf8)).map{String(format:"%02x",$0)}.joined()
  }
