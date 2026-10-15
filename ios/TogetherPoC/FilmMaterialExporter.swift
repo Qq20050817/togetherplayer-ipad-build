@@ -283,7 +283,7 @@ enum FilmMaterialExporter {
   // Use the already-shipped FFmpeg libraries for local, independent decoding.
   let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
   var ffmpegOpenFailure:String?
-  var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url,onFailure:{ffmpegOpenFailure=$0}) : nil
+  var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler.openCoordinated(url:url,onFailure:{ffmpegOpenFailure=$0}) : nil
   var attempted:[Double]=[],previousSignature:[Double]?,previousRequested:Double?
   var lastFrameError:String?
   var nativeFrameProbeTried=false,nativeFrameProbeWorks=false
@@ -313,7 +313,7 @@ enum FilmMaterialExporter {
     image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
     if actual.seconds.isFinite {actualTime=actual.seconds} else {image=nil}
     if image==nil {
-     if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url,onFailure:{ffmpegOpenFailure=$0})}
+     if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler.openCoordinated(url:url,onFailure:{ffmpegOpenFailure=$0})}
      image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
     }
    }
