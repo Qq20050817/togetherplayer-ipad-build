@@ -235,12 +235,12 @@ enum FilmMaterialExporter {
   }
   return image.jpegData(compressionQuality:0.76)
  }
- static func create(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,progress:@escaping (Double)->Void,stage:@escaping (FilmMaterialExportStage)->Void={_ in})throws->URL {
+ static func create(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,preferredDurationSeconds:Double?=nil,progress:@escaping (Double)->Void,stage:@escaping (FilmMaterialExportStage)->Void={_ in})throws->URL {
   try FilmMaterialExportGate.exclusively {
-   try createExclusive(url:url,title:title,external:external,allowOCR:allowOCR,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,progress:progress,stage:stage)
+   try createExclusive(url:url,title:title,external:external,allowOCR:allowOCR,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,preferredDurationSeconds:preferredDurationSeconds,progress:progress,stage:stage)
   }
  }
- private static func createExclusive(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?,preferredLanguage:String?,preferredStreamIndex:Int?,progress:@escaping (Double)->Void,stage:(FilmMaterialExportStage)->Void)throws->URL {
+ private static func createExclusive(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?,preferredLanguage:String?,preferredStreamIndex:Int?,preferredDurationSeconds:Double?,progress:@escaping (Double)->Void,stage:(FilmMaterialExportStage)->Void)throws->URL {
   try Task.checkCancellation()
   guard url.isFileURL else{throw FilmMaterialExportFailure.localFileRequired}
   let scoped=url.startAccessingSecurityScopedResource()
@@ -251,16 +251,21 @@ enum FilmMaterialExporter {
   let fingerprint=try FilmMaterialFingerprint.source(url,progress:{progress($0*0.05)})
   stage(.subtitles)
   let extracted:FullFilmTranscriptReader.Output?
-  do {extracted=try FullFilmTranscriptReader.extract(url,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:{value in progress(0.05+value*0.25)})}
-  catch is CancellationError {throw CancellationError()}
-  catch {guard external != nil else{throw error};extracted=nil}
+  if external != nil {
+   // Explicit imported subtitles win; never rescan embedded subtitles.
+   extracted=nil;progress(0.30)
+  } else {
+   extracted=try FullFilmTranscriptReader.extract(url,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:{value in progress(0.05+value*0.25)})
+  }
   try Task.checkCancellation()
-  guard let subtitles=extracted?.document ?? external else{throw FilmMaterialExportFailure.missingSubtitles}
+  guard let subtitles=external ?? extracted?.document else{throw FilmMaterialExportFailure.missingSubtitles}
   let srt=SubtitleSRTEncoder.encode(subtitles)
   guard !srt.isEmpty else{throw FilmMaterialExportFailure.missingSubtitles}
   let asset=AVURLAsset(url:url)
   let assetDuration=asset.duration.seconds
-  let duration=extracted?.duration ?? (assetDuration.isFinite && assetDuration>0 ? assetDuration : FilmFFmpegFrameSampler.mediaDuration(url) ?? 0)
+  // The remuxed live player may know the original MKV duration before AVURLAsset.
+  let supplied=preferredDurationSeconds ?? 0
+  let duration=extracted?.duration ?? (supplied.isFinite && supplied>=60 ? supplied : (assetDuration.isFinite && assetDuration>0 ? assetDuration : FilmFFmpegFrameSampler.mediaDuration(url) ?? 0))
   guard duration.isFinite,duration>=60,duration<=43_200 else{throw FilmMaterialExportFailure.missingDuration}
   let times=selectedTimes(duration:duration,subtitles:subtitles)
   let generator=AVAssetImageGenerator(asset:asset)
@@ -440,7 +445,7 @@ struct FilmFrameRecord:Codable {
   worker?.cancel();status=cancellationNote!
   // Keep working until the decoder/OCR returns and releases its resources.
  }
- func begin(url:URL?,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil) {
+ func begin(url:URL?,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,preferredDurationSeconds:Double?=nil) {
   guard !working else{return}
   guard let url,url.isFileURL else{status=FilmMaterialExportFailure.localFileRequired.localizedDescription;return}
   selectMovie(url);generation+=1;let token=generation
@@ -448,7 +453,7 @@ struct FilmFrameRecord:Codable {
   defaults.set(FilmMaterialExportStage.fingerprint.rawValue,forKey:Self.checkpointKey)
   status="正在核对原片 0%（逐块读取，不复制原片）"
   let job=Task.detached(priority:.utility) {
-   try FilmMaterialExporter.create(url:url,title:title,external:external,allowOCR:allowOCR,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,progress:{[weak self] value in
+   try FilmMaterialExporter.create(url:url,title:title,external:external,allowOCR:allowOCR,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,preferredDurationSeconds:preferredDurationSeconds,progress:{[weak self] value in
     Task {@MainActor in
      guard let self,self.generation==token,self.working,self.cancellationNote==nil else{return}
      self.progress=value
