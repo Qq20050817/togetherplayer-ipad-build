@@ -37,7 +37,17 @@ import CoreMedia
  private var lastBankPollDispatch = -Double.infinity
  var bankMovieURL:URL? {currentOriginalURL}
  var bankMovieKey:String? {plotDisplayPosition()?.key}
- var bankSubtitle:SubtitleDocument? {aiOnlySubtitle?.film==plotDisplayPosition()?.key ? aiOnlySubtitle?.document : externalSubtitles.completeExternalForAI}
+ // Material-only imported subtitles win. Playback-side external subtitles are
+ // used only when enabled, so stale imports cannot override embedded tracks.
+ var bankSubtitle:SubtitleDocument? {
+  if let ai=aiOnlySubtitle,ai.film==plotDisplayPosition()?.key {return ai.document}
+  return externalSubtitles.enabled ? externalSubtitles.completeExternalForAI : nil
+ }
+ var bankSubtitleSourceLabel:String {
+  if let ai=aiOnlySubtitle,ai.film==plotDisplayPosition()?.key,!ai.document.cues.isEmpty {return "素材专用备用字幕"}
+  if externalSubtitles.enabled && externalSubtitles.completeExternalForAI != nil {return "当前播放的外挂字幕"}
+  return "原片内置字幕（未选备用字幕）"
+ }
  var bankCanPublish:Bool {
   isConnected && isRoomHost && clock.ready && supportsBlockingPolls && clock.localNow()-lastBankPollDispatch>=15_000 &&
    variantDurationCheck == .compatible && adapter.player.rate>0 &&
@@ -68,7 +78,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   let chosen=requestedSubtitleIndex ?? -1
   let option=subtitleGroup?.options.indices.contains(chosen)==true ? subtitleGroup?.options[chosen] : nil
   let stream=mkvRemux.aiSubtitleStreamIndices.indices.contains(chosen) ? mkvRemux.aiSubtitleStreamIndices[chosen] : nil
-  filmMaterials.begin(url:bankMovieURL,title:title,external:bankSubtitle,allowOCR:true,preferredTitle:subtitleLabels.indices.contains(chosen) ? subtitleLabels[chosen] : nil,preferredLanguage:option?.extendedLanguageTag,preferredStreamIndex:stream)
+  filmMaterials.begin(url:bankMovieURL,title:title,external:bankSubtitle,allowOCR:true,preferredTitle:subtitleLabels.indices.contains(chosen) ? subtitleLabels[chosen] : nil,preferredLanguage:option?.extendedLanguageTag,preferredStreamIndex:stream,preferredDurationSeconds:adapter.duration/1000)
  }
  let library=MediaLibrary()
  var plotPollSubmitted:Bool {
@@ -595,7 +605,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    plotIntelligence.wholeFilm.useExternalForAI(ai.document,film:key)
    return
   }
-  if let document=externalSubtitles.completeExternalForAI {plotIntelligence.wholeFilm.supplyExternal(document,film:key)}
+  if externalSubtitles.enabled,let document=externalSubtitles.completeExternalForAI {
+   plotIntelligence.wholeFilm.useExternalForAI(document,film:key)
+   return
+  }
   let chosen=requestedSubtitleIndex ?? -1
   let title=subtitleLabels.indices.contains(chosen) ? subtitleLabels[chosen] : nil
   let option=subtitleGroup?.options.indices.contains(chosen)==true ? subtitleGroup?.options[chosen] : nil
