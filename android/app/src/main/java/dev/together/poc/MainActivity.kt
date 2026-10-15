@@ -61,6 +61,9 @@ class MainActivity: Activity() {
  private var playerRebuildCount=0
  private lateinit var watchBody: LinearLayout;private lateinit var videoColumn: LinearLayout;private lateinit var chatColumn: LinearLayout;private lateinit var progress: SeekBar;private lateinit var timeLabel: TextView;private lateinit var pauseButton: ImageButton
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private var memberSummary="";private var onlineMembers=0
+ private var importedSubtitleUri:android.net.Uri?=null
+ private var cleanupRequestedSource:String?=null
+ private var cleanupRunning=false
  private lateinit var captions: TextView;private var external: ExternalSubtitle?=null;private var subtitleName="";private var subtitleDelay=0L;private var subtitleEnabled=false;private var subtitleGeneration=0;private var subtitlePickerOpen=false
  private var fullscreenDialog: android.app.Dialog?=null;private var fullscreenControls: LinearLayout?=null;private var fullscreenTime: TextView?=null;private var fullscreenAction:TextView?=null;private var actionFeedbackGeneration=0;private var draggingProgress=false;private var screenRoot: LinearLayout?=null
  private val danmakuPending=ArrayDeque<Triple<String,Double,Long>>();private val danmakuLanes=BooleanArray(3);private var danmakuSize=24f;private var danmakuSpeed=1f
@@ -191,6 +194,7 @@ class MainActivity: Activity() {
   button(sourceOptions,"重试播放") {retryPlayback()}
   button(sourceOptions,"清除本机百度授权和片源") {baidu.clear();clearBaiduSource()}
   button(sourceOptions,"清除本地影片") {clearLocalMovie()}
+  button(sourceCard,"看完清理 · 影片与字幕") {beginWatchedCleanup()}.apply {contentDescription="看完清理";setTextColor(0xffff7b83.toInt())}
   val linkCard=settingsCard(settingsBody,"链接播放");val linkOptions=settingsFold(linkCard,"输入房间影片链接")
   titleField=field(linkOptions,"影片名称","一起看电影");media=field(linkOptions,"HTTP / HLS / WebDAV 文件链接","https://media.w3.org/2010/05/bunny/movie.mp4");button(linkOptions,"设置房间影片") {setRoomMedia()};button(linkOptions,"添加到本机播放列表") {saveLibrary()}
   val localOptions=settingsFold(linkCard,"仅本机使用另一播放链接")
@@ -224,7 +228,7 @@ class MainActivity: Activity() {
  private fun formatTime(ms: Long): String {val s=ms/1000;return if(s>=3600)"%d:%02d:%02d".format(s/3600,s/60%60,s%60) else "%02d:%02d".format(s/60,s%60)}
  private fun shareRoom(){val id=credentials?.optString("roomId");if(id.isNullOrBlank()){requestStatus.text="请先加入房间";return};startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,"TogetherPlayer 房间：$id\n服务器：${server.text}"),"分享房间"))}
  private fun readSubtitleBytes(input: java.io.InputStream): ByteArray {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192);while(out.size()<=ExternalSubtitle.MAX_BYTES){val count=input.read(buffer,0,minOf(buffer.size,ExternalSubtitle.MAX_BYTES+1-out.size()));if(count<0)break;out.write(buffer,0,count)};return out.toByteArray()}
- private fun clearSubtitle(){subtitleGeneration++;external=null;subtitleName="";subtitleDelay=0;subtitleEnabled=false;if(::captions.isInitialized)captions.visibility=View.GONE}
+ private fun clearSubtitle(){importedSubtitleUri=null;subtitleGeneration++;external=null;subtitleName="";subtitleDelay=0;subtitleEnabled=false;if(::captions.isInitialized)captions.visibility=View.GONE}
  private fun subtitleMenu(){main.removeCallbacks(hideControls);val items=mutableListOf("内置字幕 / 关闭","导入外挂字幕（SRT / VTT / ASS）");if(external!=null){items.add("使用外挂：$subtitleName");items.add("调整外挂字幕延迟");items.add("移除外挂字幕")};android.app.AlertDialog.Builder(this).setTitle("字幕").setItems(items.toTypedArray()){_,i->when(i){0->selectTrack(androidx.media3.common.C.TRACK_TYPE_TEXT);1->importSubtitle();2->{subtitleEnabled=true;playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build()};3->subtitleTiming();4->clearSubtitle()}}.create().apply {setOnDismissListener {revealControls()};show()}}
  private fun importSubtitle(){
   main.removeCallbacks(hideControls);subtitlePickerOpen=true
@@ -240,10 +244,10 @@ class MainActivity: Activity() {
   startActivityForResult(intent,702)
  }
  override fun onActivityResult(requestCode: Int,resultCode: Int,data: android.content.Intent?){
-  super.onActivityResult(requestCode,resultCode,data);if(requestCode !in listOf(701,702))return;if(requestCode==701)subtitlePickerOpen=false;revealControls();if(resultCode!=RESULT_OK)return;val uri=data?.data ?: return
+  super.onActivityResult(requestCode,resultCode,data);if(requestCode==704){receiveCleanupFolder(resultCode,data);return};if(requestCode !in listOf(701,702))return;if(requestCode==701)subtitlePickerOpen=false;revealControls();if(resultCode!=RESULT_OK)return;val uri=data?.data ?: return
   if(requestCode==702){pendingLocalMovie=uri to data.flags;localFileLabel.text="本地影片已选择，等待房间连接…";applyPendingLocalMovie();return}
   val g=++subtitleGeneration
-  Thread {val result=runCatching {val name=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else "外挂字幕"} ?: "外挂字幕";val bytes=contentResolver.openInputStream(uri)?.use {readSubtitleBytes(it)} ?: throw IOException("文件无法读取");Pair(name,ExternalSubtitle.parse(bytes))};main.post {if(g!=subtitleGeneration || stopped)return@post;result.onSuccess {(name,parsed)->runCatching {playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build();external=parsed;subtitleName=name;subtitleDelay=0;subtitleEnabled=true;requestStatus.text="已加载外挂字幕：$name"}.onFailure {requestStatus.text="字幕应用失败：${it.localizedMessage ?: "请重试"}"}}.onFailure {requestStatus.text=it.message ?: "字幕读取失败"}}}.start()
+  Thread {val result=runCatching {val name=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else "外挂字幕"} ?: "外挂字幕";val bytes=contentResolver.openInputStream(uri)?.use {readSubtitleBytes(it)} ?: throw IOException("文件无法读取");Pair(name,ExternalSubtitle.parse(bytes))};main.post {if(g!=subtitleGeneration || stopped)return@post;result.onSuccess {(name,parsed)->runCatching {playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build();external=parsed;importedSubtitleUri=uri;subtitleName=name;subtitleDelay=0;subtitleEnabled=true;requestStatus.text="已加载外挂字幕：$name"}.onFailure {requestStatus.text="字幕应用失败：${it.localizedMessage ?: "请重试"}"}}.onFailure {requestStatus.text=it.message ?: "字幕读取失败"}}}.start()
  }
  private fun subtitleTiming(){val input=EditText(this).apply {setText((subtitleDelay/1000.0).toString());inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED};android.app.AlertDialog.Builder(this).setTitle("字幕延迟（秒，正值更晚，±120秒）").setView(input).setNegativeButton("取消",null).setPositiveButton("保存"){_,_->val value=input.text.toString().toDoubleOrNull();if(value!=null && value.isFinite() && kotlin.math.abs(value)<=120)subtitleDelay=(value*1000).toLong() else requestStatus.text="字幕延迟必须在正负120秒内"}.show()}
  private fun library()=runCatching {org.json.JSONArray(getPreferences(0).getString("mediaLibrary","[]"))}.getOrElse {org.json.JSONArray()}
@@ -657,6 +661,60 @@ class MainActivity: Activity() {
    }
   }.start()
  }
+ private fun beginWatchedCleanup(){
+  if(cleanupRunning){requestStatus.text="正在清理，请稍候";return}
+  if(localFileUri.isBlank()){requestStatus.text="请先选择本机影片；云端片源不能在这里删除";return}
+  cleanupRequestedSource=localFileUri
+  android.app.AlertDialog.Builder(this).setTitle("看完清理").setMessage("选择当前影片所在文件夹，检查影片及关联字幕后再确认删除。只影响这台设备，不删除好友的文件。").setNegativeButton("取消"){_,_->cleanupRequestedSource=null}.setPositiveButton("选择影片所在文件夹"){_,_->
+   try {startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION),704)}
+   catch(e:Exception){cleanupRequestedSource=null;requestStatus.text="无法打开文件夹选择器：${e.localizedMessage}"}
+  }.show()
+ }
+ private fun receiveCleanupFolder(resultCode:Int,data:android.content.Intent?){
+  val source=cleanupRequestedSource;cleanupRequestedSource=null
+  if(resultCode!=RESULT_OK || data?.data==null){requestStatus.text="已取消清理，未删除任何文件";return}
+  if(source.isNullOrBlank() || localFileUri!=source){requestStatus.text="影片已变化，未删除任何文件，请重新打开清理";return}
+  val tree=data.data!!
+  if(data.flags and android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION==0){requestStatus.text="这个文件夹没有删除权限，请重新选择或在系统文件管理器清理";return}
+  cleanupRunning=true;requestStatus.text="正在检查本地文件…"
+  val selection=localSelectionGeneration
+  Thread {
+   val result=runCatching{WatchedFileCleanup(contentResolver).plan(android.net.Uri.parse(source),tree,importedSubtitleUri)}
+   main.post {
+    cleanupRunning=false
+    if(stopped || isFinishing)return@post
+    if(localFileUri!=source || selection!=localSelectionGeneration){requestStatus.text="影片已变化，未删除任何文件";return@post}
+    result.onSuccess{reviewCleanup(it,selection)}.onFailure{requestStatus.text=it.localizedMessage ?: "无法检查这个文件夹"}
+   }
+  }.start()
+ }
+ private fun reviewCleanup(plan:WatchedFileCleanup.Plan,selection:Int){
+  val selected=BooleanArray(plan.files.size){true}
+  val names=plan.files.map{"${it.name}\n${android.text.format.Formatter.formatFileSize(this,it.stamp.size.coerceAtLeast(0))}"}.toTypedArray()
+  val total=plan.files.sumOf{it.stamp.size.coerceAtLeast(0)}
+  android.app.AlertDialog.Builder(this).setTitle("看完清理 · ${android.text.format.Formatter.formatFileSize(this,total)}")
+   .setMultiChoiceItems(names,selected){_,i,checked->selected[i]=checked}
+   .setNegativeButton("取消",null).setPositiveButton("清理所选"){_,_->
+    val files=plan.files.filterIndexed{i,_->selected[i]}
+    if(files.isEmpty()){requestStatus.text="未选择文件，未删除";return@setPositiveButton}
+    android.app.AlertDialog.Builder(this).setTitle("确认删除 ${files.size} 个本地文件？").setMessage("删除前将停止本机播放。此操作不能在 App 内撤销，云端和好友的文件不受影响。\n\n"+files.joinToString("\n"){it.name}).setNegativeButton("取消",null).setPositiveButton("删除"){_,_->performWatchedCleanup(plan,files,selection)}.show()
+   }.show()
+ }
+ private fun performWatchedCleanup(plan:WatchedFileCleanup.Plan,files:List<WatchedFileCleanup.File>,selection:Int){
+  if(cleanupRunning || stopped || localFileUri!=plan.source.toString() || selection!=localSelectionGeneration){requestStatus.text="影片已变化，未删除任何文件";return}
+  cleanupRunning=true;voice.disable();localSelectionGeneration++;pendingLocalMovie=null
+  playback.pause();playback.clearMediaItems();clearSubtitle();loadedURL="";playbackNeedsRecovery=false;playbackRecovery.reset()
+  localFileUri="";localFileName="";localSourceRoom="";localSourceRoomID="";baiduSourceID="";baiduSourceRoom="";baiduURL="";variantRoomID="";variantMediaURL="";variantDuration=0.0
+  localFileLabel.text="未选择本地影片";requestStatus.text="正在清理…"
+  Thread {
+   val result=WatchedFileCleanup(contentResolver).remove(plan,files)
+   main.post {
+    cleanupRunning=false
+    if(!stopped){requestStatus.text="已删除 ${result.deleted.size} 个文件。"+(if(result.failed.isNotEmpty())"\n以下文件未删除：\n"+result.failed.joinToString("\n")else "")}
+   }
+  }.start()
+ }
+
  private fun clearLocalMovie(){
   variantRoomID="";variantMediaURL="";variantDuration=0.0
   localSelectionGeneration++;pendingLocalMovie=null

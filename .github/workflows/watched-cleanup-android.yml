@@ -1,0 +1,134 @@
+name: Verify watched-file cleanup on Android
+on:
+  workflow_dispatch:
+    inputs:
+      main10_probe:
+        type: boolean
+        default: false
+        description: Verify independent 4K Main10 decoder only
+  push:
+    branches: [feat/watched-cleanup-android-20261015]
+    paths: ['android/**', '.github/workflows/watched-cleanup-android.yml']
+permissions:
+  contents: read
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android-build:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Bundle verified offline Chinese speech model
+        run: |
+          mkdir -p android/app/src/main/assets
+          curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
+      - name: Verify sync and subtitles, build APK
+        working-directory: android
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify portrait, landscape and fullscreen on phone
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash android/decoder-check.sh '${{ inputs.main10_probe }}'
+      - name: Build ARM64 delivery from tested source
+        working-directory: android
+        run: |
+          mkdir -p ../android-delivery
+          cp app/build/outputs/apk/debug/app-debug.apk ../android-delivery/TogetherPlayer-Android-0.6.8-Watched-Cleanup.apk
+          gradle --no-daemon -PdeliveryArm64=true assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../android-delivery/TogetherPlayer-Android-0.6.8-Watched-Cleanup-arm64.apk
+      - name: Collect native phone screenshots
+        if: always()
+        run: |
+          mkdir -p android-delivery/screenshots
+          if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
+            test -s android-delivery/TogetherPlayer-Android-0.6.8-Watched-Cleanup.apk
+            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.8-Watched-Cleanup*.apk > SHA256SUMS.txt)
+            printf 'Source SHA: %s\nAndroid: 0.6.8\nScope: reviewed local movie and associated subtitle deletion through explicit system folder permission.\nValidation: unit tests and full emulator suite including real DocumentsUI folder grant and provider deletion; physical-device acceptance remains pending.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TogetherPlayer-Android-phone
+          path: |
+            android-delivery/
+            android/app/build/reports/
+            android/app/build/outputs/androidTest-results/
+          retention-days: 7
+
+      - name: Preserve native test reports separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-native-validation
+          path: |
+            android-delivery/screenshots/
+            android/app/build/reports/
+            android/app/build/outputs/androidTest-results/
+          retention-days: 7
+
+  release-verified-android:
+    name: Publish direct experimental APK (no ZIP)
+    needs: android-build
+    if: ${{ success() && github.ref_name == 'feat/watched-cleanup-android-20261015' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify current-run APK checksum and commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-phone --dir verified
+          # Artifact upload keeps its android-delivery/ subdirectory on some runners.
+          build_report="$(find verified -type f -name BUILD.txt -print -quit)"
+          test -n "$build_report"
+          archive_dir="$(dirname "$build_report")"
+          grep -Fx "Source SHA: $GITHUB_SHA" "$build_report"
+          (cd "$archive_dir" && sha256sum -c SHA256SUMS.txt)
+          test -s "$archive_dir/TogetherPlayer-Android-0.6.8-Watched-Cleanup.apk"
+          mkdir -p release-files
+          cp "$archive_dir/"*.apk "$archive_dir/BUILD.txt" "$archive_dir/SHA256SUMS.txt" release-files/
+      - name: Archive exact source and licenses
+        run: |
+          git archive --format=zip --output=release-files/TogetherPlayer-Android-0.6.8-source.zip HEAD
+          (cd release-files && sha256sum TogetherPlayer-Android-0.6.8-source.zip >> SHA256SUMS.txt)
+      - name: Release direct APK only after all tests pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v0.6.8-watched-cleanup-android-20261015"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Tag already exists; refusing to overwrite existing assets." >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            release-files/*.apk \
+            release-files/BUILD.txt release-files/SHA256SUMS.txt release-files/TogetherPlayer-Android-0.6.8-source.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "TogetherPlayer Android 0.6.8 - Watched-file cleanup (preview)" \
+            --notes "Adds 看完清理 in 房间与片源. Review current movie and associated subtitles, select files, confirm deletion. Requires explicit system folder authorization, never deletes peer or cloud files. Rejects wrong-folder copies, replaced files and stale source selection. File IO runs off the UI thread. Built from verified Android 0.6.7, preserves playback, voice, subtitles, sync and icon. Full emulator regression includes real DocumentsUI grant/deletion. Physical Xiaomi tablet acceptance pending."
