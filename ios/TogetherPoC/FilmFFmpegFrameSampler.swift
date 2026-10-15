@@ -81,12 +81,12 @@ final class FilmFFmpegFrameSampler {
  }
  private static func convert(_ frame:UnsafeMutablePointer<AVFrame>)->CGImage? {
   let w=Int(frame.pointee.width),h=Int(frame.pointee.height)
-  guard w>=16,h>=16,w<=8192,h<=8192,
-   let inputFormat=AVPixelFormat(rawValue:frame.pointee.format) else{return nil}
+  guard w>=16,h>=16,w<=8192,h<=8192,frame.pointee.format>=0 else{return nil}
+  let inputFormat=AVPixelFormat(rawValue:frame.pointee.format)
   let outputW=min(480,w)
   let outputH=max(1,min(270,Int((Double(outputW)*Double(h)/Double(w)).rounded())))
   guard let scaler=sws_getContext(Int32(w),Int32(h),inputFormat,
-   Int32(outputW),Int32(outputH),AV_PIX_FMT_BGRA,SWS_BILINEAR,nil,nil,nil) else{return nil}
+   Int32(outputW),Int32(outputH),AV_PIX_FMT_BGRA,Int32(SWS_BILINEAR.rawValue),nil,nil,nil) else{return nil}
   defer{sws_freeContext(scaler)}
   let bytesPerRow=outputW*4
   var imageBytes=Data(count:bytesPerRow*outputH)
