@@ -97,6 +97,28 @@ import Libavcodec
    XCTAssertEqual(error.localizedDescription,FullFilmTranscriptReader.Failure.decode.localizedDescription)
   }
  }
+ func testRemoteStreamingSourceDoesNotAttemptUnsupportedFullMovieDemux() {
+  let host=host()
+  host.readLocalMovie(URL(string:"https://example.com/online/movie.m3u8")!,film:"remote-movie",title:nil,allowOCR:true)
+  XCTAssertFalse(host.readingActive)
+  XCTAssertFalse(host.busy)
+  XCTAssertFalse(host.ready(for:"remote-movie"))
+  XCTAssertTrue(host.status.contains("在线播放"))
+  XCTAssertTrue(host.status.contains("SRT"))
+ }
+ func testAIOnlyImportedTranscriptSurvivesMissingOriginalAndDoesNotSwitchToDemux() async {
+  let host=host()
+  let missing=URL(fileURLWithPath:"/tmp/togetherplayer-no-such-local-movie-20261015.mkv")
+  host.readLocalMovie(missing,film:"film",title:nil,allowOCR:true)
+  host.useExternalForAI(document(),film:"film")
+  host.readLocalMovie(missing,film:"film",title:nil,allowOCR:true)
+  await host.waitForAnalysis()
+  XCTAssertTrue(host.ready(for:"film"))
+  XCTAssertEqual(host.completed,host.total)
+  XCTAssertFalse(host.readingActive)
+  XCTAssertTrue(host.subtitleSource.contains("外置"))
+  XCTAssertFalse(host.status.contains("无法打开原始影片"))
+ }
  func testSelectedTrackOverridesDefaultChinesePriority() {
   let tracks=[FullFilmTranscriptReader.Track(index:1,language:"eng",title:"",codec:AV_CODEC_ID_SUBRIP),FullFilmTranscriptReader.Track(index:2,language:"chi",title:"简体中文",codec:AV_CODEC_ID_HDMV_PGS_SUBTITLE)]
   XCTAssertEqual(FullFilmTranscriptReader.preferred(tracks,title:nil)?.index,2)
