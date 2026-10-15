@@ -1,0 +1,91 @@
+name: Verify separate Android cleanup preview installation
+on:
+  push:
+    branches: [package/android-cleanup-parallel-20261015]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: cleanup-parallel-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Require verified application source and bundle model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/38707487998 --jq .conclusion)" = success
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/38707487998 --jq .head_sha)" = c417740ccfd3b76bab9cb06579b5a71275232603
+          git diff --exit-code c417740ccfd3b76bab9cb06579b5a71275232603 HEAD -- android/app/src/main/java android/app/src/main/res
+          mkdir -p android/app/src/main/assets old
+          curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
+          gh release download v0.6.7-instant-controls-android-preview --repo "$GITHUB_REPOSITORY" --dir old --pattern TogetherPlayer-Android-0.6.7-InstantControls.apk
+      - name: Build separate preview package and run unit tests
+        working-directory: android
+        run: gradle --no-daemon -PparallelPreview=true testDebugUnitTest assembleDebug
+      - name: Preserve simulator APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk parallel-universal.apk
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify original app and private data survive preview installation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: python3 tools/parallel_install_smoke.py
+      - name: Build ARM64 preview after real installation verification
+        working-directory: android
+        run: |
+          gradle --no-daemon -PparallelPreview=true -PdeliveryArm64=true assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../delivery/TogetherPlayer-Android-0.6.8-Parallel-Preview-arm64.apk
+      - name: Verify archive, model and exact source
+        run: |
+          python3 - <<'PY'
+          import zipfile,hashlib
+          with zipfile.ZipFile('delivery/TogetherPlayer-Android-0.6.8-Parallel-Preview-arm64.apk') as z:
+              assert z.testzip() is None
+              assert set(n.split('/')[1] for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')) == {'arm64-v8a'}
+              assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest() == '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
+              assert any('together_player_icon' in n for n in z.namelist())
+          PY
+          git archive --format=zip --output=delivery/TogetherPlayer-Android-0.6.8-Parallel-source.zip HEAD
+          printf 'Source SHA: %s\nVerified application baseline: c417740ccfd3b76bab9cb06579b5a71275232603\nApp ID: dev.together.poc.cleanup068\n55 unit tests plus actual parallel installation verified; baseline 27 device regressions and real SAF deletion passed.\nPhysical Xiaomi tablet acceptance pending.\n' "$GITHUB_SHA" > delivery/BUILD-PARALLEL.txt
+          (cd delivery && sha256sum *.apk *.zip > SHA256SUMS-PARALLEL.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-cleanup-parallel-preview
+          path: |
+            delivery/
+            android/app/build/reports/
+          retention-days: 7
+      - name: Release only verified coexistence package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=v0.6.8-cleanup-parallel-android-20261015
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$tag" delivery/*.apk delivery/*.zip delivery/BUILD-PARALLEL.txt delivery/INSTALL-PARALLEL.txt delivery/SHA256SUMS-PARALLEL.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer Android 0.6.8 · Cleanup preview, keeps existing app' --notes 'Preview label: TogetherPlayer预览. Separate app ID dev.together.poc.cleanup068; install alongside the existing app, retain its private data, and join the room again in preview. Same Java/Kotlin and resources as verified Android 0.6.8 (55 unit tests, 27 device regressions and real SAF cleanup). This build additionally verifies actual original 0.6.7/preview coexistence, separate UIDs, retained original data marker and real preview UI launch. ARM64 delivery. No automatic uninstall, data reset or server change. Preview source and licenses included. Physical Xiaomi tablet acceptance pending.'
