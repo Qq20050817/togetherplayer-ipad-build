@@ -15,6 +15,11 @@ jobs:
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
+      - name: Ensure build uses the latest feature source
+        run: |
+          set -euo pipefail
+          latest=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
+          test "$latest" = "$GITHUB_SHA" || { echo "Superseded build; refusing a stale package"; exit 1; }
       - name: Select available Xcode 26
         run: |
           set -euo pipefail
@@ -77,6 +82,8 @@ jobs:
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-0.6.32-offline-bank --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           (cd verified && sha256sum -c SHA256SUMS.txt)
+          latest=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
+          test "$latest" = "$GITHUB_SHA" || { echo "Superseded release; refusing stale IPA"; exit 1; }
           tag='v0.6.32-ipad-film-materials-bank-20261016'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release exists; refusing to overwrite tested IPA';exit 1
