@@ -31,6 +31,9 @@ import UniformTypeIdentifiers
  @State private var advancedOpen=false
  @State private var aiOnlySubtitlePickerOpen=false
  @State private var bankPickerOpen=false
+ @State private var bankSelectionFeedback=""
+ @State private var bankSelectionContext:(key:String?,source:URL?,duration:Double)?
+ @State private var bankSelectionToken=UUID()
  @State private var materialsPreviewOpen=false
  @State private var restartBankRound=false
  init(model:TestClient,onClose:(()->Void)?=nil) {
@@ -58,10 +61,21 @@ import UniformTypeIdentifiers
     .sheet(isPresented:$materialsPreviewOpen) {FilmMaterialsPreview(session:materials)}
     .confirmationDialog("开始新一轮题库？已发布记录会重置，原题库保留。",isPresented:$restartBankRound,titleVisibility:.visible) {Button("开始新一轮",role:.destructive){bank.startNewRound()}}
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
-    .fileImporter(isPresented:$bankPickerOpen,allowedContentTypes:[.json]) { result in
-     if case .success(let url)=result {
-      Task {await bank.importFile(url,filmKey:model.bankMovieKey,source:model.bankMovieURL,durationMs:model.adapter.duration)}
-     }
+    .fullScreenCover(isPresented:$bankPickerOpen) {
+     let token=bankSelectionToken
+     FilmBankDocumentPicker(onPick:{document in
+      guard bankSelectionToken==token else{return}
+      bankPickerOpen=false;finishBankSelection(document)
+     },onCancel:{
+      guard bankSelectionToken==token else{return}
+      bankSelectionToken=UUID();bankSelectionFeedback="已取消选择题库";bankPickerOpen=false
+     },onFailure:{message in
+      guard bankSelectionToken==token else{return}
+      bankSelectionFeedback=message;bankPickerOpen=false
+     },onReading:{name in
+      guard bankSelectionToken==token else{return}
+      bankSelectionFeedback="已选中 \(name)，正在读取…"
+     })
     }
     .sheet(isPresented:$aiOnlySubtitlePickerOpen) {
      SubtitleDocumentPicker(onPick:{url in
@@ -150,14 +164,19 @@ import UniformTypeIdentifiers
      .font(.caption2).foregroundStyle(.secondary)
    }
    Divider()
+   if !bankSelectionFeedback.isEmpty {Text(bankSelectionFeedback).font(.caption).foregroundStyle(bankSelectionFeedback.contains("失败") ? Color.orange : Color.secondary).accessibilityIdentifier("plot-bank-selection-feedback")}
+   if bank.importing {ProgressView().accessibilityIdentifier("plot-bank-import-progress")}
+   Text(bank.status).font(.caption).foregroundStyle(bank.status.contains("失败") || bank.status.contains("不匹配") ? Color.orange : Color.secondary)
+    .accessibilityIdentifier("plot-question-bank-status")
    Button {
+    bankSelectionToken=UUID()
+    bankSelectionFeedback="请选择 JSON 题库文件"
+    bankSelectionContext=(model.bankMovieKey,model.bankMovieURL,model.adapter.duration)
     bankPickerOpen=true
    } label:{
-    Label("导入 ChatGPT 制作的 JSON 题库",systemImage:"square.and.arrow.down")
+    Label(bank.importing ? "正在导入题库…" : "导入 ChatGPT 制作的 JSON 题库",systemImage:"square.and.arrow.down")
    }.buttonStyle(.borderedProminent).disabled(model.bankMovieURL == nil || bank.importing)
     .accessibilityIdentifier("plot-import-question-bank")
-   Text(bank.status).font(.caption).foregroundStyle(.secondary)
-    .accessibilityIdentifier("plot-question-bank-status")
    if let active=bank.active {
     Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本轮已发布 \(bank.publishedCount) 道 · 已答完 \(bank.completedCount) 道")
      .font(.caption).foregroundStyle(.secondary)
@@ -169,6 +188,16 @@ import UniformTypeIdentifiers
     Text(bank.revealedAnswer).font(.callout).accessibilityIdentifier("plot-question-bank-reveal")
    }
   }
+ }
+ private func finishBankSelection(_ document:SelectedFilmBankDocument) {
+  guard let context=bankSelectionContext else{return}
+  bankSelectionContext=nil
+  guard model.bankMovieURL==context.source,model.bankMovieKey==context.key else {
+   bankSelectionFeedback="选片已变化，请重新选择对应题库。";return
+  }
+  bankSelectionFeedback="已选择："+document.name
+  let duration=context.duration>0 ? context.duration : model.adapter.duration
+  Task {await bank.importDocument(document,filmKey:context.key,source:context.source,durationMs:duration)}
  }
  private var interactionCard:some View {
   PlotPanelCard(title:"观影互动",icon:"person.2") {

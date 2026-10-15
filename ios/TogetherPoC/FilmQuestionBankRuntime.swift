@@ -82,6 +82,12 @@ import Combine
  }
 
  func importFile(_ url:URL,filmKey:String?,source:URL?,durationMs:Double) async {
+  await importPrepared(filmKey:filmKey,source:source,durationMs:durationMs,read:{try FilmBankDocumentReader.read(url)})
+ }
+ func importDocument(_ document:SelectedFilmBankDocument,filmKey:String?,source:URL?,durationMs:Double) async {
+  await importPrepared(filmKey:filmKey,source:source,durationMs:durationMs,read:{document.data})
+ }
+ private func importPrepared(filmKey:String?,source:URL?,durationMs:Double,read:@escaping()throws->Data) async {
   guard let filmKey,!filmKey.isEmpty,let source,source.isFileURL,key==filmKey,sourceURL==source else {status="请先加载本地原片，再导入题库";return}
   guard !importing else{return}
   importing=true;let token=generation
@@ -89,11 +95,15 @@ import Combine
   status="正在校验 Schema、完整原片 SHA256 与时间轴…"
   do {
    let worker=Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
-    let access=url.startAccessingSecurityScopedResource();defer{if access {url.stopAccessingSecurityScopedResource()}}
-    let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()}
-    let data=try handle.read(upToCount:FilmBankCodec.maxBytes+1) ?? Data(),bank=try FilmBankCodec.decode(data)
+    let data=try read(),bank=try FilmBankCodec.decode(data)
     let scoped=source.startAccessingSecurityScopedResource();defer{if scoped {source.stopAccessingSecurityScopedResource()}}
-    return (bank,try FilmMaterialFingerprint.source(source),try FilmMaterialFingerprint.candidate(source))
+    let fingerprint=try FilmMaterialFingerprint.source(source,progress:{[weak self] value in
+     Task {@MainActor in
+      guard let self,self.generation==token,self.importing else{return}
+      self.status="JSON 已读取，正在核对原片 \(Int(value*100))%…"
+     }
+    })
+    return (bank,fingerprint,try FilmMaterialFingerprint.candidate(source))
    }
    importWorker=worker
    let result=try await worker.value

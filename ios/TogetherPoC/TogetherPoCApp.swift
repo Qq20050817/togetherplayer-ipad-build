@@ -42,6 +42,7 @@ import UniformTypeIdentifiers
    if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
+   if ProcessInfo.processInfo.environment["TOGETHER_BANK_PICKER_TEST"]=="1" {try? FilmBankPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {try? LocalPickerUITestFixture.installRoomMediaValidation(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_LOCAL_QUALITY_TEST"]=="1" {try? LocalPickerUITestFixture.installQualitySelection(into:model)}
    #endif
@@ -728,10 +729,16 @@ struct RoomActionStyle:ButtonStyle {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
  private enum Picker:Identifiable,Equatable {
-  case baidu,local,localCopy,cleanup(URL,URL?)
-  var id:String {switch self {case .baidu:return "baidu";case .local:return "local";case .localCopy:return "localCopy";case .cleanup(let source,_):return "cleanup-"+source.absoluteString}}
+  case baidu,cleanup(URL,URL?)
+  var id:String {switch self {case .baidu:return "baidu";case .cleanup(let source,_):return "cleanup-"+source.absoluteString}}
  }
+ private enum MoviePicker:String,Identifiable {case open,copy;var id:String {rawValue}}
  @State private var picker: Picker?
+ @State private var moviePicker:MoviePicker?
+ @State private var moviePickerProgress=""
+ @State private var movieSelectionToken=UUID()
+ @State private var movieSelectionDelivered=false
+ @State private var movieSelectionProcessing=false
  var body: some View {
   ScrollView {
    VStack(alignment:.leading,spacing:14) {
@@ -774,6 +781,7 @@ struct RoomActionStyle:ButtonStyle {
       HStack(spacing:10) {localMovieButton;localCopyButton}
       VStack(spacing:10) {localMovieButton;localCopyButton}
      }
+     if !moviePickerProgress.isEmpty {Text(moviePickerProgress).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("local-movie-import-status")}
      Text("直接选择只读取原文件；兼容导入会复制一份，需要额外影片大小的空间。均不上传影片。").font(.caption).foregroundStyle(.secondary)
      if !model.sourceNotice.isEmpty {Text(model.sourceNotice).font(.caption).foregroundStyle(.orange)}
      if model.cleanupSourceURL != nil {
@@ -811,13 +819,30 @@ struct RoomActionStyle:ButtonStyle {
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
     case .cleanup(let source,let subtitle):
      WatchedCleanupSheet(source:source,importedSubtitle:subtitle,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0},clearAnalysis:{[film=model.plotIntelligence.wholeFilm.filmKey] in try await model.plotIntelligence.wholeFilm.clearSavedAnalysis(expectedFilm:film)})
-    case .local,.localCopy:
-     LocalMovieDocumentPicker(asCopy:selection == .localCopy,onPick:{url in
-      picker=nil
+    }
+   }.fullScreenCover(item:$moviePicker,onDismiss:finishMovieSelection) {mode in
+    let token=movieSelectionToken
+    ZStack {
+     LocalMovieDocumentPicker(asCopy:mode == .copy,onPick:{url in
+      guard movieSelectionToken==token else{return}
+      movieSelectionDelivered=true;movieSelectionProcessing=false;moviePickerProgress="";moviePicker=nil
       DispatchQueue.main.async {model.useLocalFile(url)}
-     },onCancel:{picker=nil;model.cancelLocalFileSelection()},onFailure:{message in
-      picker=nil;model.cancelLocalFileSelection();model.requestStatus=message
+     },onCancel:{
+      guard movieSelectionToken==token else{return}
+      movieSelectionToken=UUID();movieSelectionProcessing=false;moviePickerProgress="";moviePicker=nil;model.cancelLocalFileSelection()
+     },onFailure:{message in
+      guard movieSelectionToken==token else{return}
+      movieSelectionDelivered=true;movieSelectionProcessing=false;moviePickerProgress="";moviePicker=nil
+      model.cancelLocalFileSelection();model.requestStatus=message
+     },onProcessing:{message in
+      guard movieSelectionToken==token else{return}
+      movieSelectionProcessing=true;moviePickerProgress=message;model.requestStatus=message
      })
+     if !moviePickerProgress.isEmpty {
+      VStack(spacing:12) {ProgressView();Text(moviePickerProgress).font(.callout).multilineTextAlignment(.center)}
+       .padding(24).background(.regularMaterial).clipShape(RoundedRectangle(cornerRadius:16))
+       .accessibilityIdentifier("local-movie-picker-processing").allowsHitTesting(false)
+     }
     }
    }.alert("使用同一影片的另一画质？",isPresented:Binding(get:{model.localQualityCandidate != nil},set:{if !$0 {model.cancelLocalQuality()}}),presenting:model.localQualityCandidate) {candidate in
     Button("确认相同剪辑，使用此画质") {model.confirmLocalQuality(candidate)}
@@ -826,11 +851,22 @@ struct RoomActionStyle:ButtonStyle {
     Text("房间：\(candidate.roomTitle)\n本机：\(candidate.url.lastPathComponent)\n\(MovieVariantPolicy.namesSuggestSameMovie(candidate.roomTitle,candidate.url.lastPathComponent) ? "去除画质标记后名称相近。" : "文件名称不同，请仔细核对。")名称相近不代表相同剪辑；确认后还会核对双方时长，差异超过5秒暂停同步。")
    }
  }
+ private func beginMovieSelection(_ mode:MoviePicker) {
+  movieSelectionToken=UUID();movieSelectionDelivered=false;movieSelectionProcessing=false;moviePickerProgress=""
+  model.beginLocalFileSelection();moviePicker=mode
+ }
+ private func finishMovieSelection() {
+  // DocumentsUI can dismiss itself BEFORE an asynchronous imported copy is
+  // ready. Presentation state must not discard that already-selected result.
+  if !movieSelectionDelivered && !movieSelectionProcessing {
+   movieSelectionToken=UUID();model.cancelLocalFileSelection()
+  }
+ }
  private var localMovieButton:some View {
-  Button {model.beginLocalFileSelection();picker = .local} label:{Label("选择本地影片",systemImage:"folder.fill").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("choose-local-movie")
+  Button {beginMovieSelection(.open)} label:{Label("选择本地影片",systemImage:"folder.fill").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("choose-local-movie")
  }
  private var localCopyButton:some View {
-  Button {model.beginLocalFileSelection();picker = .localCopy} label:{Label("兼容导入本地影片（复制一份）",systemImage:"doc.on.doc").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("import-local-movie-copy")
+  Button {beginMovieSelection(.copy)} label:{Label("兼容导入本地影片（复制一份）",systemImage:"doc.on.doc").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("import-local-movie-copy")
  }
  @ViewBuilder private func roomCard<Content:View>(_ title:String,icon:String,@ViewBuilder content:()->Content)->some View {
   VStack(alignment:.leading,spacing:12) {
@@ -858,7 +894,8 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  let onPick:(URL)->Void
  let onCancel:()->Void
  let onFailure:(String)->Void
- func makeCoordinator()->Coordinator {Coordinator(asCopy:asCopy,onPick:onPick,onCancel:onCancel,onFailure:onFailure)}
+ var onProcessing:(String)->Void={_ in}
+ func makeCoordinator()->Coordinator {Coordinator(asCopy:asCopy,onPick:onPick,onCancel:onCancel,onFailure:onFailure,onProcessing:onProcessing)}
  func makeUIViewController(context:Context)->UIDocumentPickerViewController {
   let controller=UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:asCopy)
   controller.allowsMultipleSelection=false;controller.delegate=context.coordinator
@@ -869,15 +906,16 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  }
  func updateUIViewController(_ controller:UIDocumentPickerViewController,context:Context) {}
  final class Coordinator:NSObject,UIDocumentPickerDelegate {
-  let asCopy:Bool;let onPick:(URL)->Void;let onCancel:()->Void;let onFailure:(String)->Void
+  let asCopy:Bool;let onPick:(URL)->Void;let onCancel:()->Void;let onFailure:(String)->Void;let onProcessing:(String)->Void
   private var completed=false
-  init(asCopy:Bool,onPick:@escaping(URL)->Void,onCancel:@escaping()->Void,onFailure:@escaping(String)->Void){
-   self.asCopy=asCopy;self.onPick=onPick;self.onCancel=onCancel;self.onFailure=onFailure
+  init(asCopy:Bool,onPick:@escaping(URL)->Void,onCancel:@escaping()->Void,onFailure:@escaping(String)->Void,onProcessing:@escaping(String)->Void){
+   self.asCopy=asCopy;self.onPick=onPick;self.onCancel=onCancel;self.onFailure=onFailure;self.onProcessing=onProcessing
   }
   func documentPicker(_ controller:UIDocumentPickerViewController,didPickDocumentsAt urls:[URL]) {
    guard !completed else {return};completed=true
    guard let url=urls.first else {onCancel();return}
    guard asCopy else {onPick(url);return}
+   onProcessing("已选中 \(url.lastPathComponent)，正在保存影片副本…")
    // Keep a provider grant alive until the imported copy is durable.
    let scoped=url.startAccessingSecurityScopedResource()
    DispatchQueue.global(qos:.userInitiated).async { [self] in

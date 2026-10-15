@@ -1,6 +1,30 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testJSONDocumentSelectionImportsActualBankInFullscreen() {importActualBank(fullscreen:true,valid:true)}
+ func testJSONDocumentSelectionImportsActualBankInWatchPage() {importActualBank(fullscreen:false,valid:true)}
+ func testInvalidJSONDocumentSelectionShowsValidationFailure() {importActualBank(fullscreen:true,valid:false)}
+ private func importActualBank(fullscreen:Bool,valid:Bool) {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_BANK_PICKER_TEST"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  if fullscreen {enterFullscreen(app);app.buttons["fullscreen-plot-ai-button"].tap()}
+  else {let button=app.buttons["watch-header-plot-ai-button"].firstMatch;XCTAssertTrue(button.waitForExistence(timeout:15));button.tap()}
+  revealPlotControl("plot-import-question-bank",app)
+  let importer=app.buttons["plot-import-question-bank"].firstMatch
+  XCTAssertTrue(importer.waitForExistence(timeout:10));XCTAssertTrue(importer.isEnabled);importer.tap()
+  let stem=valid ? "VALID-QUESTION-BANK" : "INVALID-QUESTION-BANK"
+  let file=app.cells.matching(NSPredicate(format:"label BEGINSWITH %@",stem)).firstMatch
+  XCTAssertTrue(file.waitForExistence(timeout:90),app.debugDescription)
+  file.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.25)).tap()
+  let status=app.staticTexts["plot-question-bank-status"].firstMatch
+  let expected=NSPredicate(format:valid ? "label CONTAINS '已加载 1 道题'" : "label CONTAINS '导入失败'")
+  expectation(for:expected,evaluatedWith:status);waitForExpectations(timeout:20)
+  XCTAssertFalse(app.otherElements["film-bank-document-picker"].exists,app.debugDescription)
+  let feedback=app.staticTexts["plot-bank-selection-feedback"].firstMatch
+  XCTAssertTrue(feedback.label.contains(stem),feedback.label)
+  if valid {XCTAssertTrue(app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","题库：JSON-PICKER-LOADED")).firstMatch.exists)}
+  capture("json-import-\(fullscreen)-\(valid)",app)
+ }
  func testWatchedCleanupReviewsAndDeletesOnlySelectedLocalFiles() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_CLEANUP_UI_TEST"]="1"
   app.launch();XCUIDevice.shared.orientation = .landscapeLeft

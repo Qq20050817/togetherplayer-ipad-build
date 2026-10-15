@@ -1,7 +1,7 @@
-name: Verify MKV video open and UHD film-material extraction
+name: Verify AI film materials and offline question banks
 on:
   push:
-    branches: [fix/ipad-uhd-mkv-video-open-20261016]
+    branches: [fix/ipad-document-picker-0639]
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,16 +29,6 @@ jobs:
             if [ -d "$dev" ]; then sudo xcode-select -s "$dev"; xcodebuild -version; exit 0; fi
           done
           exit 1
-      - name: Generate real 4K HEVC Main10 MKV test fixture
-        run: |
-          set -euo pipefail
-          if ! command -v ffmpeg >/dev/null 2>&1; then brew install ffmpeg; fi
-          if ! command -v ffprobe >/dev/null 2>&1; then echo 'ffprobe unavailable'; exit 1; fi
-          ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=3840x2160:rate=2:duration=16' \
-            -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -threads 2 \
-            -x265-params 'pools=1:frame-threads=1:wpp=0:keyint=24:min-keyint=24:bframes=0:log-level=error' \
-            -an -y ios/NativeTests/Fixtures/bank-uhd10.mkv
-          python3 -c 'import json,subprocess; f="ios/NativeTests/Fixtures/bank-uhd10.mkv"; v=json.loads(subprocess.check_output(["ffprobe","-v","error","-select_streams","v:0","-show_entries","stream=codec_name,width,height,pix_fmt","-of","json",f]))["streams"][0]; assert (v["codec_name"],v["width"],v["height"],v["pix_fmt"])==("hevc",3840,2160,"yuv420p10le"),v; print("Verified UHD HEVC Main10 fixture:",v)'
       - name: Generate project and dependencies
         run: |
           brew install xcodegen
@@ -57,24 +47,24 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
       - name: Validate V2 exports and strict bank lifecycle without retries
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/FilmBankV2Tests -only-testing:TogetherPoCCoreTests/FilmQuestionBankRuntimeTests -only-testing:TogetherPoCCoreTests/FilmMaterialSafetyTests test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/FilmBankV2Tests -only-testing:TogetherPoCCoreTests/FilmQuestionBankRuntimeTests -only-testing:TogetherPoCCoreTests/FilmMaterialSafetyTests -only-testing:TogetherPoCCoreTests/FilmBankDocumentPickerTests -only-testing:TogetherPoCCoreTests/LocalMovieCopyStoreTests test
       - name: Test full native core including offline bank
         run: |
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests -retry-tests-on-failure test
       - name: Regression test double-sided playback and question UI
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -retry-tests-on-failure test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath plot-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testInvalidJSONDocumentSelectionShowsValidationFailure -only-testing:TogetherPoCUITests/WatchInterfaceTests/testTappingUppercaseMP4ReturnsFromFilesAndLoadsLocalSource -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleCopyImportReturnsFromFilesAndLoadsLocalSource -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMoviePickerOpensFromRoomSettingsSheet -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -retry-tests-on-failure test
       - name: Package unsigned IPA only after tests
         run: |
           set -euo pipefail
           mkdir -p plot-delivery
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.36-Film-Materials-Bank-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.39-Film-Materials-Bank-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           cd plot-delivery
-          shasum -a 256 TogetherPlayer-0.6.36-Film-Materials-Bank-unsigned.ipa > SHA256SUMS.txt
+          shasum -a 256 TogetherPlayer-0.6.39-Film-Materials-Bank-unsigned.ipa > SHA256SUMS.txt
           printf 'Source branch: %s\nSource SHA: %s\nStatus: compiled and tested on iOS Simulator. Physical device and original MKV test remain required.\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-0.6.36-offline-bank
+          name: TogetherPlayer-0.6.39-offline-bank
           path: plot-delivery/
           retention-days: 7
       - name: Export native test result summaries
@@ -107,21 +97,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-0.6.36-offline-bank --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-0.6.39-offline-bank --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           (cd verified && sha256sum -c SHA256SUMS.txt)
           latest=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
           test "$latest" = "$GITHUB_SHA" || { echo "Superseded release; refusing stale IPA"; exit 1; }
-          tag='v0.6.36-ipad-film-materials-bank-20261016'
+          tag='v0.6.39-ipad-film-materials-bank-20261016'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release exists; refusing to overwrite tested IPA';exit 1
           fi
-          gh release create "$tag" verified/TogetherPlayer-0.6.36-Film-Materials-Bank-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.36 - Film materials + offline question banks" \
-            --prerelease --notes "0.6.36 Real UHD MKV file-provider video-open fix: NSFileCoordinator read-only path, FFmpeg container stream-info partial success fallback, decoder-backed video track enumeration, staged native codec diagnostics, early fail on unsupported container and preserved 0.6.35 sampling safeguards. Keeps 0.6.34 bounded memory, subtitle OCR and bank integrity safeguards. Verified compile, native and UI results in linked Actions. Verified synthetic 3840x2160 10-bit HEVC MKV decoder fixture; user's 20 GB original and physical-device retest still required. No claim of universal 4K/Dolby Vision compatibility. Same bundle and schema; sign with original certificate. Production services and Android unchanged."
-          git archive --format=zip --output=verified/TogetherPlayer-0.6.36-Film-Bank-V2-source.zip HEAD
+          gh release create "$tag" verified/TogetherPlayer-0.6.39-Film-Materials-Bank-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.39 - Film materials + offline question banks" \
+            --prerelease --notes "0.6.39 document import preview: native full-screen JSON picker, bounded provider-coordinated data capture before dismissal, explicit file/validation/hash progress and failure feedback, full-screen original/copy movie picking with async copy handoff preserved. Retains 0.6.38 durable movie-copy and selected subtitle fixes. Release/native/UI gates precede IPA publication; real-device verification remains required. Same signing bundle and schema. Android and production services unchanged."
+          git archive --format=zip --output=verified/TogetherPlayer-0.6.39-Film-Bank-V2-source.zip HEAD
           cp docs/question-bank-v1.schema.json verified/question-bank-v1.schema.json
           cp docs/CHATGPT_MOVIE_BANK_PROJECT.txt verified/ChatGPT-Movie-Bank-Project.txt
           cp docs/FILM_BANK_V2.md verified/Film-Bank-V2-Guide.md
-          (cd verified && sha256sum TogetherPlayer-0.6.36-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md > SOURCE-SHA256SUMS.txt)
-          gh release upload "$tag" verified/TogetherPlayer-0.6.36-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
+          (cd verified && sha256sum TogetherPlayer-0.6.39-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md > SOURCE-SHA256SUMS.txt)
+          gh release upload "$tag" verified/TogetherPlayer-0.6.39-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
