@@ -267,6 +267,7 @@ import CoreMedia
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
    self.publishPlotPoll(question)
   }
+  questionBankRuntime.onBankReady={ [weak self] in self?.plotIntelligence.wholeFilm.cancel() }
   plotIntelligence.start()
   plotIntelligence.visualEvidenceEnabled=visualSampler.enabled
   visualSampler.onEnabledChanged={ [weak self] enabled in
@@ -576,6 +577,7 @@ import CoreMedia
   }
  }
  func prepareCompleteFilmForAI(force:Bool=false) {
+  if questionBankRuntime.active != nil && !force {return}
   guard let source=currentOriginalURL,let key=plotDisplayPosition()?.key else{return}
   if force {plotIntelligence.wholeFilm.reset(film:key)}
   if let ai=aiOnlySubtitle,ai.film==key {
@@ -1137,7 +1139,14 @@ import CoreMedia
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
    questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
-    publish:{[weak self] question in self?.publishPlotPoll(question)})
+    publish:{[weak self] question in self?.publishPlotPoll(question)},
+    reveal:{[weak self] text in
+     guard let self,self.isRoomHost,self.isConnected else{return}
+     let message=String(text.prefix(500))
+     let id="bank:"+UUID().uuidString
+     let payload:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message,"clientMessageId":id]]
+     self.outbox[id]=payload;self.send(payload)
+    })
    send(["type":"SYNC"])
    let item=adapter.player.currentItem
    let sourceValid=BaiduMediaReference(value:engine.room?.mediaUrl ?? "")==nil || hasBaiduMatch
