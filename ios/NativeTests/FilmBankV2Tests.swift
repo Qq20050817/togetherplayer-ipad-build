@@ -31,17 +31,17 @@ import AVFoundation
   XCTAssertEqual(try FilmMaterialFingerprint.source(a),expected)
   XCTAssertNotEqual(try FilmMaterialFingerprint.source(a),try FilmMaterialFingerprint.source(b))
  }
- func testMP4AndMKVExportRealFramesEmbeddedFirstAndMappedSheets() async throws {
+ func testMP4AndMKVExportRespectsExplicitSpareSubtitleAndMappedSheets() async throws {
   for ext in ["mp4","mkv"] {
    let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-material",withExtension:ext))
-   let wrong=SubtitleDocument([SubtitleCue(start:1,end:3,text:"EXTERNAL_MUST_NOT_OVERRIDE_INTERNAL")])
-   let output=try await Task.detached(priority:.utility){try FilmMaterialExporter.create(url:movie,title:"Synthetic scene",external:wrong,allowOCR:true,progress:{_ in})}.value
+   let spare=SubtitleDocument([SubtitleCue(start:1,end:3,text:"SPARE_SUBTITLE_MUST_WIN")])
+   let output=try await Task.detached(priority:.utility){try FilmMaterialExporter.create(url:movie,title:"Synthetic scene",external:spare,allowOCR:true,progress:{_ in})}.value
    defer{try? FileManager.default.removeItem(at:output.deletingLastPathComponent())}
    let entries=try zipEntries(Data(contentsOf:output))
    XCTAssertNotNil(entries["manifest.json"]);XCTAssertNotNil(entries["question-bank-v1.schema.json"])
    XCTAssertNotNil(entries["ChatGPT项目指令.txt"])
    let srt=String(decoding:try XCTUnwrap(entries["subtitles/whole-film.srt"]),as:UTF8.self)
-   XCTAssertTrue(srt.contains("INTERNAL_END"));XCTAssertFalse(srt.contains("EXTERNAL_MUST"))
+   XCTAssertTrue(srt.contains("SPARE_SUBTITLE_MUST_WIN"));XCTAssertFalse(srt.contains("INTERNAL_END"))
    let timeline=try JSONDecoder().decode([FilmFrameRecord].self,from:try XCTUnwrap(entries["frame-timeline.json"]))
    XCTAssertGreaterThanOrEqual(timeline.count,2)
    for frame in timeline {
@@ -215,9 +215,41 @@ import AVFoundation
   await model.importFullFilmSubtitleForAI(subtitle)
   await model.plotIntelligence.wholeFilm.waitForAnalysis()
   XCTAssertEqual(model.bankSubtitle?.cues.count,2)
+  XCTAssertEqual(model.bankSubtitleSourceLabel,"素材专用备用字幕")
   XCTAssertEqual(inferenceCalls,0,"Importing materials must not start old cloud/local film analysis")
   XCTAssertEqual(model.externalSubtitles.enabled,previousEnabled)
   XCTAssertTrue(model.aiOnlySubtitleImportStatus.contains("不自动调用"))
+  model.clearFullFilmSubtitleForAI()
+  XCTAssertNil(model.bankSubtitle)
+  XCTAssertEqual(model.bankSubtitleSourceLabel,"原片内置字幕（未选备用字幕）")
+ }
+
+ func testPlaybackExternalSubtitleOnlyOverridesWhileSelected() async throws {
+  let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-material",withExtension:"mp4"))
+  let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}
+  let subtitle=directory.appendingPathComponent("playback-spare.srt")
+  try Data("1\n00:00:01,000 --> 00:00:03,000\nSelected playback spare\n\n2\n00:00:30,000 --> 00:00:33,000\nSecond cue\n".utf8).write(to:subtitle)
+  let model=TestClient(automaticallyConnect:false)
+  model.installCleanupTestSource(movie)
+  model.adapter.player.replaceCurrentItem(with:AVPlayerItem(url:movie))
+  let imported=await model.externalSubtitles.importFile(subtitle)
+  XCTAssertTrue(imported)
+  XCTAssertEqual(model.bankSubtitle?.cues.first?.text,"Selected playback spare")
+  XCTAssertEqual(model.bankSubtitleSourceLabel,"当前播放的外挂字幕")
+  model.externalSubtitles.enabled=false
+  XCTAssertNil(model.bankSubtitle,"Disabled external subtitle must not override original")
+  XCTAssertEqual(model.bankSubtitleSourceLabel,"原片内置字幕（未选备用字幕）")
+ }
+
+ func testWithoutSpareSubtitleEmbeddedIsExported() async throws {
+  let movie=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"bank-material",withExtension:"mp4"))
+  let output=try await Task.detached(priority:.utility){
+   try FilmMaterialExporter.create(url:movie,title:"Embedded-only movie",external:nil,allowOCR:true,progress:{_ in})
+  }.value
+  defer{try? FileManager.default.removeItem(at:output.deletingLastPathComponent())}
+  let entries=try zipEntries(Data(contentsOf:output))
+  let srt=String(decoding:try XCTUnwrap(entries["subtitles/whole-film.srt"]),as:UTF8.self)
+  XCTAssertTrue(srt.contains("INTERNAL_END"))
  }
 
 }
