@@ -1,6 +1,30 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testWatchedCleanupReviewsAndDeletesOnlySelectedLocalFiles() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_CLEANUP_UI_TEST"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  let room=app.buttons["房间与片源"].firstMatch
+  XCTAssertTrue(room.waitForExistence(timeout:15));room.tap()
+  let scroll=app.scrollViews["room-page-scroll"].firstMatch
+  let cleanup=app.buttons["watched-cleanup"].firstMatch
+  for _ in 0..<6 {if cleanup.isHittable {break};scroll.swipeUp()}
+  XCTAssertTrue(cleanup.isHittable);cleanup.tap()
+  let check=app.buttons["cleanup-choose-folder"].firstMatch
+  XCTAssertTrue(check.waitForExistence(timeout:5));check.tap()
+  XCTAssertTrue(app.staticTexts["CleanupMovie.zh-Hans.srt"].firstMatch.waitForExistence(timeout:8))
+  XCTAssertFalse(app.staticTexts["Other.srt"].firstMatch.exists)
+  let delete=app.buttons["cleanup-delete"].firstMatch
+  XCTAssertTrue(delete.waitForExistence(timeout:5));delete.tap()
+  let alert=app.alerts.firstMatch
+  XCTAssertTrue(alert.waitForExistence(timeout:3));alert.buttons["取消"].tap()
+  XCTAssertTrue(delete.exists,"cancelling confirmation must retain the reviewed files")
+  delete.tap();XCTAssertTrue(alert.waitForExistence(timeout:3));alert.buttons["删除"].tap()
+  let result=app.staticTexts["cleanup-result"].firstMatch
+  XCTAssertTrue(result.waitForExistence(timeout:10))
+  XCTAssertEqual(result.label,"已删除2个文件。")
+  capture("32-watched-file-cleanup",app)
+ }
  func testBlockingPlotQuestionPresentsAutomaticallyInWatchPage() {
   let app=XCUIApplication()
   app.launchEnvironment["TOGETHER_UI_TEST"]="1"
@@ -56,6 +80,48 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["plot-settings-close"].tap()
   XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
  }
+ func testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  func check(_ buttonID:String) {
+   let canvas=app.descendants(matching:.any)["playback-canvas-instance"].firstMatch
+   XCTAssertTrue(canvas.waitForExistence(timeout:10))
+   let identity=canvas.value as? String
+   XCTAssertNotNil(identity.flatMap(UUID.init(uuidString:)),"identity must belong to the actual stateful canvas")
+   for _ in 0..<3 {
+    let open=app.buttons[buttonID].firstMatch;XCTAssertTrue(open.waitForExistence(timeout:5));open.tap()
+    let scroll=app.scrollViews["plot-settings-scroll"].firstMatch
+    XCTAssertTrue(scroll.waitForExistence(timeout:5))
+    XCTAssertEqual(canvas.value as? String,identity,"opening AI must not destroy/recreate the movie canvas")
+    app.buttons["plot-settings-close"].firstMatch.tap()
+    let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:scroll)
+    XCTAssertEqual(XCTWaiter.wait(for:[closed],timeout:5),.completed)
+    XCTAssertEqual(canvas.value as? String,identity,"closing AI must keep the movie canvas")
+    XCTAssertEqual(app.state,.runningForeground)
+   }
+  }
+  check("watch-header-plot-ai-button")
+  enterFullscreen(app)
+  check("fullscreen-plot-ai-button")
+  capture("31-stable-canvas-after-ai-open",app)
+ }
+ func testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen() {
+  for fullscreen in [false,true] {
+   let app=XCUIApplication()
+   app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1"
+   app.launchEnvironment["TOGETHER_PLOT_AUTOPAUSE_IN_SETTINGS_UI_TEST"]="1"
+   app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+   if fullscreen {enterFullscreen(app)}
+   let button=app.buttons[fullscreen ? "fullscreen-plot-ai-button" : "watch-header-plot-ai-button"].firstMatch
+   XCTAssertTrue(button.waitForExistence(timeout:15));button.tap()
+   let drawer=app.otherElements[fullscreen ? "fullscreen-plot-question-drawer" : "plot-question-drawer"].firstMatch
+   XCTAssertTrue(drawer.waitForExistence(timeout:10),"AI settings must not mask a newly published blocking question")
+   XCTAssertTrue(app.staticTexts["警方找到的钥匙为什么与证词矛盾？"].firstMatch.exists)
+   XCTAssertFalse(app.scrollViews["plot-settings-scroll"].firstMatch.exists)
+   XCTAssertTrue(app.buttons["plot-drawer-submit"].firstMatch.exists)
+   app.terminate()
+  }
+ }
  func testQuestionPauseSettingSurvivesPanelDismissalAndRelaunch() {
   let app=XCUIApplication()
   app.launchEnvironment["TOGETHER_UI_TEST"]="1"
@@ -75,8 +141,12 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(setting.isEnabled)
   let original=setting.value as? String
   XCTAssertTrue(original=="0" || original=="1")
-  setting.tap()
+  // Lazy rows expose the label and switch as one AX frame. Tap the actual
+  // trailing switch rather than the non-interactive label at its center.
+  setting.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap()
   let changed=original=="1" ? "0" : "1"
+  let toggled=XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@",changed),object:setting)
+  XCTAssertEqual(XCTWaiter.wait(for:[toggled],timeout:5),.completed)
   XCTAssertEqual(setting.value as? String,changed)
   app.buttons["plot-settings-close"].firstMatch.tap()
   let closed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:panelScroll)
@@ -94,7 +164,7 @@ final class WatchInterfaceTests: XCTestCase {
   for _ in 0..<5 {if setting.isHittable {break};panelScroll.swipeUp()}
   XCTAssertTrue(setting.waitForExistence(timeout:5))
   XCTAssertEqual(setting.value as? String,changed,"relaunch must preserve the setting")
-  setting.tap() // Restore the prior preference for other tests.
+  setting.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.5)).tap() // Restore the prior preference for other tests.
  }
  func testPlotIntelligencePreviewKeepsFullscreenAndCloudOff() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
@@ -320,15 +390,25 @@ final class WatchInterfaceTests: XCTestCase {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_TRACK_PLAYBACK_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   enterFullscreen(app)
-  let progress=app.sliders["movie-progress"].firstMatch
+  let fullscreenMovie=app.otherElements["fullscreen-movie"].firstMatch
+  func revealControls() {
+   if !app.otherElements["fullscreen-control-bar"].firstMatch.exists {fullscreenMovie.tap()}
+   XCTAssertTrue(app.otherElements["fullscreen-control-bar"].firstMatch.waitForExistence(timeout:5))
+  }
+  revealControls()
+  let progress=app.otherElements["fullscreen-control-bar"].sliders["movie-progress"].firstMatch
   let ready=XCTNSPredicateExpectation(predicate:NSPredicate(format:"isEnabled == true"),object:progress)
   XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
   let currentCaption=app.staticTexts["这是简体字幕测试"].firstMatch
   XCTAssertTrue(currentCaption.waitForExistence(timeout:15),app.debugDescription)
   if app.buttons["暂停"].firstMatch.exists {app.buttons["暂停"].firstMatch.tap()}
+  // Decoder/snapshot startup can consume the normal ten-second idle window.
+  // Reveal real controls again and never adjust the covered watch-page slider.
+  revealControls()
   progress.adjust(toNormalizedSliderPosition:0.5)
   let seek=XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == '剩余 00:06' OR label == '剩余 00:07'"),object:app.staticTexts["playback-remaining"].firstMatch)
   XCTAssertEqual(XCTWaiter.wait(for:[seek],timeout:8),.completed)
+  revealControls()
   app.buttons["fullscreen-subtitle-adjustments"].tap()
   let movie=app.otherElements["subtitle-live-movie"].firstMatch
   XCTAssertTrue(movie.waitForExistence(timeout:5));XCTAssertGreaterThan(movie.frame.width,app.frame.width*0.5)

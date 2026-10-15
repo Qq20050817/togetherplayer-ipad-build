@@ -18,8 +18,6 @@ import SwiftUI
  @ObservedObject var model:TestClient
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe
- @ObservedObject var visuals:PlotVisualSampler
- @ObservedObject var subtitles:ExternalSubtitles
  @Environment(\.dismiss) private var dismiss
  var onClose:(()->Void)?
  @State private var selected=""
@@ -27,14 +25,15 @@ import SwiftUI
  @State private var editQuestion=""
  @State private var editOptions:[String]=[]
  @State private var authOpen=false
+ @State private var advancedOpen=false
  init(model:TestClient,onClose:(()->Void)?=nil) {
   self.model=model;intelligence=model.plotIntelligence;auth=model.plotIntelligence.auth
-  visuals=model.visualSampler;subtitles=model.externalSubtitles;self.onClose=onClose
+  self.onClose=onClose
  }
  var body:some View {
   NavigationStack {
    ScrollView {
-    VStack(alignment:.leading,spacing:12) {
+    LazyVStack(alignment:.leading,spacing:12) {
      if model.plotPoll != nil {questionCard}
      overview
      if model.isRoomHost || (!model.isConnected && model.adapter.player.currentItem != nil) {
@@ -49,10 +48,19 @@ import SwiftUI
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
     .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {if let onClose {onClose()} else {dismiss()}}.accessibilityIdentifier("plot-settings-close")}}
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
-    .onAppear {if let value=intelligence.result {editQuestion=value.text;editOptions=value.choices}}
+    .onAppear {
+     if let value=intelligence.result {editQuestion=value.text;editOptions=value.choices}
+     #if DEBUG
+     if ProcessInfo.processInfo.environment["TOGETHER_PLOT_AUTOPAUSE_IN_SETTINGS_UI_TEST"]=="1" {
+      DispatchQueue.main.asyncAfter(deadline:.now()+0.5) {
+       model.plotPoll=["id":"qa-question-over-settings","question":"警方找到的钥匙为什么与证词矛盾？","options":["证人隐瞒来源","有人交换钥匙","还需核实时间"],"positionMs":42000.0,"blocking":true,"waitingForAnswers":true,"revealed":false,"submitted":[String](),"answers":[String:String]()]
+      }
+     }
+     #endif
+    }
     .onChange(of:intelligence.result) {value in if let value {editQuestion=value.text;editOptions=value.choices}}
     .onChange(of:model.plotPoll?["id"] as? String) {_ in selected="";custom=""}
-    .onDisappear {intelligence.cancel()}
+    .onDisappear {if intelligence.shouldCancelOnPanelDismissal {intelligence.cancel()}}
   }.preferredColorScheme(.dark).accessibilityIdentifier("plot-settings-panel")
  }
  private var overview:some View {
@@ -90,6 +98,7 @@ import SwiftUI
    Toggle("答题后继续播放",isOn:$intelligence.pauseForQuestions).disabled(!model.supportsBlockingPolls).accessibilityIdentifier("plot-blocking-mode")
    Text(model.supportsBlockingPolls ? "设置自动保存。单人答完继续，双人需双方答完；原本暂停则保持暂停。" : "当前房间未支持同步答题暂停。").font(.caption).foregroundStyle(.secondary)
    Text(intelligence.autoTriggerStatus).font(.caption).foregroundStyle(.secondary).lineLimit(3).accessibilityIdentifier("plot-auto-trigger-status")
+   Text("本次观影：有效自动题 \(intelligence.automaticQuestionCount) · 提交房间 \(intelligence.automaticPublishCount)。请求次数包含失败，不等于已弹出的题数。").font(.caption2).foregroundStyle(.secondary)
    if model.plotPollWaiting {Button("取消本题并保持暂停",role:.destructive) {model.cancelPlotPoll()}.font(.caption)}
   }
  }
@@ -130,11 +139,28 @@ import SwiftUI
  }
  private var advancedCard:some View {
   PlotPanelCard(title:"设置与状态",icon:"slider.horizontal.3") {
-   DisclosureGroup("高级设置") {
+   DisclosureGroup("高级设置",isExpanded:$advancedOpen) {
+    if advancedOpen {PlotAdvancedSettings(model:model,intelligence:intelligence,auth:auth)}
+   }
+  }
+ }
+}
+@MainActor private struct PlotAdvancedSettings:View {
+ @ObservedObject var model:TestClient
+ @ObservedObject var intelligence:PlotIntelligence
+ @ObservedObject var auth:ChatGPTAuthProbe
+ @ObservedObject var visuals:PlotVisualSampler
+ @ObservedObject var subtitles:ExternalSubtitles
+ @State private var localAvailability="正在检查系统模型"
+ init(model:TestClient,intelligence:PlotIntelligence,auth:ChatGPTAuthProbe) {
+  self.model=model;self.intelligence=intelligence;self.auth=auth
+  visuals=model.visualSampler;subtitles=model.externalSubtitles
+ }
+ var body:some View {
     VStack(alignment:.leading,spacing:14) {
      Stepper("自动请求上限：\(intelligence.limit) 次",value:$intelligence.limit,in:1...50)
      Text("同片段优先复用，自动请求至少间隔3分钟；失败计数，不自动重试。手动深度推理单独计数。").font(.caption).foregroundStyle(.secondary)
-     Text("苹果本地 AI：\(PlotLocalAI.availabilityDetail) · 已采集 \(intelligence.collectedSubtitleCount) 条字幕线索").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
+     Text("苹果本地 AI：\(localAvailability) · 已采集 \(intelligence.collectedSubtitleCount) 条字幕线索").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-model-diagnostics")
      Toggle("本机画面分析（试验）",isOn:$visuals.enabled).accessibilityIdentifier("plot-visual-experiment")
      Text("仅分析已播放画面，保存粗略场景标签，不上传图像。").font(.caption).foregroundStyle(.secondary)
      Text("画面识别：\(visuals.status)").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-visual-status")
@@ -146,10 +172,10 @@ import SwiftUI
      Text(auth.verificationStatus).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-routing-diagnostics")
      Text("TogetherPlayer \(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "") · 构建 \(Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "")").font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("plot-client-version")
     }.padding(.top,14)
-   }
-  }
+   .onAppear {localAvailability=PlotLocalAI.availabilityDetail}
  }
 }
+
 @MainActor struct PlotAuthorizationView:View {
  @ObservedObject var intelligence:PlotIntelligence
  @ObservedObject var auth:ChatGPTAuthProbe

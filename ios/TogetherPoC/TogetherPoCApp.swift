@@ -37,6 +37,7 @@ import UniformTypeIdentifiers
      model.plotPoll=["id":"qa-blocking-question","question":"刚才的两种解释为何相互矛盾？","options":["有人隐瞒信息","有人记错时间","线索还不够"],"positionMs":42000.0,"blocking":true,"waitingForAnswers":true,"revealed":false,"submitted":[String](),"answers":[String:String]()]
     }
    }
+   if ProcessInfo.processInfo.environment["TOGETHER_CLEANUP_UI_TEST"]=="1" {try? LocalPickerUITestFixture.installCleanup(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_TRACK_PLAYBACK_TEST"]=="1" {try? model.installTrackPlaybackFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_VOICE_GESTURE_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model);model.voice.installGestureFixture()}
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
@@ -62,23 +63,25 @@ import UniformTypeIdentifiers
    let wide=availableWidth>=900 && availableWidth>geometry.size.height
    let sideWidth=wide ? min(320,availableWidth*0.26) : 0
    let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
-   HStack(spacing:12) {
+   HStack(spacing:questionOpen || plotPollOpen ? 12 : 0) {
    VStack(spacing:12) {
     header
     ScrollView {
-     if wide {
-      HStack(alignment:.top,spacing:12) {
-       VStack(spacing:12) {watchCard(height:min(movieWidth * CGFloat(9.0/16.0),max(300,geometry.size.height-360)));MediaLibraryPanel(model:model,library:model.library)}.frame(maxWidth:.infinity)
-       VStack(spacing:12) {sidePanel(height:max(330,geometry.size.height-290));actions}.frame(width:sideWidth)
-      }
-     } else {
-      VStack(spacing:12) {watchCard(height:movieWidth * CGFloat(9.0/16.0));sidePanel(height:300);MediaLibraryPanel(model:model,library:model.library);actions}
+     let layout=wide ? AnyLayout(HStackLayout(alignment:.top,spacing:12)) : AnyLayout(VStackLayout(alignment:.leading,spacing:12))
+     layout {
+      VStack(spacing:12) {
+       watchCard(height:wide ? min(movieWidth * CGFloat(9.0/16.0),max(300,geometry.size.height-360)) : movieWidth * CGFloat(9.0/16.0))
+       MediaLibraryPanel(model:model,library:model.library)
+      }.frame(maxWidth:.infinity)
+      VStack(spacing:12) {sidePanel(height:wide ? max(330,geometry.size.height-290) : 300);actions}.frame(width:wide ? sideWidth : nil)
      }
     }
-   }
-   if plotPollOpen {PlotPollPanel(model:model,onClose:{plotPollOpen=false}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
-   else if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true}).frame(width:railWidth).transition(.move(edge:.trailing).combined(with:.opacity))}
-   }.padding(16).animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen).animation(.spring(response:0.32,dampingFraction:0.9),value:plotPollOpen)
+   }.transaction {$0.animation=nil}
+   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen) {
+    PlotPollPanel(model:model,onClose:{plotPollOpen=false})
+   } question:{PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true})}
+   }.padding(16)
+
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
@@ -86,7 +89,7 @@ import UniformTypeIdentifiers
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;return}
     guard !fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
-    questionOpen=true
+    plotPollOpen=false;questionOpen=true
    }
    .onChange(of:model.plotPoll?["revealed"] as? Bool) {revealed in
     if revealed==true && model.plotPoll?["blocking"] as? Bool == true {questionOpen=false}
@@ -204,6 +207,9 @@ import UniformTypeIdentifiers
  @ObservedObject var chat: ChatEngine
  var bottomInset: Double=0
  @State private var captionHeight:CGFloat=0
+ #if DEBUG
+ @State private var canvasIdentity=UUID()
+ #endif
  var body: some View {
   GeometryReader {geometry in
    let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:player.currentItem?.presentationSize ?? .zero)
@@ -218,6 +224,15 @@ import UniformTypeIdentifiers
     }
    }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
   }
+  #if DEBUG
+  .overlay(alignment:.topLeading) {
+   // A separate child keeps the identity observable when a caller supplies
+   // its own accessibility container/identifier for the whole movie.
+   Text("Playback canvas identity").font(.system(size:1)).foregroundColor(.clear)
+    .accessibilityIdentifier("playback-canvas-instance").accessibilityValue(canvasIdentity.uuidString)
+    .allowsHitTesting(false)
+  }
+  #endif
  }
 }
 struct SubtitleHeightKey:PreferenceKey {
@@ -419,7 +434,7 @@ struct FullscreenToolStyle:ButtonStyle {
   GeometryReader {geometry in
   let railWidth=min(340,geometry.size.width*0.30)
   let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen) ? railWidth+10 : 0)
-  HStack(spacing:10) {
+  HStack(spacing:questionOpen || plotPollOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
@@ -509,7 +524,7 @@ struct FullscreenToolStyle:ButtonStyle {
      RequestFeedback(feedback:model.feedback)
     }.padding(12).background(Color(white:0.08))
    }
-  }.background(Color.black).preferredColorScheme(.dark)
+  }.transaction {$0.animation=nil}.background(Color.black).preferredColorScheme(.dark)
    // Do not install an outer tap recognizer over the UIKit movie touch surface.
    // It can cancel touch-ended delivery, leaving controls hidden after a tap.
    .onAppear {screenBrightness=Double(UIScreen.main.brightness);questionOpen=model.plotPollWaiting && !model.plotPollSubmitted;scheduleHide()}
@@ -530,7 +545,7 @@ struct FullscreenToolStyle:ButtonStyle {
     guard !questionOpen else {return}
     if model.plotPollWaiting && !model.plotPollSubmitted && !composing {
      // The server pauses both viewers; open the question without extra taps.
-     plotHintVisible=false;questionOpen=true;return
+     plotPollOpen=false;plotHintVisible=false;questionOpen=true;return
     }
     // Nonblocking manually created polls retain the small optional hint.
     plotHintVisible=true;plotHintSequence+=1
@@ -545,9 +560,11 @@ struct FullscreenToolStyle:ButtonStyle {
      questionOpen=false;plotHintVisible=false
     }
    }
-   if plotPollOpen {PlotPollPanel(model:model,onClose:{plotPollOpen=false}).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
-   else if questionOpen {PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).frame(width:railWidth).padding(.vertical,10).transition(.move(edge:.trailing).combined(with:.opacity))}
-  }.animation(.spring(response:0.32,dampingFraction:0.9),value:questionOpen).animation(.spring(response:0.32,dampingFraction:0.9),value:plotPollOpen)
+   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen) {
+    PlotPollPanel(model:model,onClose:{plotPollOpen=false}).padding(.vertical,10)
+   } question:{PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).padding(.vertical,10)}
+  }
+
   }
  }
  private var tools:some View {
@@ -710,8 +727,9 @@ struct RoomActionStyle:ButtonStyle {
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
- private enum Picker: String, Identifiable {case baidu,local,localCopy;var id:String {rawValue}}
+ private enum Picker: String, Identifiable {case baidu,local,localCopy,cleanup;var id:String {rawValue}}
  @State private var picker: Picker?
+ @State private var cleanupSource:URL?
  var body: some View {
   ScrollView {
    VStack(alignment:.leading,spacing:14) {
@@ -756,6 +774,9 @@ struct RoomActionStyle:ButtonStyle {
      }
      Text("直接选择只读取原文件；兼容导入会复制一份，需要额外影片大小的空间。均不上传影片。").font(.caption).foregroundStyle(.secondary)
      if !model.sourceNotice.isEmpty {Text(model.sourceNotice).font(.caption).foregroundStyle(.orange)}
+     if model.cleanupSourceURL != nil {
+      Button(role:.destructive) {cleanupSource=model.cleanupSourceURL;picker = .cleanup} label:{Label("看完清理 · 影片与字幕",systemImage:"trash.circle").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("watched-cleanup")
+     }
      if model.usingLocalFile {Button(role:.destructive) {model.clearLocalFileSource()} label:{Label("清除本地影片并恢复房间片源",systemImage:"trash").frame(maxWidth:.infinity,alignment:.leading)}}
      DisclosureGroup("仅本机使用另一播放链接") {
       VStack(alignment:.leading,spacing:14) {
@@ -786,6 +807,10 @@ struct RoomActionStyle:ButtonStyle {
     switch selection {
     case .baidu:
      NavigationStack {BaiduBrowserView(model:baidu,useSource:{url,file in if model.useBaiduSource(url,file:file) {picker=nil}},requiredTitle:model.baiduRoomTitle,variantContext:model.engine.room.map {($0.roomId,$0.mediaUrl)},useVariant:{url,file,roomID,mediaURL in if model.useBaiduSource(url,file:file,confirmedRoomID:roomID,confirmedMediaURL:mediaURL) {picker=nil}},clearSource:{model.clearBaiduSource()}).toolbar {Button("返回Together") {baidu.pause();picker=nil}}}.onDisappear {baidu.stopPreview()}
+    case .cleanup:
+     if let source=cleanupSource {
+      WatchedCleanupSheet(source:source,importedSubtitle:model.externalSubtitles.importedFileURL,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0})
+     } else {Text("本地影片已变化，请重新打开清理。")}
     case .local,.localCopy:
      LocalMovieDocumentPicker(asCopy:selection == .localCopy,onPick:{url in
       picker=nil

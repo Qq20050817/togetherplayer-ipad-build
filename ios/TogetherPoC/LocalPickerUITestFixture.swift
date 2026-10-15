@@ -3,6 +3,17 @@ import Foundation
 
 // Only used by the simulator UI test, never included in Release.
 @MainActor enum LocalPickerUITestFixture {
+ static func installCleanup(into model:TestClient)throws {
+  try install(into:model)
+  let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
+  let folder=documents.appendingPathComponent("CleanupUITest",isDirectory:true)
+  try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+  let movie=folder.appendingPathComponent("CleanupMovie.mp4")
+  try Data(contentsOf:documents.appendingPathComponent("LOCAL-PICKER-TEST.MP4")).write(to:movie)
+  try Data("1\n00:00:00,000 --> 00:00:01,000\n你好\n".utf8).write(to:folder.appendingPathComponent("CleanupMovie.zh-Hans.srt"))
+  try Data("keep".utf8).write(to:folder.appendingPathComponent("Other.srt"))
+  model.installCleanupTestSource(movie)
+ }
  static func installSubtitle(into model: TestClient) throws {
   let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
   let directory=documents.appendingPathComponent("SubtitleUITest",isDirectory:true)

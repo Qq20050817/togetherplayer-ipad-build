@@ -190,14 +190,11 @@ import CoreMedia
  init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil) {
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
+  plotIntelligence.displayPosition={ [weak self] in self?.plotDisplayPosition() }
   plotIntelligence.frame={ [weak self] in
    // Offline local analysis should not require a live room transport.
-   guard let self,self.adapter.player.currentItem != nil else {return nil}
-   let identity=self.engine.room?.mediaUrl ?? self.currentOriginalURL?.absoluteString ?? self.loadedURL
-   guard !identity.isEmpty else {return nil}
-   let position=max(0,self.adapter.position/1000)
-   var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
-   let key=PlotMemoryStore.key(components?.string ?? identity)
+   guard let self,let display=self.plotDisplayPosition() else{return nil}
+   let position=display.position,key=display.key
    var prediction:PlotPrediction?
    if let poll=self.plotPoll,poll["revealed"] as? Bool==true,let id=poll["id"] as? String,let question=poll["question"] as? String,let end=poll["revealPositionMs"] as? Double {
     prediction=PlotPrediction(id:id,end:max(0,(end+self.engine.timelineOffset)/1000),question:question,answers:self.plotPollAnswers)
@@ -240,6 +237,10 @@ import CoreMedia
    guard let self else{return true}
    return self.externalSubtitles.originalPGSFrame != nil ||
      !self.externalSubtitles.text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty
+  }
+  plotIntelligence.currentCaptionSequence={ [weak self] in self?.externalSubtitles.plotCaptionSequence ?? 0 }
+  externalSubtitles.plotCaptionBoundaryChanged={ [weak self] in
+   _ = self?.plotIntelligence.publishPendingAutomaticQuestion()
   }
   plotIntelligence.publishAutomatically={ [weak self] question in
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
@@ -307,6 +308,13 @@ import CoreMedia
   if automaticallyConnect,credentials != nil {connect()}
  }
  deinit {timer?.invalidate();for observer in observers {NotificationCenter.default.removeObserver(observer)}}
+ private func plotDisplayPosition()->PlotDisplayPosition? {
+  guard adapter.player.currentItem != nil else{return nil}
+  let identity=engine.room?.mediaUrl ?? currentOriginalURL?.absoluteString ?? loadedURL
+  guard !identity.isEmpty else{return nil}
+  var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
+  return PlotDisplayPosition(key:PlotMemoryStore.key(components?.string ?? identity),position:max(0,adapter.position/1000))
+ }
  private func diagnostic(_ event: String) {
   var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
@@ -543,6 +551,13 @@ import CoreMedia
         source.pathExtension.lowercased()=="m3u8" else{return}
   if mkvRemux.pgsOCRRendition && !externalSubtitles.convertPGSForAI {
    externalSubtitles.nativeIndexDisabledForAI();return
+  }
+  // PrismCore publishes a complete planned playlist before its subtitle files
+  // exist. Probing every VTT ahead can wait minutes or re-anchor its producer,
+  // competing with the actual movie. Analyze observed legible cues instead.
+  if NativeSubtitleIndexReader.isDemandDrivenLocal(master:source) {
+   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
+   externalSubtitles.nativeIndexStreamingStarted();return
   }
   if externalSubtitles.nativeIndexedTrack==track {return}
   let key="\(mediaLoadGeneration):\(track):\(source.absoluteString)"
@@ -1218,6 +1233,29 @@ extension TestClient {
   guard localQualityCandidate != nil else {return}
   localQualityCandidate=nil;releaseLocalFileAccess();requestStatus="已取消使用另一画质。"
  }
+ var cleanupSourceURL:URL? {usingLocalFile ? localFileURL : nil}
+ func detachLocalFileForCleanup(_ expected:URL)->Bool {
+  guard cleanupSourceURL==expected,currentOriginalURL==expected || currentOriginalURL==nil else{return false}
+  voice.disable();setSpeedHold(false);clearOptimisticPlayback()
+  plotIntelligence.preserveCurrentFilmEvidence();plotIntelligence.cancel()
+  nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
+  originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
+  localSelectionGeneration+=1;pendingLocalFile=nil;localQualityCandidate=nil
+  stopUnmatchedMedia();releaseLocalFileAccess()
+  activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
+  baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName=""
+  variantRoomID="";variantMediaURL="";variantReferenceDuration=0
+  playbackRecovery.reset();setPlaybackRecoveryVisible(false)
+  requestStatus="正在清理本地文件…"
+  return true
+ }
+ #if DEBUG
+ func installCleanupTestSource(_ url:URL) {
+  localFileURL=url;localFileName=url.lastPathComponent
+  localSourceRoomURL=engine.room?.mediaUrl ?? "";localSourceRoomID=engine.room?.roomId ?? ""
+  loadMedia(url)
+ }
+ #endif
  func clearLocalFileSource() {
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
   localSelectionGeneration += 1;pendingLocalFile=nil

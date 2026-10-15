@@ -12,6 +12,11 @@ enum NativeSubtitleIndexReader {
  static let maxSegments=3000
  static let maxBytes=5*1024*1024
 
+ static func isDemandDrivenLocal(master:URL)->Bool {
+  let host=master.host?.lowercased() ?? ""
+  return master.pathExtension.lowercased()=="m3u8" &&
+   ["127.0.0.1","localhost","::1","[::1]"].contains(host)
+ }
  static func subtitleURL(master:String,base:URL,track:Int)->URL? {
   guard track>=0 else{return nil}
   let options=master.components(separatedBy:.newlines).filter {

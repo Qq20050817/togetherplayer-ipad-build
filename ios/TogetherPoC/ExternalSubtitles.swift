@@ -1,8 +1,11 @@
 import Foundation
 import Combine
 import AVFoundation
+import CoreMedia
+import CoreFoundation
 
 @MainActor final class ExternalSubtitles: ObservableObject {
+ private(set) var importedFileURL:URL?
  @Published private(set) var name=""
  @Published private(set) var text=""
  @Published private(set) var status=""
@@ -42,6 +45,7 @@ import AVFoundation
  private var nativeIndexedQuestions:[PlotQuestionCheckpoint]=[]
  private(set) var nativeIndexedTrack:Int?
  // Bitmap OCR projection is for AI only. It never becomes the displayed caption.
+ private var nativeIndexStreaming=false
  private(set) var nativeIndexAIOnly=false
  private(set) var nativeAISRT:String?
  @Published private(set) var nativeIndexStatus=""
@@ -52,6 +56,8 @@ import AVFoundation
  private var plotLastWasPlaying=false
  private var plotJumpObserver:NSObjectProtocol?
  var plotDidSeek:(()->Void)?
+ private(set) var plotCaptionSequence=0
+ var plotCaptionBoundaryChanged:(()->Void)?
  var plotCaptionChanged:((String)->Void)?
  var plotFullSubtitleIndexed:((SubtitleDocument,String,[PlotQuestionCheckpoint])->Void)?
  var plotFullFilmReset:(()->Void)?
@@ -90,6 +96,16 @@ import AVFoundation
   plotFullSubtitleIndexed?(document,"embedded-subtitle",nativeIndexedQuestions)
   refresh()
  }
+ func nativeIndexStreamingStarted() {
+  nativeIndexStreaming=true
+  updateStreamingIndexStatus()
+ }
+ private func updateStreamingIndexStatus() {
+  guard nativeIndexStreaming else{return}
+  let count=nativeTimeline.events.filter{!$0.text.isEmpty}.count
+  let value="按播放进度采集内置字幕（已收到\(count)条）；剧情分析不等待完整索引"
+  if nativeIndexStatus != value {nativeIndexStatus=value}
+ }
  func nativeIndexStarted() {if nativeIndexedDocument == nil {nativeIndexStatus="正在读取内置字幕的 AI 文字索引…"}}
  func nativeIndexDisabledForAI() {nativeIndexStatus="已关闭 PGS 转文字供 AI 使用；观看字幕未改变"}
  func clearAIOnlyOCRIndex() {
@@ -103,7 +119,7 @@ import AVFoundation
  }
  private func clearNativeIndex() {
   nativeIndexedDocument=nil;nativeIndexedQuestions=[];nativeIndexedTrack=nil
-  nativeIndexAIOnly=false;nativeAISRT=nil;nativeIndexStatus=""
+  nativeIndexStreaming=false;nativeIndexAIOnly=false;nativeAISRT=nil;nativeIndexStatus=""
  }
  func plannedQuestionCheckpoint(at position:Double,duration:Double)->Double? {
   // A complete imported subtitle can be indexed without sending the future
@@ -146,10 +162,9 @@ import AVFoundation
     .filter{$0.end<=cutoff && watched($0.start,$0.end)}
     .map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"embedded-subtitle")}
   }
-  guard nativeTimeline.events.count>1 else{return []}
-  return zip(nativeTimeline.events,nativeTimeline.events.dropFirst())
-   .filter{!$0.0.text.isEmpty && $0.1.time<=cutoff && watched($0.0.time,$0.1.time)}
-   .map{PlotEvidence.cue(start:$0.0.time,end:$0.1.time,text:$0.0.text,source:"embedded-subtitle")}
+  return nativeTimeline.completedIntervals(before:cutoff)
+   .filter{watched($0.start,$0.end)}
+   .map{PlotEvidence.cue(start:$0.start,end:$0.end,text:$0.text,source:"embedded-subtitle")}
  }
 
  init(player: AVPlayer,preferences:UserDefaults = .standard) {
@@ -174,7 +189,7 @@ import AVFoundation
   }
  }
  deinit {if let observer=observer {player.removeTimeObserver(observer)};if let plotJumpObserver {NotificationCenter.default.removeObserver(plotJumpObserver)}}
- func clear() {generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;clearOriginalPGS();enabled=false;delay=0}
+ func clear() {importedFileURL=nil;generation+=1;clearNativeIndex();document=nil;plannedQuestions=[];name="";text="";status="";nativeTimeline.clear();plotWatched=[];plotFilmKey="";plotLastTime=nil;plotLastWasPlaying=false;nativeOutputRecoveryCount=0;lastNativeRecoveryAt=0;clearOriginalPGS();enabled=false;delay=0}
  func resetAdjustments() {delay=0;fontSize=24;bottomFraction=0.07;fontFamily = .system;fontWeight = .regular;letterSpacing=0;lineSpacing=0}
  func attachNativeOutput(to item:AVPlayerItem) {
   if attachedItem !== item {plotLastTime=nil;plotLastWasPlaying=false}
@@ -213,7 +228,7 @@ import AVFoundation
  private func updateOriginalPGS(at time:Double) {
   guard originalPGSBitmapEnabled,nativeEnabled,!enabled,originalPGSTrack != nil,
         time.isFinite,time>=0 else {
-   if originalPGSFrame != nil {originalPGSFrame=nil}
+   if originalPGSFrame != nil {originalPGSFrame=nil;noteCaptionBoundary()}
    originalPGSEventTime = -.infinity;return
   }
   let events=originalPGSTimeline.events
@@ -226,11 +241,16 @@ import AVFoundation
   guard eventTime != originalPGSEventTime else{return}
   originalPGSEventTime=eventTime
   originalPGSFrame=low>0 ? events[low-1].frame : nil
+  noteCaptionBoundary()
  }
- fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double) {
+ private func noteCaptionBoundary() {
+  plotCaptionSequence+=1
+  plotCaptionBoundaryChanged?()
+ }
+ fileprivate func receiveNative(_ output:AVPlayerItemLegibleOutput,text:String,time:Double,end:Double?=nil) {
   guard output === legibleOutput else {return}
   lastNativeCallbackAt=Date().timeIntervalSince1970
-  nativeTimeline.receive(text:text,time:time);refresh()
+  nativeTimeline.receive(text:text,time:time,end:end);updateStreamingIndexStatus();refresh()
  }
  fileprivate func flushNative(_ output:AVPlayerItemLegibleOutput) {
   guard output === legibleOutput else {return}
@@ -253,7 +273,7 @@ import AVFoundation
    }.value
    guard current==generation else {return false}
    plotFullFilmReset?()
-   document=result
+   document=result;importedFileURL=url
    plannedQuestions=PlotQuestionPlanner.indexed(result.cues)
    name=url.lastPathComponent;delay=0;enabled=true
    status=(ext=="ass" || ext=="ssa") ? "已加载\(result.cues.count)条字幕；ASS/SSA按文本显示" : "已加载\(result.cues.count)条字幕"
@@ -302,7 +322,7 @@ import AVFoundation
   // Missing original frame falls back to the selected native track rather than
   // dropping captions during partial extraction or at a later movie position.
   let visibleText=originalPGSFrame != nil ? "" : next
-  if visibleText != text {text=visibleText;plotCaptionChanged?(visibleText)}
+  if visibleText != text {text=visibleText;noteCaptionBoundary();plotCaptionChanged?(visibleText)}
  }
 }
 
@@ -313,7 +333,20 @@ final class SubtitleLegibleDelegate:NSObject,AVPlayerItemLegibleOutputPushDelega
  init(owner:ExternalSubtitles) {self.owner=owner}
  func legibleOutput(_ output:AVPlayerItemLegibleOutput,didOutputAttributedStrings strings:[NSAttributedString],nativeSampleBuffers:[Any],forItemTime itemTime:CMTime) {
   let text=strings.map(\.string).joined(separator:"\n")
-  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds)}
+  // When AVFoundation supplies real legible-sample durations, a caption can
+  // end accurately even if the track omits an explicit empty callback. Never
+  // invent a fixed duration or infer that speech ended merely from a timeout.
+  let end=Self.nativeDuration(nativeSampleBuffers).map{itemTime.seconds+$0}
+  MainActor.assumeIsolated {owner?.receiveNative(output,text:text,time:itemTime.seconds,end:end)}
+ }
+ static func nativeDuration(_ buffers:[Any])->Double? {
+  buffers.compactMap {value -> Double? in
+   let reference=value as CFTypeRef
+   guard CFGetTypeID(reference)==CMSampleBufferGetTypeID() else{return nil}
+   let sample=reference as! CMSampleBuffer
+   let duration=CMSampleBufferGetOutputDuration(sample).seconds
+   return duration.isFinite && duration>0 ? duration : nil
+  }.max()
  }
  func outputSequenceWasFlushed(_ output:AVPlayerItemOutput) {
   guard let output=output as? AVPlayerItemLegibleOutput else {return}
