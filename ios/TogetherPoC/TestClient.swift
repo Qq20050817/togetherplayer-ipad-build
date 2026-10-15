@@ -40,7 +40,7 @@ import CoreMedia
  var bankCanPublish:Bool {
   isConnected && isRoomHost && clock.ready && supportsBlockingPolls &&
    variantDurationCheck == .compatible && adapter.player.rate>0 &&
-   engine.room?.state=="playing" && speedHoldID==nil &&
+   !adapter.isSeeking && engine.room?.state=="playing" && speedHoldID==nil &&
    (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
  }
  var bankPlaybackPositionMs:Double {max(0,adapter.position-engine.timelineOffset)}
