@@ -129,6 +129,12 @@ import UniformTypeIdentifiers
    if materials.working {ProgressView(value:materials.progress).accessibilityIdentifier("plot-film-export-progress");Button("取消提取",role:.cancel){materials.cancel()}.accessibilityIdentifier("plot-cancel-film-materials")}
    Button("补充完整外置字幕（仅制作素材）") {aiOnlySubtitlePickerOpen=true}
     .buttonStyle(.bordered).disabled(materials.working || model.bankMovieURL == nil).accessibilityIdentifier("plot-import-material-subtitle")
+   Text("本次 AI 素材字幕：\(model.bankSubtitleSourceLabel)").font(.caption.weight(.semibold)).foregroundStyle(.white)
+    .accessibilityIdentifier("plot-film-material-subtitle-source")
+   if model.hasMaterialOnlySubtitle {
+    Button("取消素材专用备用字幕，恢复自动选择") {model.clearFullFilmSubtitleForAI()}
+     .font(.caption).buttonStyle(.bordered).disabled(materials.working)
+   }
    if !model.aiOnlySubtitleImportStatus.isEmpty {Text(model.aiOnlySubtitleImportStatus).font(.caption2).foregroundStyle(.secondary)}
    Text(materials.status).font(.caption).foregroundStyle(.secondary)
     .accessibilityIdentifier("plot-film-export-status")
