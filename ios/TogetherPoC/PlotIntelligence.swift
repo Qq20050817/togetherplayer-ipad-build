@@ -414,7 +414,7 @@ struct PlotFrame {
    let policy=PlotRoutingPolicy(simple:preferences.object(forKey:"plot-simple-threshold") as? Int ?? 40,complex:preferences.object(forKey:"plot-complex-threshold") as? Int ?? 70)
    let requested=explicitlyCloud || (mode == .smart && policy.wantsCloud(score,localQuality:localGood,contextSufficient:context.sufficient))
    if requested {
-    if let cached=state.reusable(at:snapshot.position),cached.source=="ChatGPT" {
+    if let cached=state.reusable(at:snapshot.position),cached.source=="ChatGPT",matchesSelection(cached) {
      complete(cached,reason:"复用该片段已完成的 ChatGPT 问题，没有再次消耗额度",frame:snapshot,token:token);return
     }
     // Explicit model choice is itself a manual request. The automatic-call
@@ -508,7 +508,7 @@ struct PlotFrame {
    guard chosen != nil || PlotQuality.check(question,context:context,history:history,allowGeneric:true) else {
     cancel();reason="生成的问题没有通过安全或重复检查，请稍后重试";return
    }
-   let clues=(mode == .smart || mode == .local) && PlotLocalAI.available && context.sufficient ? await PlotLocalAI.summarize(context) : []
+   let clues=(!requireCompleteFilm && (mode == .smart || mode == .local)) && PlotLocalAI.available && context.sufficient ? await PlotLocalAI.summarize(context) : []
    guard valid(snapshot,token:token) else {cancel();return}
    try await memory.finish(key:snapshot.key,question:question,cutoff:snapshot.position,clues:clues,context:context)
    let why=score.confidence>=policy.minimumConfidence ? String(score.reasons.prefix(2).joined(separator:"；").prefix(100))+"。" : ""

@@ -202,7 +202,7 @@ import CoreMedia
    let observed=self.externalSubtitles.observedPlotEvidence()
    let visuals=self.visualSampler.evidence(cutoff:position)
    let duration=self.adapter.player.currentItem?.duration.seconds ?? .nan
-   let checkpoint=self.externalSubtitles.plannedQuestionCheckpoint(at:position,duration:duration)
+   let checkpoint=self.plotIntelligence.wholeFilm.checkpoint(at:position,film:key) ?? self.externalSubtitles.plannedQuestionCheckpoint(at:position,duration:duration)
    return PlotFrame(key:key,position:position,evidence:observed+visuals,
     prediction:prediction,plannedCheckpoint:checkpoint)
   }
