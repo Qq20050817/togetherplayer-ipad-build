@@ -70,7 +70,9 @@ import CoreGraphics
   object.removeValue(forKey:"unknown");object.removeValue(forKey:"subtitleFingerprint")
   XCTAssertThrowsError(try FilmBankCodec.decode(JSONSerialization.data(withJSONObject:object)))
   object["subtitleFingerprint"]=NSNull();object["schemaVersion"]=true
-  XCTAssertThrowsError(try FilmBankCodec.decode(JSONSerialization.data(withJSONObject:object)))
+  XCTAssertThrowsError(try FilmBankCodec.decode(JSONSerialization.data(withJSONObject:object))) {error in
+   XCTAssertTrue(error.localizedDescription.contains("schemaVersion"),error.localizedDescription)
+  }
  }
  func testHDRThumbnailTransformIsMonotonicAndLeavesOpaquePixels() {
   var bytes=Data((0..<256).flatMap{[UInt8($0),UInt8($0),UInt8($0),255]})

@@ -54,11 +54,18 @@ enum FilmBankValidation:LocalizedError {
 enum FilmBankCodec {
  static let maxBytes=2*1024*1024
  static func decode(_ data:Data)throws->FilmQuestionBank {
-  guard data.count>0,data.count<=maxBytes,
-   let bank=try? JSONDecoder().decode(FilmQuestionBank.self,from:data) else {throw FilmBankValidation.invalidFormat}
-  try shape(data)
-  try validate(bank)
-  return bank
+  guard !data.isEmpty,data.count<=maxBytes else{throw FilmBankValidation.invalidFormat}
+  func field(_ path:[CodingKey])->String {path.map{key in key.intValue.map{"[\($0+1)]"} ?? key.stringValue}.joined(separator:".")}
+  do {
+   try shape(data)
+   let bank=try JSONDecoder().decode(FilmQuestionBank.self,from:data)
+   try validate(bank);return bank
+  } catch let error as FilmBankValidation {throw error}
+  catch DecodingError.keyNotFound(let key,let context) {throw FilmBankValidation.detail("题库缺少字段："+field(context.codingPath+[key]))}
+  catch DecodingError.typeMismatch(_,let context) {throw FilmBankValidation.detail("题库字段类型不符："+field(context.codingPath))}
+  catch DecodingError.valueNotFound(_,let context) {throw FilmBankValidation.detail("题库字段不能为 null："+field(context.codingPath))}
+  catch DecodingError.dataCorrupted(let context) {throw FilmBankValidation.detail("题库字段数据格式不受支持："+field(context.codingPath))}
+  catch {throw FilmBankValidation.invalidFormat}
  }
  static func shape(_ data:Data)throws {
   func keys(_ object:[String:Any],required:Set<String>,allowed:Set<String>,path:String)throws {
