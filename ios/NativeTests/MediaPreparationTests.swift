@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 final class MediaPreparationTests: XCTestCase {
  @MainActor func testPickerMP4SelectionDeliversOnceWithoutCopying() {
   var selected:[URL]=[];var cancellations=0
-  let picker=LocalMovieDocumentPicker(onPick:{selected.append($0)},onCancel:{cancellations += 1})
+  let picker=LocalMovieDocumentPicker(onPick:{selected.append($0)},onCancel:{cancellations += 1},onFailure:{_ in})
   let coordinator=picker.makeCoordinator()
   let controller=UIDocumentPickerViewController(forOpeningContentTypes:LocalMovieDocumentPicker.contentTypes,asCopy:false)
   let url=URL(fileURLWithPath:"/tmp/movie.MP4")
@@ -21,7 +21,7 @@ final class MediaPreparationTests: XCTestCase {
  }
  @MainActor func testPickerCancelIsDeliveredOnlyOnce() {
   var selections=0;var cancellations=0
-  let picker=LocalMovieDocumentPicker(onPick:{_ in selections += 1},onCancel:{cancellations += 1})
+  let picker=LocalMovieDocumentPicker(onPick:{_ in selections += 1},onCancel:{cancellations += 1},onFailure:{_ in})
   let coordinator=picker.makeCoordinator()
   let controller=UIDocumentPickerViewController(forOpeningContentTypes:LocalMovieDocumentPicker.contentTypes,asCopy:false)
   coordinator.documentPickerWasCancelled(controller)
