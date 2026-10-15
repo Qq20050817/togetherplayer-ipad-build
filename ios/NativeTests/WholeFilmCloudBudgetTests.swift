@@ -123,19 +123,20 @@ import XCTest
   let plan=try WholeFilmPlan.chunks(doc,source:"embedded-subtitle"),key=WholeFilmPlan.signature(plan,film:"film")
   let host=WholeFilmHost(archive:archive);host.available={true};host.cloudBatching={true}
   var started=0
+  let secondStarted=expectation(description:"Second cloud batch starts only after first batch is persisted")
   host.inference={ [self] instruction,input in
    started+=1
-   if started>1 {try await Task.sleep(nanoseconds:5_000_000_000)}
+   if started>1 {secondStarted.fulfill();try await Task.sleep(nanoseconds:30_000_000_000)}
    return try batchAnswer(input)
   }
   host.accept(doc,film:"film",source:"embedded-subtitle",embedded:true)
-  for _ in 0..<200 {
-   if started>=2,!(await archive.read(key)).sections.isEmpty {break}
-   try await Task.sleep(nanoseconds:10_000_000)
-  }
+  // Wait for a causal checkpoint instead of racing a 2-second polling loop
+  // against a background-priority analysis task on a shared CI simulator.
+  await fulfillment(of:[secondStarted],timeout:15)
+  XCTAssertGreaterThanOrEqual(started,2,"status=\(host.status), completed=\(host.completed)")
   host.cancel()
   let saved=await archive.read(key)
-  XCTAssertFalse(saved.sections.isEmpty);XCTAssertLessThan(saved.sections.count,plan.count)
+  XCTAssertFalse(saved.sections.isEmpty,"status=\(host.status), started=\(started), completed=\(host.completed)");XCTAssertLessThan(saved.sections.count,plan.count)
   let restored=WholeFilmHost(archive:WholeFilmArchive(directory:folder));restored.available={true};restored.cloudBatching={true}
   var requested=""
   restored.inference={ [self] instruction,input in
