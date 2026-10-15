@@ -64,7 +64,7 @@ enum FilmMaterialZip {
   var result=Data();var central=Data()
   for (path,data) in entries {
    let name=Data(path.utf8)
-   guard !name.isEmpty,name.count<UInt16.max,!path.contains(".."),
+   guard !name.isEmpty,name.count<Int(UInt16.max),!path.contains(".."),
      !path.hasPrefix("/"),data.count<20_000_000,result.count<150_000_000 else{return nil}
    let offset=UInt32(result.count),size=UInt32(data.count),checksum=crc(data)
    u32(0x04034b50,into:&result);u16(20,into:&result);u16(0,into:&result);u16(0,into:&result)
@@ -111,7 +111,7 @@ enum FilmMaterialExporter {
   let rows=(frames.count+columns-1)/columns
   let renderer=UIGraphicsImageRenderer(size:CGSize(width:columns*cellW,height:rows*cellH))
   let image=renderer.image { context in
-   UIColor.black.setFill();context.fill(CGRect(x:0,y:0,width:columns*cellW,height:rows*cellH))
+   UIColor.black.setFill();context.cgContext.fill(CGRect(x:0,y:0,width:columns*cellW,height:rows*cellH))
    for (index,value) in frames.enumerated() {
     let x=(index%columns)*cellW,y=(index/columns)*cellH
     let image=UIImage(cgImage:value.1)
