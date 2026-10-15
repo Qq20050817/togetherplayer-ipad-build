@@ -30,11 +30,13 @@ class WatchedFileCleanup(private val resolver:ContentResolver) {
  }
  private fun sameSource(source:Uri,stamp:Stamp,candidate:Uri,other:Stamp):Boolean {
   if(stamp.name!=other.name)return false
-  if(source.authority==candidate.authority && documentId(source)==other.documentId)return stamp.size==other.size && stamp.modified==other.modified
+  if(source.authority==candidate.authority && documentId(source)==other.documentId)return stamp.size==other.size && stamp.modified==other.modified && (stamp.physical==null || other.physical==null || stamp.physical==other.physical)
   return stamp.physical!=null && stamp.physical==other.physical
  }
  fun plan(source:Uri,tree:Uri,importedSubtitle:Uri?):Plan {
   if(!DocumentsContract.isTreeUri(tree) || source.scheme!="content")throw IOException("请选择系统文件夹授权")
+  val localAuthorities=setOf("com.android.externalstorage.documents","com.android.providers.downloads.documents")
+  if(source.authority !in localAuthorities || tree.authority !in localAuthorities)throw IOException("这里只清理设备本地文件；网盘或其他文件提供器请在对应 App 中管理")
   val original=read(source)
   val parent=DocumentsContract.getTreeDocumentId(tree)
   val children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,parent)
