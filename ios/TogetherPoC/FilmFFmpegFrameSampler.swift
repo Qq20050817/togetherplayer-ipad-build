@@ -30,8 +30,14 @@ final class FilmFFmpegFrameSampler {
    let context=avcodec_alloc_context3(codec) else {
    avformat_close_input(&opened);return nil
   }
-  guard avcodec_parameters_to_context(context,parameters)>=0,
-   avcodec_open2(context,codec,nil)>=0,
+  // Tiny fixtures and short GOPs can retain their only picture until EOF;
+  // select a bounded worker count BEFORE opening the decoder.
+  guard avcodec_parameters_to_context(context,parameters)>=0 else {
+   var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
+   avformat_close_input(&opened);return nil
+  }
+  context.pointee.thread_count=2
+  guard avcodec_open2(context,codec,nil)>=0,
    let allocatedPacket=av_packet_alloc(),let allocatedFrame=av_frame_alloc() else {
    var d:UnsafeMutablePointer<AVCodecContext>?=context;avcodec_free_context(&d)
    avformat_close_input(&opened);return nil
@@ -47,7 +53,6 @@ final class FilmFFmpegFrameSampler {
   self.format=opened;self.decoder=context;self.packet=allocatedPacket;self.frame=allocatedFrame
   self.index=streamIndex;self.secondsPerTick=timebase
   self.firstTimestamp=stream.pointee.start_time==Int64.min ? 0 : stream.pointee.start_time
-  context.pointee.thread_count=2
  }
  deinit {
   if packet != nil {av_packet_free(&packet)}
@@ -58,7 +63,10 @@ final class FilmFFmpegFrameSampler {
  func image(at seconds:Double)->CGImage? {
   guard seconds.isFinite,seconds>=0,let format,let decoder,let packet,let frame else{return nil}
   let target=firstTimestamp+Int64((seconds/secondsPerTick).rounded(.towardZero))
-  guard av_seek_frame(format,index,target,AVSEEK_FLAG_BACKWARD)>=0 else{return nil}
+  // Some one-frame MP4 fixtures do not carry a seek index. At time zero
+  // the demuxer is already positioned correctly, so decoding can continue.
+  let seekResult=av_seek_frame(format,index,target,AVSEEK_FLAG_BACKWARD)
+  if seekResult<0 && seconds>0.5 {return nil}
   avcodec_flush_buffers(decoder)
   var visited=0,decoded=0
   while visited<900,decoded<380 {
@@ -75,6 +83,19 @@ final class FilmFFmpegFrameSampler {
     }
     av_frame_unref(frame)
     if decoded>=380 {break}
+   }
+  }
+  // B-frames and decoders with frame threading may return the final picture
+  // only after avcodec_send_packet(nil) signals end-of-stream.
+  if avcodec_send_packet(decoder,nil)>=0 {
+   while avcodec_receive_frame(decoder,frame)>=0 {
+    let stamp=frame.pointee.best_effort_timestamp
+    let position=stamp==Int64.min ? -1 : Double(stamp-firstTimestamp)*secondsPerTick
+    if (position>=seconds-0.35 || (seconds<=0.5 && stamp==Int64.min)),
+      let converted=Self.convert(frame) {
+     av_frame_unref(frame);return converted
+    }
+    av_frame_unref(frame)
    }
   }
   return nil
