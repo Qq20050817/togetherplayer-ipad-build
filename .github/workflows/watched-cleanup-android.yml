@@ -60,7 +60,7 @@ jobs:
         if: always()
         run: |
           mkdir -p android-delivery/screenshots
-          if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
+          if test -f android-delivery/TogetherPlayer-Android-0.6.8-Watched-Cleanup.apk; then
             test -s android-delivery/TogetherPlayer-Android-0.6.8-Watched-Cleanup.apk
             (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.8-Watched-Cleanup*.apk > SHA256SUMS.txt)
             printf 'Source SHA: %s\nAndroid: 0.6.8\nScope: reviewed local movie and associated subtitle deletion through explicit system folder permission.\nValidation: unit tests and full emulator suite including real DocumentsUI folder grant and provider deletion; physical-device acceptance remains pending.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
