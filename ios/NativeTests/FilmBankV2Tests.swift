@@ -163,4 +163,16 @@ import CryptoKit
   XCTAssertEqual(FilmBankTimeline.safeReveal(playerMs:.nan,roomMs:60_000,hostOffset:0,peers:[]),0)
  }
 
+ func testVisualChangeHeuristicDistinguishesFlatBlackAndWhiteWithoutSemanticClaims() throws {
+  func image(_ white:Bool)throws->CGImage {
+   let context=try XCTUnwrap(CGContext(data:nil,width:32,height:18,bitsPerComponent:8,bytesPerRow:128,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+   context.setFillColor(CGColor(gray:white ? 1 : 0,alpha:1));context.fill(CGRect(x:0,y:0,width:32,height:18))
+   return try XCTUnwrap(context.makeImage())
+  }
+  let dark=try image(false),bright=try image(true)
+  XCTAssertEqual(FilmSceneChange.distance(FilmSceneChange.signature(dark),FilmSceneChange.signature(dark)),0)
+  XCTAssertGreaterThan(try XCTUnwrap(FilmSceneChange.distance(FilmSceneChange.signature(dark),FilmSceneChange.signature(bright))),0.9)
+  XCTAssertNil(FilmSceneChange.distance(nil,FilmSceneChange.signature(bright)))
+ }
+
 }

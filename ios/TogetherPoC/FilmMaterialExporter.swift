@@ -177,35 +177,59 @@ enum FilmMaterialExporter {
   // Use the already-shipped FFmpeg libraries for local, independent decoding.
   let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
   var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url) : nil
-  for (index,time) in times.enumerated() {
-   try Task.checkCancellation()
-   var frame:CGImage?;var actualTime=time
-   if directFFmpeg {frame=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? time}
+  var attempted:[Double]=[],previousSignature:[Double]?,previousRequested:Double?
+  func decode(_ time:Double)->(Double,CGImage)? {
+   attempted.append(time)
+   guard !Task.isCancelled else{return nil}
+   var image:CGImage?,actualTime=time
+   if directFFmpeg {image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1}
    else {
     var actual=CMTime.invalid
-    frame=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
-    if actual.seconds.isFinite {actualTime=actual.seconds} else {frame=nil}
-    if frame==nil {
+    image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
+    if actual.seconds.isFinite {actualTime=actual.seconds} else {image=nil}
+    if image==nil {
      if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url)}
-     frame=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? time
+     image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
     }
    }
-   if let image=frame {
-    guard actualTime.isFinite,actualTime>=0,actualTime<=duration else{continue}
-    let actualMs=Int((actualTime*1000).rounded())
-    timeline.append(FilmFrameRecord(requestedMs:Int((time*1000).rounded()),actualMs:actualMs,sheet:String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),row:pending.count/4,column:pending.count%4,visualEvidenceComplete:false))
-    pending.append((actualTime,image));frameTimes.append(actualMs)
-    if pending.count==16,let bytes=contactSheet(pending) {
-     sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes));pending=[]
-    }
+   guard let image,actualTime.isFinite,actualTime>=0,actualTime<=duration else{return nil}
+   return (actualTime,image)
+  }
+  func append(_ value:(Double,CGImage),requested:Double,score:Double?,reason:String)throws {
+   let actualMs=Int((value.0*1000).rounded())
+   timeline.append(FilmFrameRecord(requestedMs:Int((requested*1000).rounded()),actualMs:actualMs,sheet:String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),row:pending.count/4,column:pending.count%4,visualEvidenceComplete:false,sceneChangeScore:score,samplingReason:reason))
+   pending.append(value);frameTimes.append(actualMs)
+   if pending.count==16 {
+    guard let bytes=contactSheet(pending) else{throw FilmMaterialExportFailure.framesUnavailable}
+    sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes));pending=[]
+   }
+  }
+  for (index,time) in times.enumerated() {
+   try Task.checkCancellation()
+   if let main=decode(time) {
+    let signature=FilmSceneChange.signature(main.1)
+    let score=FilmSceneChange.distance(previousSignature,signature)
+    let nextTime=index+1<times.count ? times[index+1] : duration
+    // Heuristic visual change between sampled frames, not semantic shot
+    // recognition. Reserve room for ALL remaining baseline samples.
+    let extraRoom=250-attempted.count-(times.count-index-1)
+    let supplement=score.map{$0>0.55}==true && extraRoom>=2 && time-(previousRequested ?? time)>=10
+    if supplement,time-2>(previousRequested ?? 0)+0.8,let before=decode(time-2) {try append(before,requested:time-2,score:score,reason:"visual-change-before")}
+    try append(main,requested:time,score:score,reason:"interval-caption-or-dialogue-gap")
+    if supplement,time+2<nextTime-0.8,time+2<duration,let after=decode(time+2) {try append(after,requested:time+2,score:score,reason:"visual-change-after")}
+    previousSignature=signature;previousRequested=time
    }
    if index%5==0 {progress(0.25+0.70*Double(index+1)/Double(max(1,times.count)))}
   }
-  if !pending.isEmpty,let bytes=contactSheet(pending) {sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes))}
+  try Task.checkCancellation()
+  if !pending.isEmpty {
+   guard let bytes=contactSheet(pending) else{throw FilmMaterialExportFailure.framesUnavailable}
+   sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes))
+  }
   // We cannot claim to have understood the film's images if sampling failed.
   guard frameTimes.count>=min(4,times.count),
-   Double(frameTimes.count)>=Double(times.count)*0.80 else{throw FilmMaterialExportFailure.framesUnavailable}
-  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG thumbnail tone map; interval and dialogue-gap samples, not complete motion or semantic scene detection",requestedFrameCount:times.count,missingFrameTimesMs:times.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
+   Double(frameTimes.count)>=Double(attempted.count)*0.80 else{throw FilmMaterialExportFailure.framesUnavailable}
+  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; interval, dialogue-gap and sampled-histogram visual-change followups; incomplete motion evidence",requestedFrameCount:attempted.count,missingFrameTimesMs:attempted.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
   let instructions="TogetherPlayer 电影素材包 v1\n本包含完整时间轴字幕、按时间顺序的多张分镜图以及严格对应的时间信息。\n请用 ChatGPT 项目指令制作 AI 题库。每道题提供已观看证据、未来揭晓依据、触发时间和安全答案揭晓时间。\n图片是离散截图，无法证明缺失画面之间的连续动作。不要编造未覆盖的视觉情节。\n生成 JSON 时 schemaVersion=1，影片 durationMs、sourceFingerprint、subtitleFingerprint 必须从 manifest.json 原样复制。\n题库还需通过 App 的校验再运行。\n"
@@ -248,6 +272,8 @@ struct FilmFrameRecord:Codable {
  let row:Int
  let column:Int
  let visualEvidenceComplete:Bool
+ var sceneChangeScore:Double?=nil
+ var samplingReason:String="interval-caption-or-dialogue-gap"
 }
 
 @MainActor final class FilmMaterialExportSession:ObservableObject {
