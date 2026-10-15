@@ -1,7 +1,7 @@
 name: Verify watched-file cleanup and AI playback stability
 on:
   push:
-    branches: [fix/ipad-wholefilm-subtitle-source-20261015]
+    branches: [fix/ipad-local-embedded-file-read-20261015]
   workflow_dispatch:
 permissions:
   contents: read
@@ -61,13 +61,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p plot-delivery
-          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.28-AI-Subtitle-Recovery-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py plot-build/Build/Products/Release-iphoneos/TogetherPoC.app plot-delivery/TogetherPlayer-0.6.29-Local-Embedded-Subtitle-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           cd plot-delivery
-          sha256sum TogetherPlayer-0.6.28-AI-Subtitle-Recovery-unsigned.ipa > SHA256SUMS.txt
+          sha256sum TogetherPlayer-0.6.29-Local-Embedded-Subtitle-unsigned.ipa > SHA256SUMS.txt
           printf 'Source branch: %s\nSource SHA: %s\nCI: native core and watch UI tests passed\nUnsigned build: sign with your certificate for installation\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > BUILD.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: TogetherPlayer-iPad-0.6.28-AI-Subtitle-Recovery
+          name: TogetherPlayer-iPad-0.6.29-Local-Embedded-Subtitle
           path: plot-delivery/
           retention-days: 7
       - name: Export native test reports
@@ -107,21 +107,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.28-AI-Subtitle-Recovery --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-iPad-0.6.29-Local-Embedded-Subtitle --dir verified
           grep -Fx "Source SHA: $GITHUB_SHA" verified/BUILD.txt
           cd verified
           sha256sum -c SHA256SUMS.txt
           cd ..
-          git archive --format=zip --output=verified/TogetherPlayer-0.6.28-AI-Subtitle-Recovery-source.zip HEAD
-          sha256sum verified/TogetherPlayer-0.6.28-AI-Subtitle-Recovery-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
+          git archive --format=zip --output=verified/TogetherPlayer-0.6.29-Local-Embedded-Subtitle-source.zip HEAD
+          sha256sum verified/TogetherPlayer-0.6.29-Local-Embedded-Subtitle-source.zip | sed 's|verified/||' >> verified/SHA256SUMS.txt
       - name: Create preview release only after tests pass
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='v0.6.28-ai-subtitle-recovery-ipad-20261015'
+          tag='v0.6.29-local-embedded-subtitle-ipad-20261015'
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release already exists. Will not replace an existing package.' >&2
             exit 1
           fi
-          gh release create "$tag" verified/TogetherPlayer-0.6.28-AI-Subtitle-Recovery-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.28-AI-Subtitle-Recovery-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.28 · AI subtitle and embedded caption recovery' --notes 'Fix disappearing embedded captions by preferring live timed subtitle cues over incomplete or AI-only indexes. Add a separate full-film SRT/ASS/VTT/SSA subtitle importer for AI when cloud media cannot be scanned locally. Imported AI subtitles never change viewing tracks or playback. Includes all 0.6.27 functionality, core and watch UI regression gates; real-device testing remains required. Unsigned IPA: sign with original certificate.'
+          gh release create "$tag" verified/TogetherPlayer-0.6.29-Local-Embedded-Subtitle-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt verified/TogetherPlayer-0.6.29-Local-Embedded-Subtitle-source.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.29 · Local embedded subtitle reader' --notes 'Fix disappearing embedded captions by preferring live timed subtitle cues over incomplete or AI-only indexes. Coordinate access to File Provider original movies for direct embedded subtitle scanning, without copying or changing playback. Add an AI-only SRT/ASS/VTT/SSA importer for unsupported media as a fallback. Imported AI subtitles never change viewing tracks or playback. Includes all 0.6.27 functionality, core and watch UI regression gates; real-device testing remains required. Unsigned IPA: sign with original certificate.'
