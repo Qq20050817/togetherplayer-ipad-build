@@ -84,9 +84,18 @@ import Libavcodec
   XCTAssertTrue(output.document.cues.last!.text.contains("protect the witness"));XCTAssertGreaterThan(output.document.cues.last!.start,150)
  }
  func testRealPGSOCRReadsWholeTrackWithoutChangingPlayer() async throws {
-  let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"whole-film-pgs",withExtension:"mkv"))
+  let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"whole-film-pgs-text",withExtension:"mkv"))
   let output=try await Task.detached {try FullFilmTranscriptReader.extract(url,preferredTitle:nil,allowOCR:true,progress:{_ in})}.value
   XCTAssertTrue(output.ocr);XCTAssertGreaterThanOrEqual(output.document.cues.count,3);XCTAssertGreaterThan(output.document.cues.last!.start,15)
+ }
+ func testUnreadablePGSBitmapNeverClaimsWholeFilmWasRead() async throws {
+  let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"whole-film-pgs",withExtension:"mkv"))
+  do {
+   let output=try await Task.detached {try FullFilmTranscriptReader.extract(url,preferredTitle:nil,allowOCR:true,progress:{_ in})}.value
+   XCTFail("Unrecognizable solid bitmap must not claim \(output.document.cues.count) complete OCR lines")
+  } catch let error as FullFilmTranscriptReader.Failure {
+   XCTAssertEqual(error.localizedDescription,FullFilmTranscriptReader.Failure.decode.localizedDescription)
+  }
  }
  func testSelectedTrackOverridesDefaultChinesePriority() {
   let tracks=[FullFilmTranscriptReader.Track(index:1,language:"eng",title:"",codec:AV_CODEC_ID_SUBRIP),FullFilmTranscriptReader.Track(index:2,language:"chi",title:"简体中文",codec:AV_CODEC_ID_HDMV_PGS_SUBTITLE)]
