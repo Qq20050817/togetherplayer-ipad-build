@@ -238,7 +238,9 @@ import CoreMedia
   // available for an explicit manual request, never a background cloud call.
   plotIntelligence.mayPublishAutomatically={false}
   plotIntelligence.automaticAvailabilityReason={ [weak self] in
-   self?.questionBankRuntime.active == nil ? "请先制作并导入电影题库；正常播放不会请求 AI" : "已导入题库负责时间节点提问，不再实时生成"
+   guard let self else{return "房间控制器不可用"}
+   guard self.isConnected else{return "房间尚未连接；题库自动提问需要 iPad 房主在线，素材可在本机制作"}
+   return self.questionBankRuntime.active == nil ? "请先制作并导入电影题库；正常播放不会请求 AI" : "已导入题库负责时间节点提问，不再实时生成"
   }
   plotIntelligence.isSubtitleCurrentlyShown={ [weak self] in
    guard let self else{return true}
