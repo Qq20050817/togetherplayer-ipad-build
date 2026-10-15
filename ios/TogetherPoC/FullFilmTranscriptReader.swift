@@ -64,7 +64,7 @@ enum FullFilmTranscriptReader {
   var origin=0.0
   if videoIndex>=0,let video=format.pointee.streams[Int(videoIndex)],video.pointee.start_time != Int64.min {origin=Double(video.pointee.start_time)*av_q2d(video.pointee.time_base)}
   let duration=format.pointee.duration>0 ? Double(format.pointee.duration)/Double(AV_TIME_BASE) : 0
-  var cues:[SubtitleCue]=[];var bytes=0;var packets=0;var ended=false
+  var cues:[SubtitleCue]=[];var bytes=0;var packets=0;var ended=false;var bitmapRects=0;var ocrMatches=0
   var pending:(start:Double,text:String)?
   var lastProgress = -1.0
   func append(_ text:String,start:Double,end:Double)throws {
@@ -118,7 +118,7 @@ enum FullFilmTranscriptReader {
   #if DEBUG
   if bitmap {print("FullFilmTranscriptReader: PGS decoded OCR cues=\(cues.count), bytes=\(bytes), packets=\(packets)")}
   #endif
-  guard let document=NativeSubtitleIndexReader.merge(cues),document.cues.count>=3 else{throw Failure.decode}
+  guard let document=NativeSubtitleIndexReader.merge(cues),document.cues.count>=3 else{print("FullFilmTranscriptReader: insufficient cues=\\(cues.count) bitmapRects=\\(bitmapRects) ocrMatches=\\(ocrMatches) packets=\\(packets)");throw Failure.decode}
   progress(1)
   return Output(document:document,track:track.index,label:track.title.isEmpty ? track.language : track.title,duration:duration,ocr:bitmap)
  }
@@ -145,7 +145,17 @@ enum FullFilmTranscriptReader {
   let supported=(try? request.supportedRecognitionLanguages()) ?? []
   let prefix=["chi":"zh","zho":"zh","eng":"en"].first(where:{$0.key==language})?.value ?? language
   if let match=supported.first(where:{$0.lowercased().hasPrefix(prefix.lowercased())}) {request.recognitionLanguages=[match]}
-  guard (try? VNImageRequestHandler(cgImage:image).perform([request])) != nil else{return nil}
-  return request.results?.sorted{$0.boundingBox.midY>$1.boundingBox.midY}.compactMap{$0.topCandidates(1).first?.string}.joined(separator:"\n")
+  // PGS subtitles can be very small in 480p and test media. Enlarge
+  // tiny bitmaps for Vision without altering the playback subtitle track.
+  let scale = height < 80 && width * height <= 250_000 ? 3 : 1
+  var recognitionImage = image
+  if scale > 1,let canvas=CGContext(data:nil,width:width*scale,height:height*scale,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) {
+   canvas.interpolationQuality = .high
+   canvas.draw(image,in:CGRect(x:0,y:0,width:width*scale,height:height*scale))
+   recognitionImage = canvas.makeImage() ?? image
+  }
+  guard (try? VNImageRequestHandler(cgImage:recognitionImage).perform([request])) != nil else{return nil}
+  let result=request.results?.sorted{$0.boundingBox.midY>$1.boundingBox.midY}.compactMap{$0.topCandidates(1).first?.string}.joined(separator:"\n")
+  return result?.isEmpty == false ? result : nil
  }
 }
