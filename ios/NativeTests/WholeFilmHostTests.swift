@@ -77,6 +77,20 @@ import Libavcodec
   controller.generate();XCTAssertNil(controller.result);XCTAssertFalse(controller.working);XCTAssertEqual(controller.requests,0)
   XCTAssertEqual(controller.selectedModel,"全片分析尚未完成")
  }
+ func testActualLocalMovieWithUnicodePathUsesCoordinatedOriginalFile() async throws {
+  let bundled=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"whole-film-tiny",withExtension:"mkv"))
+  let folder=FileManager.default.temporaryDirectory.appendingPathComponent("本地影片-字幕-\(UUID().uuidString)",isDirectory:true)
+  try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+  defer {try? FileManager.default.removeItem(at:folder)}
+  let local=folder.appendingPathComponent("影片内置字幕.mkv")
+  try FileManager.default.copyItem(at:bundled,to:local)
+  let output=try await Task.detached(priority:.utility) {
+   try FullFilmTranscriptReader.extract(local,preferredTitle:nil,allowOCR:true,progress:{_ in})
+  }.value
+  XCTAssertEqual(output.document.cues.count,3)
+  XCTAssertFalse(output.ocr)
+  XCTAssertGreaterThan(output.document.cues.last!.start,150)
+ }
  func testRealEmbeddedTextReaderReachesEndingWithoutPlayingMovie() async throws {
   let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"whole-film-tiny",withExtension:"mkv"))
   let output=try await Task.detached {try FullFilmTranscriptReader.extract(url,preferredTitle:nil,allowOCR:true,progress:{_ in})}.value
