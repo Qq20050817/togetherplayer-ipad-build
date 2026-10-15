@@ -6,12 +6,13 @@ import CryptoKit
 // Offline, explicitly initiated export. No film, frames or subtitles are
 // automatically transmitted to a server or to an AI provider.
 enum FilmMaterialExportFailure:LocalizedError {
- case localFileRequired,missingSubtitles,framesUnavailable,missingDuration,tooManyFiles
+ case localFileRequired,missingSubtitles,framesUnavailable,missingDuration,tooManyFiles,sourceChanged
  var errorDescription:String? {switch self {
   case .localFileRequired:return "请先在 iPad“文件”中选择可读取的本地原片；网盘在线播放链接不支持直接导出原始画面。"
   case .missingSubtitles:return "未读取到完整字幕。可以先导入 SRT/ASS 字幕，再导出素材。"
   case .framesUnavailable:return "原片可读取字幕，但独立抽帧失败，未导出只有字幕的假完整素材。请使用可本地解码的影片文件。"
   case .missingDuration:return "无法确定影片时长，请确认原片完整。"
+  case .sourceChanged:return "提取期间原片发生变化，本次素材已取消，请重新提取。"
   case .tooManyFiles:return "素材包超过安全容量，已取消导出。"
  }}
 }
@@ -27,6 +28,10 @@ struct FilmMaterialManifest:Codable {
  let contactSheets:[String]
  let frameTimesMs:[Int]
  let frameExportMode:String
+ let fingerprintAlgorithm="sha256-complete-file"
+ let frameTimeline="frame-timeline.json"
+ let requestedFrameCount:Int
+ let missingFrameTimesMs:[Int]
 }
 
 enum FilmMaterialFingerprint {
@@ -143,6 +148,7 @@ enum FilmMaterialExporter {
   let scoped=url.startAccessingSecurityScopedResource()
   defer {if scoped {url.stopAccessingSecurityScopedResource()}}
   guard FileManager.default.isReadableFile(atPath:url.path) else{throw FilmMaterialExportFailure.localFileRequired}
+  let attributes=try url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey])
   let fingerprint=try FilmMaterialFingerprint.source(url)
   let extracted:FullFilmTranscriptReader.Output?
   do {extracted=try FullFilmTranscriptReader.extract(url,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:{value in progress(value*0.25)})}
@@ -178,7 +184,7 @@ enum FilmMaterialExporter {
    else {
     var actual=CMTime.invalid
     frame=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
-    if actual.seconds.isFinite {actualTime=actual.seconds}
+    if actual.seconds.isFinite {actualTime=actual.seconds} else {frame=nil}
     if frame==nil {
      if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url)}
      frame=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? time
@@ -199,7 +205,7 @@ enum FilmMaterialExporter {
   // We cannot claim to have understood the film's images if sampling failed.
   guard frameTimes.count>=min(4,times.count),
    Double(frameTimes.count)>=Double(times.count)*0.80 else{throw FilmMaterialExportFailure.framesUnavailable}
-  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVFoundation/FFmpeg sampled frames; dialogue gaps supplemented; missing motion between still frames is not inferred")
+  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG thumbnail tone map; interval and dialogue-gap samples, not complete motion or semantic scene detection",requestedFrameCount:times.count,missingFrameTimesMs:times.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
   let instructions="TogetherPlayer 电影素材包 v1\n本包含完整时间轴字幕、按时间顺序的多张分镜图以及严格对应的时间信息。\n请用 ChatGPT 项目指令制作 AI 题库。每道题提供已观看证据、未来揭晓依据、触发时间和安全答案揭晓时间。\n图片是离散截图，无法证明缺失画面之间的连续动作。不要编造未覆盖的视觉情节。\n生成 JSON 时 schemaVersion=1，影片 durationMs、sourceFingerprint、subtitleFingerprint 必须从 manifest.json 原样复制。\n题库还需通过 App 的校验再运行。\n"
@@ -228,6 +234,8 @@ enum FilmMaterialExporter {
   }
   try archive.write(to:staging.appendingPathComponent("电影_AI素材.zip"),options:.atomic)
   try Task.checkCancellation()
+  let finalAttributes=try url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey])
+  guard attributes.fileSize==finalAttributes.fileSize,attributes.contentModificationDate==finalAttributes.contentModificationDate else{throw FilmMaterialExportFailure.sourceChanged}
   try FileManager.default.moveItem(at:staging,to:bundle);installed=true
   progress(1)
   return bundle.appendingPathComponent("电影_AI素材.zip")
@@ -276,7 +284,7 @@ struct FilmFrameRecord:Codable {
      let all=(FileManager.default.enumerator(at:folder,includingPropertiesForKeys:[.isRegularFileKey])?.allObjects as? [URL]) ?? []
      return (all.filter{$0.pathExtension != "zip" && (try? $0.resourceValues(forKeys:[.isRegularFileKey]).isRegularFile)==true}.sorted{$0.path<$1.path},String((try? String(contentsOf:folder.appendingPathComponent("subtitles/whole-film.srt"),encoding:.utf8))?.prefix(1800) ?? ""))
     }.value
-    guard self.generation==token else{return}
+    guard self.generation==token else{try? FileManager.default.removeItem(at:output.deletingLastPathComponent());return}
     self.file=output;self.individualFiles=prepared.0;self.previewSubtitle=prepared.1
     self.status="素材已保存；可预览、分享ZIP或单独分享字幕与分镜。未上传原片。"
    } catch {

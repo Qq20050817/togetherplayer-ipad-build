@@ -89,9 +89,13 @@ import CryptoKit
   first.tick(filmKey:"room1",positionMs:29_500,durationMs:120_000,canPublish:true,publish:{_ in sent+=1})
   first.tick(filmKey:"room1",positionMs:30_500,durationMs:120_000,canPublish:true,publish:{_ in sent+=1})
   await first.waitForProgress();XCTAssertEqual(sent,1)
+  first.observePoll(["question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":false])
+  XCTAssertEqual(first.completedCount,0)
+  first.observePoll(["question":bank.questions[0].question,"options":bank.questions[0].options,"revealed":true])
+  await first.waitForProgress();XCTAssertEqual(first.completedCount,1)
   let second=FilmQuestionBankRuntime(store:store,progressStore:progress)
   second.restore(filmKey:"other-room",source:moved,durationMs:120_000);await second.waitForRestore()
-  XCTAssertNotNil(second.active);XCTAssertEqual(second.publishedCount,1)
+  XCTAssertNotNil(second.active);XCTAssertEqual(second.publishedCount,1);XCTAssertEqual(second.completedCount,1)
   second.tick(filmKey:"other-room",positionMs:29_500,durationMs:120_000,canPublish:true,publish:{_ in sent+=1})
   second.tick(filmKey:"other-room",positionMs:30_500,durationMs:120_000,canPublish:true,publish:{_ in sent+=1})
   await second.waitForProgress();XCTAssertEqual(sent,1)
@@ -103,6 +107,13 @@ import CryptoKit
   second.tick(filmKey:"other-room",positionMs:60_200,durationMs:120_000,canPublish:false,publish:{_ in},reveal:{messages.append($0)})
   XCTAssertGreaterThan(messages.count,1,"Long explanations must be split, not truncated")
   XCTAssertTrue(messages.allSatisfy{$0.text.count<1000})
+  // Lost acknowledgements after an app restart reuse the same chat IDs;
+  // the existing server deduplicates (room,user,clientMessageId).
+  let retry=FilmQuestionBankRuntime(store:store,progressStore:progress)
+  retry.restore(filmKey:"other-room",source:moved,durationMs:120_000);await retry.waitForRestore()
+  var resent:[FilmBankRevealPart]=[]
+  retry.tick(filmKey:"other-room",positionMs:61_000,durationMs:120_000,canPublish:false,publish:{_ in},reveal:{resent.append($0)})
+  XCTAssertEqual(resent.map(\.id),messages.map(\.id))
   for message in messages {second.acknowledgeReveal(message.id)}
   await second.waitForProgress()
   let third=FilmQuestionBankRuntime(store:store,progressStore:progress)
@@ -126,4 +137,30 @@ import CryptoKit
   tick(10_000,1,false);tick(80_000,1,false);await runtime.waitForProgress();XCTAssertEqual(sent,0)
   tick(29_000,1,false);tick(30_500,1,false);await runtime.waitForProgress();XCTAssertEqual(sent,1)
  }
+ func testImportValidatesSourceAndPersistsMatchingBankOnly() async throws {
+  let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}
+  let movie=directory.appendingPathComponent("film.mp4"),json=directory.appendingPathComponent("bank.json")
+  try Data([4,5,6]).write(to:movie)
+  let store=FilmQuestionBankStore(directory:directory.appendingPathComponent("bank")),progress=FilmBankProgressStore(directory:directory.appendingPathComponent("progress"))
+  let runtime=FilmQuestionBankRuntime(store:store,progressStore:progress)
+  runtime.restore(filmKey:"f",source:movie,durationMs:120_000);await runtime.waitForRestore();XCTAssertNil(runtime.active)
+  let hash=try FilmMaterialFingerprint.source(movie),bank=sample(hash)
+  try JSONEncoder().encode(bank).write(to:json)
+  await runtime.importFile(json,filmKey:"f",source:movie,durationMs:120_000)
+  XCTAssertEqual(runtime.active,bank)
+  let saved=await store.loadForSource(hash);XCTAssertEqual(saved,bank)
+  try JSONEncoder().encode(sample(String(repeating:"f",count:64))).write(to:json)
+  await runtime.importFile(json,filmKey:"f",source:movie,durationMs:120_000)
+  XCTAssertEqual(runtime.active,bank);XCTAssertTrue(runtime.status.contains("不匹配"))
+  let publicJSON=WholeFilmPlan.json(FilmBankCodec.question(bank.questions[0],blocking:true))
+  XCTAssertFalse(publicJSON.contains("answerIndex"));XCTAssertFalse(publicJSON.contains("保护证人"));XCTAssertFalse(publicJSON.contains("revealEvidence"))
+ }
+
+ func testDelayedRevealUsesFileTimelineAndWaitsForLaggingPeer() {
+  XCTAssertEqual(FilmBankTimeline.safeReveal(playerMs:60_000,roomMs:55_000,hostOffset:5_000,peers:[54_800]),59_800)
+  XCTAssertEqual(FilmBankTimeline.safeReveal(playerMs:60_000,roomMs:55_000,hostOffset:5_000,peers:[55_000]),60_000)
+  XCTAssertEqual(FilmBankTimeline.safeReveal(playerMs:60_000,roomMs:60_000,hostOffset:0,peers:[]),60_000)
+  XCTAssertEqual(FilmBankTimeline.safeReveal(playerMs:.nan,roomMs:60_000,hostOffset:0,peers:[]),0)
+ }
+
 }

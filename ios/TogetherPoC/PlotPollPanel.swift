@@ -50,7 +50,7 @@ import UniformTypeIdentifiers
       if bank.active==nil && intelligence.result != nil && intelligence.previewUsable {previewCard}
       if bank.active==nil {interactionCard;advancedCard}
      }
-     Text("后台理解完整字幕；题目随当前进度展示，不提前揭晓答案。向 ChatGPT 发送全片资料需单独同意。").font(.caption2).foregroundStyle(.secondary)
+     Text("点击提取时才扫描素材；由你手动分享给 ChatGPT。导入题库后，观影时不再请求 AI。").font(.caption2).foregroundStyle(.secondary)
     }.padding(14).frame(maxWidth:560).frame(maxWidth:.infinity)
    }.accessibilityIdentifier("plot-settings-scroll").background(Color(red:0.025,green:0.035,blue:0.055))
     .navigationTitle("剧情推理室").navigationBarTitleDisplayMode(.inline)
@@ -96,7 +96,7 @@ import UniformTypeIdentifiers
   }.padding(4)
  }
  private var generationCard:some View {
-  PlotPanelCard(title:"先理解整片，再随进度提问",icon:"wand.and.stars") {
+  PlotPanelCard(title:"旧版实时 AI（仅手动）",icon:"wand.and.stars") {
    WholeFilmStatusCard(host:intelligence.wholeFilm,retry:{model.prepareCompleteFilmForAI(force:true)},importSubtitle:{aiOnlySubtitlePickerOpen=true},importStatus:model.aiOnlySubtitleImportStatus)
    Picker("AI 出题模式",selection:$intelligence.mode) {ForEach(PlotMode.allCases) {mode in Text(mode.title).tag(mode)}}.pickerStyle(.menu).accessibilityIdentifier("plot-ai-mode")
    Button {intelligence.generate()} label:{
@@ -133,7 +133,10 @@ import UniformTypeIdentifiers
     Button("预览字幕与分镜") {materialsPreviewOpen=true}.buttonStyle(.bordered).accessibilityIdentifier("plot-preview-film-materials")
     ShareLink(item:zip) {Label("分享素材包给 ChatGPT",systemImage:"square.and.arrow.up")}
      .buttonStyle(.bordered).accessibilityIdentifier("plot-share-film-materials")
-    ShareLink(items:materials.individualFiles) {Label("单独分享字幕、分镜和 Schema",systemImage:"square.stack")}.buttonStyle(.bordered).accessibilityIdentifier("plot-share-material-files")
+    ShareLink(items:materials.individualFiles) {Label("分享全部素材文件（不压缩）",systemImage:"square.stack")}.buttonStyle(.bordered).accessibilityIdentifier("plot-share-material-files")
+    Menu("单独分享字幕 / 分镜 / Schema") {
+     ForEach(materials.individualFiles,id:\.self) {url in ShareLink(item:url){Text(url.lastPathComponent)}}
+    }.buttonStyle(.bordered).accessibilityIdentifier("plot-share-one-material")
     Text("已保存至“文件 → 我的 iPad → TogetherPlayer → AI素材”")
      .font(.caption2).foregroundStyle(.secondary)
    }
@@ -147,7 +150,7 @@ import UniformTypeIdentifiers
    Text(bank.status).font(.caption).foregroundStyle(.secondary)
     .accessibilityIdentifier("plot-question-bank-status")
    if let active=bank.active {
-    Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本次已发布 \(bank.publishedCount) 道")
+    Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本轮已发布 \(bank.publishedCount) 道 · 已答完 \(bank.completedCount) 道")
      .font(.caption).foregroundStyle(.secondary)
     Text("原片指纹已核对；题目随播放触发，正确答案仅在揭晓后发送。").font(.caption2).foregroundStyle(.secondary)
     Button("开始新一轮题库") {restartBankRound=true}.accessibilityIdentifier("plot-restart-bank-round")

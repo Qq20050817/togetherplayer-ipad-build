@@ -4,6 +4,7 @@ struct FilmBankProgress:Codable {
  var roundID=UUID().uuidString
  var published:Set<String>=[]
  var revealed:Set<String>=[]
+ var answered:Set<String>=[]
  var delivered:Set<String>=[]
  var revision=0
 }
@@ -34,5 +35,28 @@ actor FilmBankProgressStore {
   try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
   var folder=directory;var attributes=URLResourceValues();attributes.isExcludedFromBackup=true;try? folder.setResourceValues(attributes)
   try JSONEncoder().encode(progress).write(to:file(key),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+ }
+}
+
+// Bank timestamps use the host file timeline; room and peer positions are
+// canonical. Apply calibration exactly once when gating delayed answers.
+enum FilmBankTimeline {
+ static func safeReveal(playerMs:Double,roomMs:Double,hostOffset:Double,peers:[Double])->Double {
+  let values=[playerMs,roomMs+hostOffset]+peers.map{$0+hostOffset}
+  guard values.allSatisfy({$0.isFinite}) else{return 0}
+  return max(0,values.min() ?? 0)
+ }
+}
+
+extension FilmBankProgress {
+ enum CodingKeys:String,CodingKey {case roundID,published,revealed,answered,delivered,revision}
+ init(from decoder:Decoder)throws {
+  let c=try decoder.container(keyedBy:CodingKeys.self)
+  roundID=try c.decodeIfPresent(String.self,forKey:.roundID) ?? "legacy-round"
+  published=try c.decodeIfPresent(Set<String>.self,forKey:.published) ?? []
+  revealed=try c.decodeIfPresent(Set<String>.self,forKey:.revealed) ?? []
+  answered=try c.decodeIfPresent(Set<String>.self,forKey:.answered) ?? []
+  delivered=try c.decodeIfPresent(Set<String>.self,forKey:.delivered) ?? []
+  revision=try c.decodeIfPresent(Int.self,forKey:.revision) ?? 0
  }
 }

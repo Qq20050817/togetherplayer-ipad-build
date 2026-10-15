@@ -8,6 +8,7 @@ import Combine
  @Published private(set) var status="当前影片未导入题库"
  @Published private(set) var revealedAnswer=""
  @Published private(set) var publishedCount=0
+ @Published private(set) var completedCount=0
  var onBankReady:(()->Void)?
  private let store:FilmQuestionBankStore
  private let progressStore:FilmBankProgressStore
@@ -27,9 +28,10 @@ import Combine
 
  private func activate(_ bank:FilmQuestionBank,token:Int) async {
   let identity=FilmBankCodec.identity(bank)
+  try? await progressWrite?.value
   let saved=await progressStore.load(identity)
   guard generation==token,!Task.isCancelled else{return}
-  progressKey=identity;progress=saved;publishedCount=saved.published.count
+  progressKey=identity;progress=saved;publishedCount=saved.published.count;completedCount=saved.answered.count
   active=bank;onBankReady?();status="已加载 \(bank.questions.count) 道题 · 本轮已发布 \(publishedCount) 道 · 播放时不请求 AI"
  }
  func restore(filmKey:String,source:URL,durationMs:Double) {
@@ -86,20 +88,28 @@ import Combine
  func ownsQuestion(_ text:String,options:[String])->Bool {active?.questions.contains{$0.question==text && $0.options==options} == true}
  private func persist()->Task<Void,Error> {
   progress.revision+=1
-  let snapshot=progress,identity=progressKey,store=progressStore
-  let task=Task {try await store.save(snapshot,key:identity)}
+  let snapshot=progress,identity=progressKey,store=progressStore,previous=progressWrite
+  let task=Task {try? await previous?.value;try await store.save(snapshot,key:identity)}
   progressWrite=task;return task
  }
  /// Explicit new viewing round; seeking backwards never resets these records.
  func startNewRound() {
   guard active != nil else{return}
   generation+=1;publishing?.cancel()
-  progress=FilmBankProgress(revision:progress.revision+1);publishedCount=0;revealedAnswer="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
+  progress=FilmBankProgress(revision:progress.revision+1);publishedCount=0;completedCount=0;revealedAnswer="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
   let write=persist();Task {do{try await write.value}catch{self.status="本轮记录保存失败："+error.localizedDescription}}
   status="已开始新一轮，题库保留；从实际播放进度触发"
  }
+ func observePoll(_ poll:[String:Any]?) {
+  guard let bank=active,let poll,poll["revealed"] as? Bool==true,
+   let text=poll["question"] as? String,let options=poll["options"] as? [String],
+   let q=bank.questions.first(where:{$0.question==text && $0.options==options}),
+   progress.published.contains(q.id),!progress.answered.contains(q.id) else{return}
+  progress.answered.insert(q.id);completedCount=progress.answered.count
+  let write=persist();Task {do{try await write.value}catch{self.status="答题进度未能保存；题库本身仍保留"}}
+ }
  private func parts(_ q:FilmBankQuestion)->[FilmBankRevealPart] {
-  guard let bank=active,let index=q.answerIndex,q.options.indices.contains(index) else{return []}
+  guard active != nil,let index=q.answerIndex,q.options.indices.contains(index) else{return []}
   var remainder="\(q.question)\n正确答案：\(q.options[index])\n\(q.explanation)"
   var texts:[String]=[]
   while !remainder.isEmpty {let piece=String(remainder.prefix(750));texts.append(piece);remainder=String(remainder.dropFirst(piece.count))}
@@ -117,13 +127,15 @@ import Combine
    break
   }
  }
- func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
+ func reconnected() {sendingParts.removeAll()}
+ func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,revealPositionMs:Double?=nil,subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
   guard let bank=active,key==filmKey,FilmBankCodec.matches(bank,playbackDuration:durationMs),positionMs.isFinite,positionMs>=0 else{lastPositionMs=nil;return}
   defer{lastPositionMs=positionMs}
   if canReveal {
    for q in bank.questions where progress.published.contains(q.id) && !progress.revealed.contains(q.id) {
-    guard let when=q.revealAtMs,positionMs>=Double(when),let index=q.answerIndex else{continue}
-    revealedAnswer="\(q.question)\n正确答案：\(q.options[index])\n\(q.explanation)"
+    guard let when=q.revealAtMs,min(positionMs,revealPositionMs ?? positionMs)>=Double(when),let index=q.answerIndex else{continue}
+    let description="\(q.question)\n正确答案：\(q.options[index])\n\(q.explanation)"
+    if revealedAnswer != description {revealedAnswer=description}
     for message in parts(q) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
      sendingParts.insert(message.id);reveal(message)
     }

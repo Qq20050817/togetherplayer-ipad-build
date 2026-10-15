@@ -61,6 +61,29 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["plot-settings-close"].firstMatch.tap()
   XCTAssertTrue(app.buttons["退出全屏"].firstMatch.waitForExistence(timeout:5),"关闭 AI 面板不应退出全屏")
  }
+ private func revealPlotControl(_ identifier:String,_ app:XCUIApplication) {
+  let button=app.buttons[identifier].firstMatch
+  let scroll=app.scrollViews["plot-settings-scroll"].firstMatch
+  for _ in 0..<5 {if button.isHittable {break};scroll.swipeUp()}
+ }
+ func testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
+  XCUIDevice.shared.orientation = .landscapeLeft
+  enterFullscreen(app);app.buttons["fullscreen-plot-ai-button"].tap()
+  let export=app.buttons["plot-export-film-materials"].firstMatch
+  XCTAssertTrue(export.waitForExistence(timeout:8));XCTAssertTrue(export.isHittable)
+  let importer=app.buttons["plot-import-question-bank"].firstMatch
+  XCTAssertTrue(importer.isHittable);XCTAssertTrue(importer.isEnabled)
+  let canvas=app.otherElements["fullscreen-movie"].firstMatch
+  XCTAssertTrue(canvas.exists);XCTAssertGreaterThan(canvas.frame.width,app.frame.width*0.5)
+  importer.tap()
+  let cancel=app.buttons["取消"].firstMatch
+  XCTAssertTrue(cancel.waitForExistence(timeout:20),app.debugDescription);cancel.tap()
+  XCTAssertTrue(app.buttons["plot-settings-close"].firstMatch.waitForExistence(timeout:8))
+  app.buttons["plot-settings-close"].firstMatch.tap()
+  XCTAssertTrue(app.buttons["退出全屏"].waitForExistence(timeout:5))
+  capture("v2-materials-json-import",app)
+ }
  func testAISettingsRailPreservesMovieAndOffersSafeConnectionCheck() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PLOT_UI_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
@@ -68,11 +91,13 @@ final class WatchInterfaceTests: XCTestCase {
   app.buttons["fullscreen-plot-ai-button"].tap()
   let panel=app.descendants(matching:.any)["plot-settings-panel"].firstMatch
   XCTAssertTrue(panel.waitForExistence(timeout:5))
+  revealPlotControl("plot-import-ai-only-full-subtitle",app)
   XCTAssertTrue(app.buttons["plot-import-ai-only-full-subtitle"].firstMatch.waitForExistence(timeout:5),"AI-only subtitle import should appear without obscuring the movie")
   let movie=app.otherElements["fullscreen-movie"].firstMatch
   XCTAssertGreaterThan(movie.frame.width,app.frame.width*0.5)
   XCTAssertGreaterThanOrEqual(panel.frame.minX,movie.frame.maxX-2,"settings must reserve their own area")
   capture("30-ai-settings-rail",app)
+  revealPlotControl("plot-chatgpt-settings",app)
   app.buttons["plot-chatgpt-settings"].firstMatch.tap()
   XCTAssertTrue(app.navigationBars["ChatGPT 连接与隐私"].waitForExistence(timeout:5))
   let check=app.buttons["plot-connectivity-check"].firstMatch
@@ -176,6 +201,7 @@ final class WatchInterfaceTests: XCTestCase {
   let plot=app.buttons["剧情推理"].firstMatch;XCTAssertTrue(plot.waitForExistence(timeout:5));plot.tap()
   // The isolated UI fixture already selects the free mode. Avoid opening
   // the model Picker and obscuring/dismissing this sheet mid-interaction.
+  revealPlotControl("plot-ai-generate",app)
   let modePicker=app.descendants(matching:.any)["plot-ai-mode"].firstMatch
   XCTAssertTrue(modePicker.waitForExistence(timeout:8))
   let generate=app.buttons["plot-ai-generate"].firstMatch

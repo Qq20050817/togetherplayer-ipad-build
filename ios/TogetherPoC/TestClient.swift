@@ -43,7 +43,12 @@ import CoreMedia
    !adapter.isSeeking && engine.room?.state=="playing" &&
    (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
  }
- var bankPlaybackPositionMs:Double {max(0,adapter.position-engine.timelineOffset)}
+ var bankPlaybackPositionMs:Double {max(0,adapter.position)}
+ var bankSafeRevealPositionMs:Double {
+  guard clock.ready,let room=engine.room else{return 0}
+  let peers=members.filter{$0.online && $0.userId != credentials?["userId"] as? String}.map{max(0,$0.position-$0.timelineOffset)}
+  return FilmBankTimeline.safeReveal(playerMs:bankPlaybackPositionMs,roomMs:room.target(clock.serverNow()).0,hostOffset:engine.timelineOffset,peers:peers)
+ }
  func beginFilmMaterialsExport() {
   let title=playbackTitle.isEmpty ? bankMovieURL?.deletingPathExtension().lastPathComponent ?? "电影" : playbackTitle
   let chosen=requestedSubtitleIndex ?? -1
@@ -252,6 +257,7 @@ import CoreMedia
    guard let self else{return}
    self.plotIntelligence.cancel();self.plotIntelligence.wholeFilm.cancel()
    self.pendingPlotPredictionReview=nil;self.plotPredictionReviewTask?.cancel()
+   self.questionBankRuntime.observePoll(self.plotPoll)
   }
   plotIntelligence.start()
   plotIntelligence.visualEvidenceEnabled=visualSampler.enabled
@@ -863,6 +869,7 @@ import CoreMedia
   if type=="CONTROL_REQUEST" {pending=obj["data"] as? [String:Any]}
   if type=="PRESENCE",let raw=obj["members"],let data=try? JSONSerialization.data(withJSONObject:raw),let roster=try? JSONDecoder().decode([RoomMember].self,from:data) {applyMembers(roster)}
   if type=="WELCOME" {
+   questionBankRuntime.reconnected()
    restorePendingRoomMedia()
    if let list=obj["messages"] as? [[String:Any]] {for message in list {acceptChat(message)}}
    send(["type":"PROFILE_UPDATE","data":["name":nickname,"timelineOffset":Double(offsetSeconds).map {$0*1000} ?? 0]])
@@ -876,6 +883,7 @@ import CoreMedia
    // the user is still pressing the fullscreen gesture surface.
    if incoming?["waitingForAnswers"] as? Bool == true && speedHoldID != nil {setSpeedHold(false)}
    if !PlotPollPresentation.same(plotPoll,incoming) {plotPoll=incoming}
+   questionBankRuntime.observePoll(incoming)
    // Capture an answered prediction only AFTER the server has revealed both
    // votes. Its correct outcome is deliberately unknown until future scenes
    // have actually played. Replay of WELCOME/STATE cannot duplicate a review.
@@ -1128,7 +1136,7 @@ import CoreMedia
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
    questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
-    canReveal:isRoomHost && isConnected,
+    canReveal:isRoomHost && isConnected,revealPositionMs:bankSafeRevealPositionMs,
     subtitleShown:plotIntelligence.isSubtitleCurrentlyShown?() ?? true,
     captionSequence:externalSubtitles.plotCaptionSequence,
     publish:{[weak self] question in self?.publishPlotPoll(question)},
