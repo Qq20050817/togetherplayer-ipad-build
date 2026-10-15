@@ -57,12 +57,42 @@ enum WholeFilmPlan {
   return chunks
  }
  static func signature(_ chunks:[WholeFilmChunk],film:String)->String {PlotMemoryStore.key(film+chunks.flatMap{$0.evidence.map(\.id)}.joined())}
+ // Short, stable reference labels are easier for small models to copy than
+ // 64-character digests. Resolve back to the exact originals before validation.
+ static func referenceTable(_ ids:[String])->[String:String] {
+  let groups=Dictionary(grouping:Set(ids),by:{"E"+String($0.prefix(12))})
+  return Dictionary(uniqueKeysWithValues:groups.compactMap{key,values in values.count==1 ? (key,values[0]) : nil})
+ }
+ static func modelJSON<T:Encodable>(_ value:T,ids:[String])->String {
+  var input=json(value)
+  for (short,full) in referenceTable(ids) {input=input.replacingOccurrences(of:json(full),with:json(short))}
+  return input
+ }
+ static func originalReferences(_ ids:[String],allowed:[String])->[String] {
+  let table=referenceTable(allowed)
+  return ids.map{table[$0] ?? $0}
+ }
+ static func sectionFailure(_ answer:String,chunk:WholeFilmChunk)->Error {
+  let detail:String
+  if let data=PlotJSON.object(answer),let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
+   if !(object["summary"] is String) {detail="AI 未返回剧情摘要字段"}
+   else if let ids=object["evidenceIDs"] as? [String],!ids.isEmpty {detail="AI 的摘要长度或引用编号未对应本段字幕"}
+   else {detail="AI 未返回有效字幕引用编号"}
+  } else {detail="AI 未返回有效的结构化结果"}
+  return NSError(domain:"WholeFilmValidation",code:chunk.index,userInfo:[NSLocalizedDescriptionKey:"字幕证据核验未通过（第\(chunk.index+1)段）：\(detail)，本段未计为分析成功；可手动重试。"])
+ }
  static func section(_ answer:String,chunk:WholeFilmChunk)->WholeFilmSection? {
-  guard let data=PlotJSON.object(answer),let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any],let summary=object["summary"] as? String,(8...420).contains(summary.count),let ids=object["evidenceIDs"] as? [String],!ids.isEmpty,Set(ids).isSubset(of:Set(chunk.evidence.map(\.id))) else{return nil}
+  guard let data=PlotJSON.object(answer),let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any],let summary=object["summary"] as? String,(8...420).contains(summary.count),let reported=object["evidenceIDs"] as? [String],!reported.isEmpty else{return nil}
+  let ids=originalReferences(reported,allowed:chunk.evidence.map(\.id))
+  guard Set(ids).isSubset(of:Set(chunk.evidence.map(\.id))) else{return nil}
   return WholeFilmSection(index:chunk.index,summary:summary,evidenceIDs:ids)
  }
  static func map(_ answer:String,sections:[WholeFilmSection])->WholeFilmMap? {
-  guard let data=PlotJSON.object(answer),let value=try? JSONDecoder().decode(WholeFilmMap.self,from:data),(20...1200).contains(value.synopsis.count),value.threads.count<=8,value.threads.allSatisfy({$0.count<=220}),!value.evidenceIDs.isEmpty,Set(value.evidenceIDs).isSubset(of:Set(sections.flatMap(\.evidenceIDs))),Set(value.questionMomentEvidenceIDs ?? []).isSubset(of:Set(sections.flatMap(\.evidenceIDs))),(value.questionMomentEvidenceIDs?.count ?? 0)<=12 else{return nil}
+  guard let data=PlotJSON.object(answer),let reported=try? JSONDecoder().decode(WholeFilmMap.self,from:data) else{return nil}
+  let allowed=sections.flatMap(\.evidenceIDs)
+  var value=WholeFilmMap(synopsis:reported.synopsis,threads:reported.threads,evidenceIDs:originalReferences(reported.evidenceIDs,allowed:allowed))
+  value.questionMomentEvidenceIDs=reported.questionMomentEvidenceIDs.map{originalReferences($0,allowed:allowed)}
+  guard (20...1200).contains(value.synopsis.count),value.threads.count<=8,value.threads.allSatisfy({$0.count<=220}),!value.evidenceIDs.isEmpty,Set(value.evidenceIDs).isSubset(of:Set(allowed)),Set(value.questionMomentEvidenceIDs ?? []).isSubset(of:Set(allowed)),(value.questionMomentEvidenceIDs?.count ?? 0)<=12 else{return nil}
   return value
  }
  static func json<T:Encodable>(_ value:T)->String {String(data:(try? JSONEncoder().encode(value)) ?? Data(),encoding:.utf8) ?? "{}"}
@@ -79,6 +109,7 @@ enum WholeFilmPlan {
  @Published private(set) var busy=false
  @Published private(set) var readingActive=false
  @Published private(set) var subtitleSource="优先内置字幕，失败时使用外置字幕"
+ @Published private(set) var analysisBackend=""
  @Published private(set) var completed=0
  @Published private(set) var total=0
  private(set) var filmKey=""
@@ -87,6 +118,7 @@ enum WholeFilmPlan {
  private var chunks:[WholeFilmChunk]=[]
  private var transcriptKey=""
  private var sourceRank=0
+ private var lastAnalysisSource:(SubtitleDocument,String,String,Bool)?
  private var task:Task<Void,Never>?
  private var reader:Task<FullFilmTranscriptReader.Output,Error>?
  private var readerKey=""
@@ -100,9 +132,10 @@ enum WholeFilmPlan {
  private let archive:WholeFilmArchive
  var inference:(String,String) async throws->String={try await PlotLocalAI.respond(instructions:$0,input:$1)}
  var available:()->Bool={PlotLocalAI.available}
+ var unavailableModelError:()->Error={WholeFilmPlan.Failure.unavailable}
  init(archive:WholeFilmArchive=WholeFilmArchive()){self.archive=archive}
  func ready(for key:String)->Bool {filmKey==key && map != nil && completed==total && total>0}
- func reset(film:String="") {readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;reader?.cancel();reader=nil;readerKey="";embeddedUnavailable=false;manuallyProvidedFullSubtitle=false;externalFallback=nil;token+=1;task?.cancel();task=nil;map=nil;sections=[];chunks=[];transcriptKey="";sourceRank=0;filmKey=film;busy=false;readingActive=false;completed=0;total=0;status="等待完整内置字幕；读取完成后分析整片"}
+ func reset(film:String="") {readerGeneration+=1;inferenceDeadline?.cancel();inferenceDeadline=nil;reader?.cancel();reader=nil;readerKey="";embeddedUnavailable=false;manuallyProvidedFullSubtitle=false;externalFallback=nil;token+=1;task?.cancel();task=nil;map=nil;sections=[];chunks=[];transcriptKey="";sourceRank=0;lastAnalysisSource=nil;analysisBackend="";filmKey=film;busy=false;readingActive=false;completed=0;total=0;status="等待完整内置字幕；读取完成后分析整片"}
  func reading(_ progress:Double){guard map==nil,!busy else{return};status="正在读取全片内置字幕：\(Int(max(0,min(1,progress))*100))%（尚未完成分析）"}
  func unavailable(_ text:String){guard map==nil,!busy else{return};status=text}
  func supplyExternal(_ document:SubtitleDocument,film:String) {
@@ -168,7 +201,7 @@ enum WholeFilmPlan {
   if filmKey != film {reset(film:film)}
   let rank=embedded ? 2 : 1
   guard rank>=sourceRank else{return}
-  sourceRank=rank
+  sourceRank=rank;lastAnalysisSource=(document,film,source,embedded)
   if !embedded {subtitleSource="外置完整字幕（内置字幕不可读取）"}
   task?.cancel();token+=1;let request=token
   busy=true;map=nil;status="完整字幕已读取，正在准备全片分析…"
@@ -188,15 +221,15 @@ enum WholeFilmPlan {
     if valid.count==plan.count,let map=cache.map,WholeFilmPlan.map(WholeFilmPlan.json(map),sections:valid) != nil {
      self.map=map;self.status="全片分析完成 · 已恢复\(plan.count)段剧情；题目不提前揭晓答案";return
     }
-    guard self.available() else{throw WholeFilmPlan.Failure.unavailable}
+    guard self.available() else{throw self.unavailableModelError()}
     for chunk in plan where !self.sections.contains(where:{$0.index==chunk.index}) {
      try Task.checkCancellation();guard self.token==request else{return}
      self.status="正在理解整片：\(self.completed)/\(plan.count)段 · 仅后台处理"
      let previous=self.sections.sorted{$0.index<$1.index}.suffix(2).map(\.summary).joined(separator:"\n")
-     let input="此前片段概要："+String(previous.suffix(600))+"\n当前完整片段字幕："+WholeFilmPlan.json(chunk.evidence)
+     let input="此前片段概要："+String(previous.suffix(600))+"\n当前完整片段字幕："+WholeFilmPlan.modelJSON(chunk.evidence,ids:chunk.evidence.map(\.id))
      let answer=try await self.respond(WholeFilmPlan.sectionInstructions,input)
      try Task.checkCancellation();guard self.token==request else{return}
-     guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.Failure.invalidModel}
+     guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.sectionFailure(answer,chunk:chunk)}
      self.sections.append(section);self.completed=self.sections.count
      cache=WholeFilmArchiveValue(sections:self.sections,map:nil);try await self.archive.write(cache,key:signature)
      try await Task.sleep(nanoseconds:100_000_000)
@@ -211,15 +244,15 @@ enum WholeFilmPlan {
       let group=Array(synthesis[offset..<min(offset+3,synthesis.count)])
       let evidence=group.map{PlotEvidence(id:$0.evidenceIDs[0],start:0,end:1,text:$0.summary,source:"private-full-film-summary")}
       let chunk=WholeFilmChunk(index:reduced.count,evidence:evidence)
-      let answer=try await self.respond(WholeFilmPlan.sectionInstructions,WholeFilmPlan.json(evidence))
+      let answer=try await self.respond(WholeFilmPlan.sectionInstructions,WholeFilmPlan.modelJSON(evidence,ids:evidence.map(\.id)))
       try Task.checkCancellation();guard self.token==request else{return}
-      guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.Failure.invalidModel}
+      guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.sectionFailure(answer,chunk:chunk)}
       reduced.append(section)
      }
      synthesis=reduced
     }
     self.status="全部分段已分析，正在串联伏笔与结局…"
-    let answer=try await self.respond(WholeFilmPlan.mapInstructions,WholeFilmPlan.json(synthesis))
+    let answer=try await self.respond(WholeFilmPlan.mapInstructions,WholeFilmPlan.modelJSON(synthesis,ids:synthesis.flatMap(\.evidenceIDs)))
     try Task.checkCancellation();guard self.token==request else{return}
     guard let map=WholeFilmPlan.map(answer,sections:synthesis) else{throw WholeFilmPlan.Failure.invalidModel}
     self.map=map;try await self.archive.write(WholeFilmArchiveValue(sections:self.sections,map:map),key:signature)
@@ -228,6 +261,13 @@ enum WholeFilmPlan {
    } catch is CancellationError {if self.token==request {self.status="全片分析已暂停，未标记完成"}}
    catch {if self.token==request {self.status=error.localizedDescription}}
   }
+ }
+ func showBackend(_ backend:WholeFilmBackend) {analysisBackend=backend == .chatgpt ? "本次分析：ChatGPT" : "本次分析：苹果本地 AI"}
+ func modelChanged(analyse:Bool) {
+  let wasRunning=task != nil
+  token+=1;task?.cancel();task=nil;inferenceDeadline?.cancel();inferenceDeadline=nil;busy=false;analysisBackend=""
+  guard analyse else{status="已选免费备用题库，后台 AI 分析已暂停";return}
+  if map==nil || wasRunning,let (document,film,source,embedded)=lastAnalysisSource {accept(document,film:film,source:source,embedded:embedded)}
  }
  private func respond(_ instruction:String,_ input:String) async throws->String {
   let request=token

@@ -11,7 +11,7 @@ import Libavcodec
    SubtitleCue(start:80,end:83,text:"PRIVATE_FUTURE：守门人承认是为了保护证人而藏了钥匙。")])
  }
  private func ids(_ value:String)->[String] {
-  let expression=try! NSRegularExpression(pattern:"[a-f0-9]{64}")
+  let expression=try! NSRegularExpression(pattern:"E[a-f0-9]{12}|[a-f0-9]{64}")
   let ns=value as NSString
   return expression.matches(in:value,range:NSRange(location:0,length:ns.length)).map{ns.substring(with:$0.range)}
  }
@@ -34,6 +34,20 @@ import Libavcodec
   await host.waitForAnalysis()
   XCTAssertTrue(sawEnding);XCTAssertTrue(host.ready(for:"film"));XCTAssertEqual(host.completed,host.total)
   XCTAssertFalse(host.status.contains("PRIVATE_FUTURE"));XCTAssertFalse(host.ready(for:"different-film"))
+ }
+ func testShortEvidenceLabelsResolveToExactOriginalAndUnknownStillFails()throws {
+  let chunks=try WholeFilmPlan.chunks(document(),source:"embedded-subtitle")
+  let chunk=try XCTUnwrap(chunks.first),first=try XCTUnwrap(chunk.evidence.first)
+  let table=WholeFilmPlan.referenceTable(chunk.evidence.map(\.id))
+  let short=try XCTUnwrap(table.first(where:{$0.value==first.id})?.key)
+  XCTAssertLessThan(short.count,first.id.count)
+  let input=WholeFilmPlan.modelJSON(chunk.evidence,ids:chunk.evidence.map(\.id))
+  XCTAssertTrue(input.contains(short));XCTAssertFalse(input.contains(first.id))
+  let answer=WholeFilmPlan.json(WholeFilmSection(index:0,summary:"守门人与访客谈到了那把失踪的钥匙。",evidenceIDs:[short]))
+  XCTAssertEqual(WholeFilmPlan.section(answer,chunk:chunk)?.evidenceIDs,[first.id])
+  let invalid=WholeFilmPlan.json(WholeFilmSection(index:0,summary:"守门人与访客谈到了那把失踪的钥匙。",evidenceIDs:["Eunknown"]))
+  XCTAssertNil(WholeFilmPlan.section(invalid,chunk:chunk))
+  XCTAssertTrue(WholeFilmPlan.sectionFailure(invalid,chunk:chunk).localizedDescription.contains("引用编号"))
  }
  func testChunkingDoesNotSampleAwayLinesOrEnding()throws {
   let text=String(repeating:"长对白没有被丢弃",count:300)

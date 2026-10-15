@@ -247,6 +247,7 @@ import SwiftUI
  var body:some View {
   VStack(alignment:.leading,spacing:8) {
    Label("全片理解",systemImage:"film.stack").font(.subheadline.weight(.semibold))
+   if !host.analysisBackend.isEmpty {Text(host.analysisBackend).font(.caption2).accessibilityIdentifier("plot-whole-film-backend")}
    Text(host.subtitleSource).font(.caption2).foregroundStyle(.secondary)
    Text(host.status).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("plot-whole-film-status")
    if host.busy || host.readingActive {ProgressView(value:Double(host.completed),total:Double(max(1,host.total)));Button("暂停后台分析"){host.cancel()}}

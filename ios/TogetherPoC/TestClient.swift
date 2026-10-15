@@ -91,6 +91,8 @@ import CoreMedia
  private var remuxAudioTrackSummary: [String] = []
  private var trackSelectionGeneration=0
  private var nativeIndexRequestKey=""
+ private var nativeWindowRecoveryTask:Task<Void,Never>?
+ private var nativeWindowRecoverySerial=0
  private var nativeIndexTask:Task<Void,Never>?
  private var originalPGSDecodeTask:Task<Void,Never>?
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
@@ -283,6 +285,7 @@ import CoreMedia
    self.plotIntelligence.prepareFullFilm(document,source:source,key:key,checkpoints:checkpoints)
    if source=="external-subtitle" {self.prepareCompleteFilmForAI()}
   }
+  externalSubtitles.nativeWindowRecovery={ [weak self] item,position in self?.recoverCurrentNativeSubtitleWindow(item:item,position:position) }
   externalSubtitles.nativeSelectionHealthCheck={ [weak self] in self?.restoreSelectedNativeSubtitleIfNeeded() }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
   voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
@@ -404,6 +407,7 @@ import CoreMedia
   currentOriginalURL=url
   if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
   if aiOnlySubtitle?.film != plotKey {aiOnlySubtitle=nil;aiOnlySubtitleImportStatus=""}
+  nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
   mediaLoadGeneration += 1;let g=mediaLoadGeneration
@@ -600,6 +604,21 @@ import CoreMedia
    aiOnlySubtitleImportStatus=(error as? SubtitleParseError)==(.size) ? "字幕超过 5MB，请换用较小的完整字幕文件。" : "完整字幕读取失败；请确认文件格式、编码及文件访问权限。"
   }
  }
+ private func recoverCurrentNativeSubtitleWindow(item:AVPlayerItem,position:Double) {
+  guard nativeWindowRecoveryTask==nil,!externalSubtitles.enabled,selectedSubtitleIndex>=0,
+   let source=(item.asset as? AVURLAsset)?.url,NativeSubtitleIndexReader.isDemandDrivenLocal(master:source) else{return}
+  let track=selectedSubtitleIndex,generation=mediaLoadGeneration
+  nativeWindowRecoverySerial+=1;let ticket=nativeWindowRecoverySerial
+  nativeWindowRecoveryTask=Task { [weak self,weak item] in
+   guard let self else{return}
+   defer{if self.nativeWindowRecoverySerial==ticket {self.nativeWindowRecoveryTask=nil}}
+   guard let item else{return}
+   let document=await NativeSubtitleIndexReader.fetchCurrentWindow(master:source,track:track,at:position)
+   guard !Task.isCancelled,generation==self.mediaLoadGeneration,self.adapter.player.currentItem === item,
+    self.selectedSubtitleIndex==track,!self.externalSubtitles.enabled,let document else{return}
+   self.externalSubtitles.recoverCurrentNativeWindow(document,for:item)
+  }
+ }
  private func prepareNativeSubtitleIndex(item:AVPlayerItem,track:Int) {
   guard track>=0,!externalSubtitles.enabled,let source=(item.asset as? AVURLAsset)?.url,
         source.pathExtension.lowercased()=="m3u8" else{return}
@@ -610,7 +629,8 @@ import CoreMedia
   // exist. Probing every VTT ahead can wait minutes or re-anchor its producer,
   // competing with the actual movie. Analyze observed legible cues instead.
   if NativeSubtitleIndexReader.isDemandDrivenLocal(master:source) {
-   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
+   nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
+  nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
    externalSubtitles.nativeIndexStreamingStarted();return
   }
   if externalSubtitles.nativeIndexedTrack==track {return}
@@ -674,6 +694,7 @@ import CoreMedia
  }
  func enableExternalSubtitle() {
   guard externalSubtitles.available else {return}
+  nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   if let item=adapter.player.currentItem,let group=subtitleGroup {item.select(nil,in:group)}
   requestedSubtitleIndex = -2
@@ -690,6 +711,7 @@ import CoreMedia
       (index == -1 && active != nil) ||
       (index >= 0 && group.options.indices.contains(index) && active === group.options[index]) {return}
   }
+  nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   externalSubtitles.nativeSelectionChanged(enabled:index != -2);externalSubtitles.enabled=false;selectedSubtitleIndex=index
   guard let item=adapter.player.currentItem,let group=subtitleGroup else {return}
@@ -1294,6 +1316,7 @@ extension TestClient {
   plotIntelligence.wholeFilm.cancel()
   voice.disable();setSpeedHold(false);clearOptimisticPlayback()
   plotIntelligence.preserveCurrentFilmEvidence();plotIntelligence.cancel()
+  nativeWindowRecoverySerial+=1;nativeWindowRecoveryTask?.cancel();nativeWindowRecoveryTask=nil
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   originalPGSDecodeTask?.cancel();originalPGSDecodeTask=nil
   localSelectionGeneration+=1;pendingLocalFile=nil;localQualityCandidate=nil

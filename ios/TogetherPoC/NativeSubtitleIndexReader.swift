@@ -83,6 +83,41 @@ enum NativeSubtitleIndexReader {
   }
   return result.isEmpty ? nil : SubtitleDocument(result)
  }
+ /// Repair reads only the selected rendition's current segment. Fetching
+ /// planned future VTT files can reposition the local producer and stall video.
+ static func currentSegments(_ parts:[Segment],at position:Double)->[Segment] {
+  guard position.isFinite,position>=0 else{return []}
+  return Array(parts.filter{$0.start<=position && $0.start+$0.duration>position}.prefix(1))
+ }
+ static func fetchCurrentWindow(master:URL,track:Int,at position:Double,session:URLSession?=nil) async -> SubtitleDocument? {
+  guard isDemandDrivenLocal(master:master),track>=0,position.isFinite,position>=0 else{return nil}
+  let configuration=URLSessionConfiguration.ephemeral
+  configuration.timeoutIntervalForRequest=3;configuration.timeoutIntervalForResource=6
+  let client=session ?? URLSession(configuration:configuration)
+  defer{if session==nil {client.invalidateAndCancel()}}
+  func load(_ url:URL) async throws->Data {
+   try Task.checkCancellation()
+   let (data,response)=try await client.data(for:URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:3))
+   guard data.count<=maxBytes,let http=response as? HTTPURLResponse,(200...206).contains(http.statusCode) else{throw Failure.noText}
+   return data
+  }
+  do {
+   let masterData=try await load(master)
+   guard let manifest=String(data:masterData,encoding:.utf8),let selected=subtitleURL(master:manifest,base:master,track:track) else{return nil}
+   let playlistData=try await load(selected)
+   guard let playlist=String(data:playlistData,encoding:.utf8) else{return nil}
+   if selected.pathExtension.lowercased()=="vtt" {let document=try SubtitleParser.parse(playlistData,extension:"vtt");return merge(Array(document.cues.filter{$0.end>position-10 && $0.start<position+2}.prefix(64)))}
+   guard let parts=segments(playlist:playlist,base:selected) else{return nil}
+   var cues:[SubtitleCue]=[]
+   for part in currentSegments(parts,at:position) {
+    let data=try await load(part.url)
+    guard let text=String(data:data,encoding:.utf8) else{continue}
+    cues.append(contentsOf:parseSegment(text,segment:part))
+   }
+   try Task.checkCancellation()
+   return merge(Array(cues.filter{$0.end>position-10 && $0.start<position+2}.prefix(64)))
+  } catch {return nil}
+ }
  static func fetch(master:URL,track:Int) async -> SubtitleDocument? {
   guard master.pathExtension.lowercased()=="m3u8",track>=0,
    ["http","https"].contains(master.scheme ?? "") else{return nil}

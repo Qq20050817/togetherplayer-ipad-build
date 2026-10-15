@@ -21,7 +21,7 @@ import CoreFoundation
   preferences.set(originalPGSBitmapEnabled,forKey:"plot-original-pgs-experimental-enabled")
   onOriginalPGSBitmapChanged?()
  }}
- @Published var delay=0.0 {didSet {refresh()}}
+ @Published var delay=0.0 {didSet {legibleOutput?.advanceIntervalForDelegateInvocation=Self.nativeAdvance(for:delay);refresh()}}
  @Published var fontSize:Double {didSet {preferences.set(SubtitleAppearance.font(fontSize),forKey:"subtitle-font-size")}}
  @Published var bottomFraction:Double {didSet {preferences.set(SubtitleAppearance.position(bottomFraction),forKey:"subtitle-bottom-fraction")}}
  @Published var fontFamily:SubtitleFontFamily {didSet {preferences.set(fontFamily.rawValue,forKey:"subtitle-font-family")}}
@@ -74,6 +74,9 @@ import CoreFoundation
  private var nativeOutputRecoveryCount=0
  // Called on the player's existing clock: no extra polling timer or decoder.
  var nativeSelectionHealthCheck:(()->Void)?
+ var nativeWindowRecovery:((AVPlayerItem,Double)->Void)?
+ private var lastNativeWindowRecoveryAt=0.0
+ static func nativeAdvance(for delay:Double)->Double {delay.isFinite ? min(120,max(0.5,-delay+0.5)) : 0.5}
  func isCurrentPlotFilm(_ key:String)->Bool {!key.isEmpty && plotFilmKey==key}
  // Reconnecting can replace AVPlayerItem without changing the film.
  // Keep watched intervals for that film; never transfer them to another film.
@@ -210,7 +213,7 @@ import CoreFoundation
   let output=AVPlayerItemLegibleOutput()
   // The delegate queues future events; they are never drawn before their
   // shifted timestamp. 120 seconds matches the adjustment panel's bounds.
-  output.advanceIntervalForDelegateInvocation=120
+  output.advanceIntervalForDelegateInvocation=Self.nativeAdvance(for:delay)
   output.suppressesPlayerRendering=true
   let delegate=SubtitleLegibleDelegate(owner:self)
   legibleOutput=output;legibleDelegate=delegate
@@ -262,6 +265,13 @@ import CoreFoundation
   guard output === legibleOutput else {return}
   // Seeking can flush output while paused without supplying replacement cues.
   // Cached events use the same item clock; selection/item changes clear them separately.
+  refresh()
+ }
+ /// These are timed cues from the selected playback rendition, not the
+ /// AI-only full-film transcript. Preserve exact cue ends and current item.
+ func recoverCurrentNativeWindow(_ document:SubtitleDocument,for item:AVPlayerItem) {
+  guard !enabled,nativeEnabled,attachedItem === item,player.currentItem === item else{return}
+  for cue in document.cues {nativeTimeline.receive(text:cue.text,time:cue.start,end:cue.end)}
   refresh()
  }
  func beginSelection() {status="请选择字幕文件"}
@@ -317,12 +327,16 @@ import CoreFoundation
    now-lastNativeSelectionAuditAt>=4 {
    lastNativeSelectionAuditAt=now
    nativeSelectionHealthCheck?()
+   if abs(delay)<=5,now-lastNativeCallbackAt>=2,now-lastNativeWindowRecoveryAt>=4,
+      nativeTimeline.text(at:actual-delay).isEmpty,originalPGSFrame==nil {
+    lastNativeWindowRecoveryAt=now
+    nativeWindowRecovery?(item,actual)
+   }
    // If even empty/end cue callbacks stop arriving for a long period, the
    // legible output can be detached by a stream switch. Reattach at most twice
    // per film while retaining already observed cues; normal gaps do not clear
    // the selected track or interrupt playback.
-   if now-lastNativeCallbackAt>=90,now-lastNativeRecoveryAt>=90,
-    nativeOutputRecoveryCount<2 {
+   if now-lastNativeCallbackAt>=90,now-lastNativeRecoveryAt>=90 {
     lastNativeRecoveryAt=now;nativeOutputRecoveryCount+=1
     attachNativeOutput(to:item)
    }

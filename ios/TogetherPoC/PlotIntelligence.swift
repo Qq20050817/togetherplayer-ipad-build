@@ -11,7 +11,7 @@ struct PlotFrame {
  var plannedCheckpoint:Double? = nil
 }
 @MainActor final class PlotIntelligence:ObservableObject {
- @Published var mode:PlotMode {didSet {clearPendingAutomaticQuestion();cancelStoryPreparation();preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
+ @Published var mode:PlotMode {didSet {wholeFilm.modelChanged(analyse:mode != .fallback);clearPendingAutomaticQuestion();cancelStoryPreparation();preferences.set(mode.rawValue,forKey:"plot-mode");momentTask?.cancel();momentTask=nil;if working {cancel()};result=nil;autoSuggestion=nil;selectedModel="尚未出题";reason="已切换到\(mode.title)，请重新生成问题"}}
  @Published var pauseForQuestions:Bool {didSet {preferences.set(pauseForQuestions,forKey:"plot-pause-for-questions")}}
  @Published var eventDrivenEnabled:Bool {didSet {preferences.set(eventDrivenEnabled,forKey:"plot-event-driven");if !eventDrivenEnabled {momentTask?.cancel();momentTask=nil;clearPendingAutomaticQuestion()}}}
  @Published var automaticAllowed:Bool {didSet {preferences.set(automaticAllowed,forKey:"plot-cloud-allowed");if !automaticAllowed && working {cancel()}}}
@@ -49,20 +49,36 @@ struct PlotFrame {
  let wholeFilm=WholeFilmHost()
  let requireCompleteFilm:Bool
  @Published var wholeFilmCloudConsent:Bool {didSet {preferences.set(wholeFilmCloudConsent,forKey:"plot-whole-film-cloud-consent");if !wholeFilmCloudConsent {wholeFilm.cancel()}}}
+ private let wholeFilmRouter=WholeFilmModelRouter()
+ private var wholeFilmStatusSubscription:AnyCancellable?
  private var fullFilmCloudBatchStarted=false
  private var fullFilmCloudBatchKey=""
+ private var canUseWholeFilmCloud:Bool {
+  wholeFilmCloudConsent && consent && automaticAllowed && creditsDisabled && auth.integrationReady && !auth.usagePaused && !auth.working && !auth.loadingModels
+ }
+ private var wholeFilmCloudBlockedReason:String {
+  if !wholeFilmCloudConsent {return "“仅 ChatGPT”需要单独同意发送完整字幕；请在“连接与隐私”开启“允许 ChatGPT 提前分析全片字幕与剧情”。"}
+  if !consent {return "请在“连接与隐私”同意发送必要的剧情摘要。"}
+  if !creditsDisabled {return "请先确认已禁用额外 Credits，完成额度保护。"}
+  if !auth.integrationReady {return "ChatGPT 授权尚未就绪，请检查连接与隐私。"}
+  if auth.usagePaused {return "ChatGPT 额度已暂停，尚未完成全片分析。"}
+  if !automaticAllowed {return "请开启“允许智能调用 ChatGPT”，全片分段分析会计入请求上限。"}
+  return "ChatGPT 正忙，请稍后重新分析；不会改用苹果本地模型。"
+ }
  var inferenceForWholeFilm:(String,String) async throws->String { { [weak self] instruction,input in
   guard let self else{throw CancellationError()}
-  if PlotLocalAI.available {return try await PlotLocalAI.respond(instructions:instruction,input:input)}
-  guard self.mode != .local,self.mode != .fallback,self.wholeFilmCloudConsent,self.consent,self.automaticAllowed,self.creditsDisabled,self.auth.integrationReady,!self.auth.usagePaused else{throw WholeFilmPlan.Failure.unavailable}
-  let key=self.wholeFilm.filmKey
-  if self.fullFilmCloudBatchKey != key {self.fullFilmCloudBatchKey=key;self.fullFilmCloudBatchStarted=false}
-  let segment = -1-Int(PlotMemoryStore.key(instruction+input).prefix(8),radix:16)!
-  guard try await self.memory.reserve(key:key,segment:segment,manual:false,limit:self.limit,interval:self.fullFilmCloudBatchStarted ? 0 : 180) else{throw NSError(domain:"WholeFilmBudget",code:1,userInfo:[NSLocalizedDescriptionKey:"全片分析已达到请求上限或冷却限制；已分析片段保留，未标记全片完成。"]) }
-  self.fullFilmCloudBatchStarted=true
-  let state=await self.memory.load(key);self.requests=state.budget.total;self.automaticRequests=state.budget.automatic
-  return try await self.auth.performInference(instructions:instruction,input:input,canSend:{self.wholeFilm.filmKey==key && self.wholeFilmCloudConsent && self.consent && self.automaticAllowed && self.creditsDisabled})
+  return try await self.wholeFilmRouter.respond(mode:self.mode,instructions:instruction,input:input)
  }}
+ private func requestWholeFilmCloud(_ instruction:String,_ input:String) async throws->String {
+  guard canUseWholeFilmCloud else{throw WholeFilmRoutingFailure.cloudBlocked(wholeFilmCloudBlockedReason)}
+  let key=wholeFilm.filmKey
+  if fullFilmCloudBatchKey != key {fullFilmCloudBatchKey=key;fullFilmCloudBatchStarted=false}
+  let segment = -1-Int(PlotMemoryStore.key(instruction+input).prefix(8),radix:16)!
+  guard try await memory.reserve(key:key,segment:segment,manual:false,limit:limit,interval:fullFilmCloudBatchStarted ? 0 : 180) else{throw NSError(domain:"WholeFilmBudget",code:1,userInfo:[NSLocalizedDescriptionKey:"全片分析已达到请求上限或冷却限制；已分析片段保留，未标记全片完成。"]) }
+  fullFilmCloudBatchStarted=true
+  let state=await memory.load(key);requests=state.budget.total;automaticRequests=state.budget.automatic
+  return try await auth.performInference(instructions:instruction,input:input,canSend:{self.wholeFilm.filmKey==key && self.wholeFilmCloudConsent && self.consent && self.automaticAllowed && self.creditsDisabled})
+ }
 
  private let memory:PlotMemoryStore
  private let preferences:UserDefaults
@@ -228,8 +244,18 @@ struct PlotFrame {
   consent=preferences.bool(forKey:"plot-cloud-consent")
   creditsDisabled=preferences.bool(forKey:"plot-cloud-no-credits")
   limit=min(50,max(1,preferences.object(forKey:"plot-cloud-limit") as? Int ?? 10))
+  wholeFilmRouter.cloudAllowed={ [weak self] in self?.canUseWholeFilmCloud==true }
+  wholeFilmRouter.cloudBlockedReason={ [weak self] in self?.wholeFilmCloudBlockedReason ?? "ChatGPT 全片分析尚未就绪。" }
+  wholeFilmRouter.cloudInference={ [weak self] instruction,input in guard let self else{throw CancellationError()};return try await self.requestWholeFilmCloud(instruction,input) }
+  wholeFilmRouter.onBackend={ [weak self] backend in self?.wholeFilm.showBackend(backend) }
   wholeFilm.inference=inferenceForWholeFilm
-  wholeFilm.available={ [weak self] in PlotLocalAI.available || (self?.wholeFilmCloudConsent==true && self?.auth.integrationReady==true && self?.automaticAllowed==true && self?.consent==true && self?.creditsDisabled==true) }
+  wholeFilm.available={ [weak self] in guard let self else{return false};return self.wholeFilmRouter.available(mode:self.mode) }
+  wholeFilm.unavailableModelError={ [weak self] in guard let self else{return CancellationError()};return self.wholeFilmRouter.unavailableError(mode:self.mode) }
+  wholeFilmStatusSubscription=wholeFilm.$status.dropFirst().sink { [weak self] status in
+   guard let self,!self.working,self.selectedModel=="全片分析尚未完成" || self.selectedModel=="全片分析已完成" else{return}
+   self.reason=status
+   if self.wholeFilm.ready(for:self.wholeFilm.filmKey) {self.selectedModel="全片分析已完成"}
+  }
  }
  func start() {
   guard timer==nil else {return}
@@ -383,7 +409,7 @@ struct PlotFrame {
      PlotMomentGate.questionIsTimely(value.question,context:context) else{return nil}
     return value.question
    }
-   let score:PlotComplexity=prepared != nil && (mode == .smart || mode == .local) ? .uncertain : ((mode == .smart || mode == .local) ? await PlotLocalAI.assess(context) : .uncertain)
+   let score:PlotComplexity=prepared != nil && (mode == .smart || mode == .local) ? .uncertain : ((mode == .smart || mode == .local) && (!requireCompleteFilm || wholeFilmRouter.canUseLocal) ? await PlotLocalAI.assess(context) : .uncertain)
    guard valid(snapshot,token:token) else {cancel();return}
    assessment=score
    var local:PlotQuestion?
@@ -392,7 +418,7 @@ struct PlotFrame {
     // context-free question; never claim it analyzed unobserved movie content.
     if let prepared {local=prepared}
     else if context.sufficient {
-     if requireCompleteFilm,let input=wholeFilm.questionInput(context,film:snapshot.key,local:true) {local=(try? await PlotLocalAI.respond(instructions:WholeFilmPlan.questionInstructions,input:input)).flatMap{wholeFilm.parseQuestion($0,context:context,film:snapshot.key)}}
+     if requireCompleteFilm,let input=wholeFilm.questionInput(context,film:snapshot.key,local:true) {local=(try? await wholeFilmRouter.respond(mode:.local,instructions:WholeFilmPlan.questionInstructions,input:input)).flatMap{wholeFilm.parseQuestion($0,context:context,film:snapshot.key)}}
      else {local=await PlotLocalAI.question(context,automatic:autoMoment,planned:plannedMoment)}
     }
     else {local=await PlotLocalAI.genericQuestion(at:snapshot.position)}
@@ -492,11 +518,13 @@ struct PlotFrame {
    }
    if requireCompleteFilm,let draft=chosen {
     let safe=try await wholeFilm.verify(draft,context:context,film:snapshot.key,audit:{instructions,input in
-     if PlotLocalAI.available {return try await PlotLocalAI.respond(instructions:instructions,input:input)}
-     guard self.wholeFilmCloudConsent,self.consent,self.creditsDisabled,self.auth.integrationReady,self.automaticAllowed,
+     let allowed=self.wholeFilmCloudConsent && self.consent && self.creditsDisabled && self.auth.integrationReady && (self.automaticAllowed || !autoMoment)
+     return try await self.wholeFilmRouter.respond(mode:self.mode,instructions:instructions,input:input,cloudPermission:allowed,cloud:{instructions,input in
+     guard self.wholeFilmCloudConsent,self.consent,self.creditsDisabled,self.auth.integrationReady,(self.automaticAllowed || !autoMoment),
       try await self.memory.reserve(key:snapshot.key,segment:Int(snapshot.position/180),manual:!autoMoment,limit:self.limit,interval:0) else{throw WholeFilmPlan.Failure.spoiler}
      let current=await self.memory.load(snapshot.key);self.requests=current.budget.total;self.automaticRequests=current.budget.automatic
      return try await self.auth.performInference(instructions:instructions,input:input,canSend:{self.valid(snapshot,token:token) && self.wholeFilmCloudConsent})
+     })
     })
     guard valid(snapshot,token:token) else{return}
     guard safe else{self.result=nil;self.reason=WholeFilmPlan.Failure.spoiler.localizedDescription;self.working=false;self.deadline?.cancel();self.deadline=nil;return}
