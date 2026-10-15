@@ -65,7 +65,7 @@ enum FilmBankCodec {
   for q in bank.questions {
    guard !q.id.isEmpty,ids.insert(q.id).inserted,triggers.insert(q.triggerAtMs).inserted else {throw FilmBankValidation.duplicate}
    guard q.triggerAtMs>=0,q.triggerAtMs<bank.durationMs,
-    q.revealAtMs == nil || (q.revealAtMs!>q.triggerAtMs && q.revealAtMs!<=bank.durationMs) else {throw FilmBankValidation.invalidTime}
+    q.revealAtMs == nil || (q.revealAtMs! > q.triggerAtMs && q.revealAtMs! <= bank.durationMs) else {throw FilmBankValidation.invalidTime}
    guard (5...200).contains(q.question.count),(2...4).contains(q.options.count),
     q.options.allSatisfy({!$0.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty && $0.count<=80}),
     Set(q.options).count==q.options.count,q.explanation.count<=1500,
@@ -92,8 +92,9 @@ enum FilmBankCodec {
   return abs(Double(bank.durationMs)-playbackDuration)<=5000
  }
  static func question(_ entry:FilmBankQuestion,blocking:Bool)->PlotQuestion {
-  PlotQuestion(text:entry.question,choices:entry.options,source:"已导入电影题库",
-   evidenceIDs:[],kind:entry.type,blocking:blocking,planningScope:"imported-bank")
+  let kinds:[String:String]=["prediction":"prediction","motive":"motive","mystery":"discussion","foreshadowing":"prediction","twist":"prediction","timeline":"timeline","discussion":"discussion"]
+  return PlotQuestion(text:entry.question,choices:entry.options,source:"已导入电影题库",
+   evidenceIDs:[],kind:kinds[entry.type] ?? "discussion",blocking:blocking,planningScope:"imported-bank")
  }
 }
 
