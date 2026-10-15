@@ -53,10 +53,15 @@ final class FilmFFmpegFrameSampler {
   // If best-stream detection fails because of a nonessential stream or
   // unsupported codec, inspect actual video tracks without assuming AVPlayer
   // or subtitle probing have already prepared a decoder.
-  if streamIndex<0 || Int(streamIndex)>=streamCount ||
-   (source.pointee.streams[Int(streamIndex)]?.pointee.codecpar).map({
-    avcodec_find_decoder($0.pointee.codec_id)==nil
-   }) ?? true {
+  var preferredUsable=false
+  if preferred>=0,Int(preferred)<streamCount,
+    let selected=source.pointee.streams[Int(preferred)],
+    let props=selected.pointee.codecpar,
+    props.pointee.codec_type==AVMEDIA_TYPE_VIDEO,
+    avcodec_find_decoder(props.pointee.codec_id) != nil {
+   preferredUsable=true
+  }
+  if !preferredUsable {
    streamIndex = -1
    for i in 0..<streamCount {
     guard let candidate=source.pointee.streams[i],
