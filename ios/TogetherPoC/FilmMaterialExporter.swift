@@ -149,9 +149,22 @@ enum FilmMaterialExporter {
   var sheets:[(String,Data)]=[]
   var pending:[(Double,CGImage)]=[]
   var frameTimes:[Int]=[]
+  // AVAssetImageGenerator cannot decode many MKV/HEVC containers directly.
+  // Use the already-shipped FFmpeg libraries for local, independent decoding.
+  let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
+  var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler(url:url) : nil
   for (index,time) in times.enumerated() {
    try Task.checkCancellation()
-   if let image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:nil) {
+   var frame:CGImage?
+   if directFFmpeg {frame=ffmpeg?.image(at:time)}
+   else {
+    frame=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:nil)
+    if frame==nil {
+     if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler(url:url)}
+     frame=ffmpeg?.image(at:time)
+    }
+   }
+   if let image=frame {
     pending.append((time,image));frameTimes.append(Int((time*1000).rounded()))
     if pending.count==16,let bytes=contactSheet(pending) {
      sheets.append((String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),bytes));pending=[]
@@ -163,7 +176,7 @@ enum FilmMaterialExporter {
   // We cannot claim to have understood the film's images if sampling failed.
   guard frameTimes.count>=min(4,times.count),
    Double(frameTimes.count)>=Double(times.count)*0.25 else{throw FilmMaterialExportFailure.framesUnavailable}
-  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVAssetImageGenerator sampled frames; gaps supplemented; video actions between frames not guaranteed")
+  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets.map{$0.0},frameTimesMs:frameTimes,frameExportMode:"AVFoundation/FFmpeg sampled frames; dialogue gaps supplemented; missing motion between still frames is not inferred")
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
   let instructions="TogetherPlayer 电影素材包 v1\n本包含完整时间轴字幕、按时间顺序的多张分镜图以及严格对应的时间信息。\n请用 ChatGPT 项目指令制作 AI 题库。每道题提供已观看证据、未来揭晓依据、触发时间和安全答案揭晓时间。\n图片是离散截图，无法证明缺失画面之间的连续动作。不要编造未覆盖的视觉情节。\n生成 JSON 时 schemaVersion=1，影片 durationMs、sourceFingerprint、subtitleFingerprint 必须从 manifest.json 原样复制。\n题库还需通过 App 的校验再运行。\n"
