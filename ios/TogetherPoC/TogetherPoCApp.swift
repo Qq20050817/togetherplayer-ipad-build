@@ -815,7 +815,9 @@ struct RoomActionStyle:ButtonStyle {
      LocalMovieDocumentPicker(asCopy:selection == .localCopy,onPick:{url in
       picker=nil
       DispatchQueue.main.async {model.useLocalFile(url)}
-     },onCancel:{picker=nil;model.cancelLocalFileSelection()})
+     },onCancel:{picker=nil;model.cancelLocalFileSelection()},onFailure:{message in
+      picker=nil;model.cancelLocalFileSelection();model.requestStatus=message
+     })
     }
    }.alert("使用同一影片的另一画质？",isPresented:Binding(get:{model.localQualityCandidate != nil},set:{if !$0 {model.cancelLocalQuality()}}),presenting:model.localQualityCandidate) {candidate in
     Button("确认相同剪辑，使用此画质") {model.confirmLocalQuality(candidate)}
@@ -855,7 +857,8 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  }
  let onPick:(URL)->Void
  let onCancel:()->Void
- func makeCoordinator()->Coordinator {Coordinator(onPick:onPick,onCancel:onCancel)}
+ let onFailure:(String)->Void
+ func makeCoordinator()->Coordinator {Coordinator(asCopy:asCopy,onPick:onPick,onCancel:onCancel,onFailure:onFailure)}
  func makeUIViewController(context:Context)->UIDocumentPickerViewController {
   let controller=UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:asCopy)
   controller.allowsMultipleSelection=false;controller.delegate=context.coordinator
@@ -866,12 +869,28 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  }
  func updateUIViewController(_ controller:UIDocumentPickerViewController,context:Context) {}
  final class Coordinator:NSObject,UIDocumentPickerDelegate {
-  let onPick:(URL)->Void;let onCancel:()->Void
+  let asCopy:Bool;let onPick:(URL)->Void;let onCancel:()->Void;let onFailure:(String)->Void
   private var completed=false
-  init(onPick:@escaping(URL)->Void,onCancel:@escaping()->Void){self.onPick=onPick;self.onCancel=onCancel}
+  init(asCopy:Bool,onPick:@escaping(URL)->Void,onCancel:@escaping()->Void,onFailure:@escaping(String)->Void){
+   self.asCopy=asCopy;self.onPick=onPick;self.onCancel=onCancel;self.onFailure=onFailure
+  }
   func documentPicker(_ controller:UIDocumentPickerViewController,didPickDocumentsAt urls:[URL]) {
    guard !completed else {return};completed=true
-   if let url=urls.first {onPick(url)} else {onCancel()}
+   guard let url=urls.first else {onCancel();return}
+   guard asCopy else {onPick(url);return}
+   // An imported copy can be a short-lived Inbox URL. Relocate it before
+   // the picker closes and before any independent decoder is launched.
+   DispatchQueue.global(qos:.userInitiated).async { [self] in
+    let result=Result {try LocalMovieCopyStore.persist(url)}
+    DispatchQueue.main.async { [self] in
+     switch result {
+     case .success(let stableURL):onPick(stableURL)
+     case .failure(let error):
+      let code=(error as NSError).code
+      onFailure("兼容导入副本保存失败（错误码 \(code)），请检查可用空间后重试。原片未修改。")
+     }
+    }
+   }
   }
   func documentPickerWasCancelled(_ controller:UIDocumentPickerViewController) {guard !completed else {return};completed=true;onCancel()}
  }
