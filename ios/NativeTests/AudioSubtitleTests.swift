@@ -6,6 +6,14 @@ import UniformTypeIdentifiers
 @testable import TogetherPoC
 
 final class AudioSubtitleTests:XCTestCase {
+ func testLiveEmbeddedCaptionTakesPriorityOverIncompleteIndex() {
+  XCTAssertEqual(ExternalSubtitles.nativeDisplayText(live:"当前正在说话",indexed:"",indexAIOnly:false),"当前正在说话")
+  XCTAssertEqual(ExternalSubtitles.nativeDisplayText(live:"当前正在说话",indexed:"时间错位的旧字幕",indexAIOnly:false),"当前正在说话")
+  XCTAssertEqual(ExternalSubtitles.nativeDisplayText(live:"",indexed:"已校准的字幕",indexAIOnly:false),"已校准的字幕")
+  XCTAssertEqual(ExternalSubtitles.nativeDisplayText(live:"",indexed:"AI 识别文字",indexAIOnly:true),"")
+  XCTAssertEqual(ExternalSubtitles.nativeDisplayText(live:"真正的显示字幕",indexed:"AI 识别文字",indexAIOnly:true),"真正的显示字幕")
+ }
+
  @MainActor func testSubtitlePickerOnlyDeliversOneSelection() {
   var selected:[URL]=[];var cancelled=0
   let picker=SubtitleDocumentPicker(onPick:{selected.append($0)},onCancel:{cancelled += 1})
