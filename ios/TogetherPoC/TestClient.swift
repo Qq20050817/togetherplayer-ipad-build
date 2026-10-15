@@ -50,6 +50,19 @@ import CoreMedia
   let peers=members.filter{$0.online && $0.userId != credentials?["userId"] as? String}.map{max(0,$0.position-$0.timelineOffset)}
   return FilmBankTimeline.safeReveal(playerMs:bankPlaybackPositionMs,roomMs:room.target(clock.serverNow()).0,hostOffset:engine.timelineOffset,peers:peers)
  }
+ private func tickFilmBank() {
+  guard questionBankRuntime.active != nil else{return}
+questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
+    canReveal:isRoomHost && isConnected,revealPositionMs:bankSafeRevealPositionMs,
+    subtitleShown:plotIntelligence.isSubtitleCurrentlyShown?() ?? true,
+    captionSequence:externalSubtitles.plotCaptionSequence,
+    publish:{[weak self] question in guard let self,self.bankCanPublish else{return};self.lastBankPollDispatch=self.clock.localNow();self.publishPlotPoll(question)},
+    reveal:{[weak self] message in
+     guard let self,self.isRoomHost,self.isConnected else{return}
+     let payload:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message.text,"clientMessageId":message.id]]
+     self.outbox[message.id]=payload;self.send(payload)
+    })
+ }
  func beginFilmMaterialsExport() {
   let title=playbackTitle.isEmpty ? bankMovieURL?.deletingPathExtension().lastPathComponent ?? "电影" : playbackTitle
   let chosen=requestedSubtitleIndex ?? -1
@@ -251,6 +264,7 @@ import CoreMedia
   plotIntelligence.currentCaptionSequence={ [weak self] in self?.externalSubtitles.plotCaptionSequence ?? 0 }
   externalSubtitles.plotCaptionBoundaryChanged={ [weak self] in
    _ = self?.plotIntelligence.publishPendingAutomaticQuestion()
+   self?.tickFilmBank()
   }
   plotIntelligence.publishAutomatically={ [weak self] question in
    guard let self,self.isConnected,self.isRoomHost,self.supportsBlockingPolls,question.blocking else{return}
@@ -1138,16 +1152,7 @@ import CoreMedia
   if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
-   questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
-    canReveal:isRoomHost && isConnected,revealPositionMs:bankSafeRevealPositionMs,
-    subtitleShown:plotIntelligence.isSubtitleCurrentlyShown?() ?? true,
-    captionSequence:externalSubtitles.plotCaptionSequence,
-    publish:{[weak self] question in guard let self,self.bankCanPublish else{return};self.lastBankPollDispatch=self.clock.localNow();self.publishPlotPoll(question)},
-    reveal:{[weak self] message in
-     guard let self,self.isRoomHost,self.isConnected else{return}
-     let payload:[String:Any]=["type":"CHAT_MESSAGE","data":["text":message.text,"clientMessageId":message.id]]
-     self.outbox[message.id]=payload;self.send(payload)
-    })
+   tickFilmBank()
    send(["type":"SYNC"])
    let item=adapter.player.currentItem
    let sourceValid=BaiduMediaReference(value:engine.room?.mediaUrl ?? "")==nil || hasBaiduMatch
