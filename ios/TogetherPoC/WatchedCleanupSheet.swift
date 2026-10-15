@@ -23,15 +23,17 @@ struct WatchedCleanupSheet:View {
    List {
     Section {
      Label(source.lastPathComponent,systemImage:"film").font(.headline)
+     if !finished {
      Text("选择影片所在文件夹，检查清单后删除。只清理这台设备；不会删除好友的文件。").font(.subheadline).foregroundStyle(.secondary)
      if WatchedFileCleanup.isAppOwned(source) {Text("当前播放的是 App 内文件。仅清理副本不会删除“我的 iPad”里的原文件；可选择原文件夹核对后一起清理。").font(.caption).foregroundStyle(.secondary)}
      Button {originalAndCopy=false;if WatchedFileCleanup.isAppOwned(source){inspect(source.deletingLastPathComponent())}else{choosing=true}} label:{Label(WatchedFileCleanup.isAppOwned(source) ? "仅检查 App 内文件（保留原文件）" : "选择影片所在文件夹",systemImage:"folder")}.disabled(loading || deleting || finished).accessibilityIdentifier("cleanup-choose-folder")
      if WatchedFileCleanup.isAppOwned(source) {
       Button {originalAndCopy=true;choosing=true} label:{Label("选择原文件夹，清理原件与副本",systemImage:"folder.badge.minus")}.disabled(loading || deleting || finished).accessibilityIdentifier("cleanup-choose-original")
      }
+     }
     }
     if loading {ProgressView(originalAndCopy ? "正在逐字节核对原文件与副本，大影片需要一些时间…" : "正在检查本地文件…");Button("取消核对"){inspectionTask?.cancel()}}
-    if let plan {
+    if let plan,!finished {
      Section("待清理文件") {
       Text("原文件夹："+plan.folder.lastPathComponent).font(.caption).foregroundStyle(.secondary)
       ForEach(plan.allFiles) {file in
@@ -44,14 +46,16 @@ struct WatchedCleanupSheet:View {
       }
       Text("已选\(selected.count)个文件 · \(ByteCountFormatter.string(fromByteCount:plan.allFiles.filter{selected.contains($0.id)}.reduce(0){$0+$1.stamp.size},countStyle:.file))").font(.subheadline)
      }
-     if !finished {
-      Section {
-       Button(role:.destructive) {confirm=true} label:{Label(deleting ? "正在清理…" : "删除所选文件",systemImage:"trash").frame(maxWidth:.infinity)}.disabled(selected.isEmpty || deleting || loading).accessibilityIdentifier("cleanup-delete")
-       Text("删除前会停止本机影片。此操作会实际删除文件，不能在 App 内撤销；文件变化或无删除权限时会保留并说明原因。").font(.caption).foregroundStyle(.secondary)
-      }
-     }
+
     }
     if !status.isEmpty {Section {Text(status).accessibilityIdentifier("cleanup-result")}}
+   }.safeAreaInset(edge:.bottom) {
+    if plan != nil && !finished {
+     VStack(spacing:8) {
+      Button(role:.destructive) {confirm=true} label:{Label(deleting ? "正在清理…" : "删除所选文件",systemImage:"trash").frame(maxWidth:.infinity,minHeight:36)}.buttonStyle(.borderedProminent).tint(.red).disabled(selected.isEmpty || deleting || loading).accessibilityIdentifier("cleanup-delete")
+      Text("确认后实际删除勾选文件并停止本机播放，不能在 App 内撤销。").font(.caption).foregroundStyle(.secondary)
+     }.padding(12).background(.regularMaterial)
+    }
    }.navigationTitle("看完清理").navigationBarTitleDisplayMode(.inline)
     .toolbar {ToolbarItem(placement:.confirmationAction){Button("完成"){dismiss()}.disabled(deleting || loading)}}
     .sheet(isPresented:$choosing) {CleanupFolderPicker(onPick:{choosing=false;inspect($0)},onCancel:{choosing=false})}
