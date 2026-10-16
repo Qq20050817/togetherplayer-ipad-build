@@ -382,3 +382,32 @@ import UniformTypeIdentifiers
   }.frame(maxWidth:.infinity,alignment:.leading)
  }
 }
+
+@MainActor struct FilmBankFinalReportSheet:View {
+ let report:String
+ @Environment(\.dismiss) private var dismiss
+ var body:some View {
+  NavigationStack {
+   ScrollView {
+    LazyVStack(alignment:.leading,spacing:14) {
+     let sections=report.components(separatedBy:"\n第")
+     ForEach(Array(sections.enumerated()),id:\.offset) {i,body in
+      Text(i==0 ? body : "第"+body)
+       .font(i==0 ? .headline : .body)
+       .foregroundStyle(.white)
+       .textSelection(.enabled)
+       .frame(maxWidth:.infinity,alignment:.leading)
+       .padding(16)
+       .background(Color(red:0.075,green:0.095,blue:0.14))
+       .clipShape(RoundedRectangle(cornerRadius:14))
+     }
+     Text("结算已保存，可在剧情推理室再次查看。")
+      .font(.caption).foregroundStyle(.secondary)
+    }.padding(16).frame(maxWidth:700).frame(maxWidth:.infinity)
+   }.background(Color(red:0.025,green:0.035,blue:0.055))
+    .navigationTitle("🎬 观影结算")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {dismiss()}}}
+  }.preferredColorScheme(.dark).accessibilityIdentifier("film-bank-final-sheet")
+ }
+}
