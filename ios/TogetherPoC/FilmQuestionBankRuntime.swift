@@ -291,10 +291,13 @@ import Combine
     let write=persist()
     Task {try? await write.value}
    }
-   if let text=progress.finalText,!progress.finalDelivered {
-    for message in finalParts(text) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
-     sendingParts.insert(message.id);reveal(message)
-    }
+  }
+  // Delivery retries are independent from playback. If the app was killed or
+  // the socket dropped after the finale, restore and send missing segments
+  // without forcing viewers to watch the final scene again.
+  if canReveal,let text=progress.finalText,!progress.finalDelivered {
+   for message in finalParts(text) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
+    sendingParts.insert(message.id);reveal(message)
    }
   }
   // Individual answer keys remain on the host until the final narrative
