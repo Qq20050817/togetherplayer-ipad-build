@@ -262,6 +262,8 @@ import Combine
   // A verified story-end timestamp allows recap before credits. Require
   // sustained natural playback to prevent a SEEK to the finale from leaking
   // spoiler answers. A real native playback end remains the legacy fallback.
+  let uptime=ProcessInfo.processInfo.systemUptime
+  let nativeHadContinuousPlayback=continuousPlaybackSince.map{uptime-$0>=8} == true
   let continuity=lastPositionMs.map{positionMs>=$0 && positionMs-$0<=3500} ?? false
   if canFinish && continuity {
    if continuousPlaybackSince==nil {continuousPlaybackSince=ProcessInfo.processInfo.systemUptime}
@@ -279,7 +281,7 @@ import Combine
    narrativePauseRequested=true
    pauseAtStoryEnd()
   }
-  if (naturalEnd || narrativeFinished) && canReveal && nearEnding &&
+  if ((naturalEnd && nativeHadContinuousPlayback) || narrativeFinished) && canReveal && nearEnding &&
      !progress.published.isEmpty && progress.answered.count==progress.published.count {
    if progress.finalText==nil {
     let text=completedReport(bank,names:participantNames)
