@@ -12,7 +12,7 @@ import XCTest
     revealEvidence:[FilmBankEvidence(kind:"subtitle",startMs:52_000,endMs:57_000,text:"录像里的人遗落了手套")],
     explanation:"录像提供了事实证据",confidence:0.9,qualityScore:94)])
  }
- func testRestoredBankPublishesOnceAndRevealsOnlyAfterProof() async throws {
+ func testRestoredBankPublishesOnceAndKeepsAnswersSecretDuringMovie() async throws {
   let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
   defer {try? FileManager.default.removeItem(at:root)}
@@ -38,10 +38,9 @@ import XCTest
   XCTAssertEqual(sent.count,1)
   await clock(32_000);await clock(59_500);XCTAssertTrue(revealed.isEmpty)
   await clock(60_100,enabled:false)
-  XCTAssertEqual(revealed.count,1)
-  XCTAssertTrue(revealed[0].contains("正确答案"))
+  XCTAssertTrue(revealed.isEmpty,"Future evidence time cannot send solutions mid-film")
   await clock(60_800)
-  XCTAssertEqual(revealed.count,1)
+  XCTAssertTrue(revealed.isEmpty)
   XCTAssertEqual(sent.count,1)
   // Jump backwards/forwards must not reinject an answered poll.
   await clock(4_000);await clock(85_000)
