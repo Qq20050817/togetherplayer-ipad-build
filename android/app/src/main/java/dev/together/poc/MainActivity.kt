@@ -360,7 +360,7 @@ class MainActivity: Activity() {
    text="收起";textSize=12f;setOnClickListener{dialog.dismiss()};ButtonMotion.install(this)
   },LinearLayout.LayoutParams(-2,-2))
   root.addView(title)
-  val sections=report.split("\\n第")
+  val sections=report.split(10.toChar().toString()+"第")
   val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(0,dp(16),0,dp(10))}
   for((i,value) in sections.withIndex()) {
    val section=if(i==0)value else "第"+value
