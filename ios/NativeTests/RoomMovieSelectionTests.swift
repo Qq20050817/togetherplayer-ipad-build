@@ -62,12 +62,17 @@ import AVFoundation
  func testNewClientRestoresMatchedMovieWithoutImportOrCopy()async throws {
   let root=try root();defer{try? FileManager.default.removeItem(at:root)}
   let (store,movie)=try setup(root),snapshot=room(try reference(movie))
+  let credentials:[String:Any]=["roomId":"memory-room","userId":"other-host","token":String(repeating:"a",count:64)]
+  UserDefaults.standard.set(try JSONSerialization.data(withJSONObject:credentials),forKey:"credentials")
+  defer{UserDefaults.standard.removeObject(forKey:"credentials")}
   let first=model(store);try await select(first,movie,snapshot);first.handleBackground()
-  let second=model(RoomMovieSelectionStore(directory:store.directory,documents:store.documents))
+  var sent=[[String:Any]]()
+  let second=TestClient(automaticallyConnect:false,messageSender:{sent.append($0)},movieSelectionStore:RoomMovieSelectionStore(directory:store.directory,documents:store.documents))
   second.receive(["type":"WELCOME","room":snapshot],t4:0)
   try await wait{second.localMoviePersistenceStatus.contains("已自动恢复")}
-  XCTAssertTrue(second.usingLocalFile);XCTAssertEqual(second.cleanupSourceURL,movie)
+  XCTAssertTrue(second.isRoomHost);XCTAssertTrue(second.usingLocalFile);XCTAssertEqual(second.cleanupSourceURL,movie)
   XCTAssertNil(second.localQualityCandidate)
+  XCTAssertFalse(sent.contains{$0["type"] as? String == "ROOM_MEDIA"},"Restoring the host must not publish a new movie reference")
   XCTAssertEqual(try LocalMovieCopyStore.entries(documents:store.documents).count,1)
  }
  func testLeavingClearsAssociationButKeepsMovieAndCannotBeResavedByLateWork()async throws {
