@@ -56,6 +56,8 @@ import UniformTypeIdentifiers
  @ObservedObject var model: TestClient
  @ObservedObject var chat: ChatEngine
  @State private var fullscreen=false
+ @State private var recapOpen=false
+ @State private var recapInitialized=false
  @State private var plotPollOpen=false
  @State private var questionOpen=false
  @State private var settings=false
@@ -90,6 +92,11 @@ import UniformTypeIdentifiers
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
+   .sheet(isPresented:$recapOpen) {FilmBankFinalReportSheet(report:model.questionBankRuntime.finalReport)}
+   .onReceive(model.questionBankRuntime.$finalReport) {text in
+    if !recapInitialized {recapInitialized=true;return}
+    if !text.isEmpty && !fullscreen {plotPollOpen=false;questionOpen=false;recapOpen=true}
+   }
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;return}
     guard !fullscreen,model.plotPollWaiting,!model.plotPollSubmitted else {return}
@@ -433,6 +440,8 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var questionOpen=false
  @State private var plotHintVisible=false
  @State private var plotHintSequence=0
+ @State private var recapOpen=false
+ @State private var recapInitialized=false
  @State private var screenBrightness=Double(UIScreen.main.brightness)
  var body: some View {
   GeometryReader {geometry in
@@ -536,6 +545,11 @@ struct FullscreenToolStyle:ButtonStyle {
     screenBrightness=Double(UIScreen.main.brightness)
    }
    .onDisappear {model.setSpeedHold(false);controls.cancel()}
+   .sheet(isPresented:$recapOpen) {FilmBankFinalReportSheet(report:model.questionBankRuntime.finalReport)}
+   .onReceive(model.questionBankRuntime.$finalReport) {text in
+    if !recapInitialized {recapInitialized=true;return}
+    if !text.isEmpty {plotPollOpen=false;questionOpen=false;recapOpen=true}
+   }
    .onChange(of:composing) {value in
     controls.setBusy("composer",value)
     if !value && model.plotPollWaiting && !model.plotPollSubmitted {plotHintVisible=false;questionOpen=true}
