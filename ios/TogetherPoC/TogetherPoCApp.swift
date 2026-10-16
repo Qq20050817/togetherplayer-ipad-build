@@ -775,7 +775,7 @@ struct RoomActionStyle:ButtonStyle {
       Button {model.register(join:true)} label:{Label("加入 / 重连",systemImage:"link").frame(maxWidth:.infinity)}
      }
      HStack {Image(systemName:"number.circle").foregroundStyle(.blue);TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled();Button {UIPasteboard.general.string=model.roomID} label:{Image(systemName:"doc.on.doc")}.accessibilityLabel("复制房间编号").disabled(model.roomID.isEmpty)}.padding(12).background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius:10))
-     HStack {ConnectionFeedback(model:model,feedback:model.feedback);Spacer();if model.isConnected {Button(model.isRoomHost ? "离开并关闭房间" : "离开房间",role:.destructive) {model.leaveRoom()}}}
+     HStack {ConnectionFeedback(model:model,feedback:model.feedback);Spacer();if model.isConnected {Button(model.isRoomHost ? "离开并关闭房间" : "离开房间",role:.destructive) {model.leaveRoom()}.accessibilityIdentifier("room-page-leave") }}
      RequestFeedback(feedback:model.feedback)
      DisclosureGroup("连接设置") {
       VStack(alignment:.leading,spacing:14) {
