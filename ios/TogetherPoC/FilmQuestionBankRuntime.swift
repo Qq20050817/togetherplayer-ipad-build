@@ -214,7 +214,7 @@ import Combine
     lines.append("正确答案："+q.options[correct])
    } else {lines.append("开放讨论题，无唯一标准答案。")}
    for item in q.revealEvidence.prefix(3) {
-    lines.append("关键证据："+item.text)
+    lines.append("关键证据："+String(item.text.prefix(180)))
    }
    if !q.explanation.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
     lines.append("剧情解析："+q.explanation)
