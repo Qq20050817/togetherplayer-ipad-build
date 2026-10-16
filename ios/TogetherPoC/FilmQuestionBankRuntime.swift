@@ -31,6 +31,29 @@ import Combine
  private var pendingSubtitleSequence:Int?
  private var progressWrite:Task<Void,Error>?
  private var publishing:Task<Void,Never>?
+ private var continuousPlaybackSince:TimeInterval?
+ private var narrativeEndArmed=false
+ private var narrativePauseRequested=false
+ var storyEndAtMs:Int? {progress.storyEndOverrideMs ?? active?.storyEndMs}
+ func playbackJumped() {continuousPlaybackSince=nil;narrativeEndArmed=false}
+ func setStoryEnd(at positionMs:Double) {
+  guard let bank=active,progress.finalText==nil,positionMs.isFinite else{return}
+  let value=Int(positionMs.rounded())
+  let lastReveal=bank.questions.map{max($0.triggerAtMs,$0.revealAtMs ?? 0)}.max() ?? 0
+  guard value>=max(60_000,lastReveal),value<=bank.durationMs else {
+   status="剧情结束点必须在全部题目揭晓之后，且不得超过原片时长。";return
+  }
+  progress.storyEndOverrideMs=value
+  playbackJumped();narrativePauseRequested=false
+  let write=persist();Task {try? await write.value}
+  status="剧情结束点已记住：\(value/60000):\(String(format:"%02d",(value/1000)%60))。正常播放至此自动结算。"
+ }
+ func restoreStoryEndSuggestion() {
+  guard active != nil,progress.finalText==nil else{return}
+  progress.storyEndOverrideMs=nil;playbackJumped();narrativePauseRequested=false
+  let write=persist();Task {try? await write.value}
+  status=storyEndAtMs == nil ? "已使用影片实际播放结束点" : "已恢复题库剧情结束点"
+ }
 
  private func activate(_ bank:FilmQuestionBank,token:Int) async {
   let identity=FilmBankCodec.identity(bank)
@@ -44,7 +67,7 @@ import Combine
  func restore(filmKey:String,source:URL,durationMs:Double) {
   if key==filmKey,sourceURL==source,active != nil {return}
   importWorker?.cancel();importWorker=nil;importing=false
-  active=nil;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer="";finalReport=""
+  active=nil;playbackJumped();narrativePauseRequested=false;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer="";finalReport=""
   generation+=1;let token=generation
   restoring?.cancel();fingerprinting?.cancel();publishing?.cancel()
   guard source.isFileURL else {status="远程片源无法严格校验，题库自动提问未启用";return}
@@ -130,7 +153,9 @@ import Combine
  func startNewRound() {
   guard active != nil,!importing else{return}
   generation+=1;publishing?.cancel()
-  progress=FilmBankProgress(revision:progress.revision+1);publishedCount=0;completedCount=0;revealedAnswer="";finalReport="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
+  let savedStoryEnd=progress.storyEndOverrideMs
+  progress=FilmBankProgress(revision:progress.revision+1);progress.storyEndOverrideMs=savedStoryEnd
+  playbackJumped();narrativePauseRequested=false;publishedCount=0;completedCount=0;revealedAnswer="";finalReport="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
   let write=persist();Task {do{try await write.value}catch{self.status="本轮记录保存失败："+error.localizedDescription}}
   status="已开始新一轮，题库保留；从实际播放进度触发"
  }
@@ -229,15 +254,32 @@ import Combine
   }
  }
  func reconnected() {sendingParts.removeAll()}
- func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,revealPositionMs:Double?=nil,naturalEnd:Bool=false,participantNames:[String:String]=[:],subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
+ func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,revealPositionMs:Double?=nil,naturalEnd:Bool=false,canFinish:Bool=false,pauseAtStoryEnd:@escaping()->Void={},participantNames:[String:String]=[:],subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
   guard let bank=active,key==filmKey,positionMs.isFinite,positionMs>=0 else{lastPositionMs=nil;return}
   guard durationMs.isFinite,durationMs>0 else{lastPositionMs=nil;return}
   guard FilmBankCodec.matches(bank,playbackDuration:durationMs) else{active=nil;pendingQuestion=nil;lastPositionMs=nil;status="题库与播放器确认的原片时长不匹配，自动提问已停止";return}
   defer{lastPositionMs=positionMs}
-  // Completion is driven by an actual native playback-end signal or the
-  // canonical server ended state, gated by a continuous final-seconds playback
-  // check in TestClient. Seeking straight to the end cannot create a report.
-  if naturalEnd && canReveal && min(positionMs,revealPositionMs ?? 0)>=durationMs-2500 &&
+  // A verified story-end timestamp allows recap before credits. Require
+  // sustained natural playback to prevent a SEEK to the finale from leaking
+  // spoiler answers. A real native playback end remains the legacy fallback.
+  let continuity=lastPositionMs.map{positionMs>=$0 && positionMs-$0<=3500} ?? false
+  if canFinish && continuity {
+   if continuousPlaybackSince==nil {continuousPlaybackSince=ProcessInfo.processInfo.systemUptime}
+  } else {continuousPlaybackSince=nil}
+  if let end=storyEndAtMs,
+     canFinish,continuity,let previous=lastPositionMs,
+     previous<Double(end),positionMs>=Double(end),
+     ProcessInfo.processInfo.systemUptime-(continuousPlaybackSince ?? .infinity)>=8 {
+   narrativeEndArmed=true
+  }
+  let endMs=Double(storyEndAtMs ?? bank.durationMs)
+  let nearEnding=min(positionMs,revealPositionMs ?? 0)>=endMs-2500
+  let narrativeFinished=narrativeEndArmed && storyEndAtMs != nil && nearEnding
+  if narrativeFinished && !narrativePauseRequested && canReveal {
+   narrativePauseRequested=true
+   pauseAtStoryEnd()
+  }
+  if (naturalEnd || narrativeFinished) && canReveal && nearEnding &&
      !progress.published.isEmpty && progress.answered.count==progress.published.count {
    if progress.finalText==nil {
     let text=completedReport(bank,names:participantNames)
