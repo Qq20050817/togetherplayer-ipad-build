@@ -267,7 +267,7 @@ import Combine
   let nativeHadContinuousPlayback=continuousPlaybackSince.map{uptime-$0>=8} == true
   let continuity=lastPositionMs.map{positionMs>=$0 && positionMs-$0<=3500} ?? false
   if canFinish && continuity {
-   if continuousPlaybackSince==nil {continuousPlaybackSince=ProcessInfo.processInfo.systemUptime}
+   if continuousPlaybackSince==nil {continuousPlaybackSince=uptime}
   } else {continuousPlaybackSince=nil}
   if let end=storyEndAtMs,
      canFinish,continuity,let previous=lastPositionMs,
@@ -297,16 +297,8 @@ import Combine
     }
    }
   }
-  if canReveal {
-   for q in bank.questions where progress.published.contains(q.id) && !progress.revealed.contains(q.id) {
-    guard let when=q.revealAtMs,min(positionMs,revealPositionMs ?? positionMs)>=Double(when),let index=q.answerIndex else{continue}
-    let description="\(q.question)\n正确答案：\(q.options[index])\n\(q.explanation)"
-    if revealedAnswer != description {revealedAnswer=description}
-    for message in parts(q) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
-     sendingParts.insert(message.id);reveal(message)
-    }
-   }
-  }
+  // Individual answer keys remain on the host until the final narrative
+  // recap. Intermediate room poll state can reveal players' guesses only.
   guard let previous=lastPositionMs else{return}
   if positionMs<previous || positionMs-previous>3500 {pendingQuestion=nil;pendingSubtitleSequence=nil;return}
   if pendingQuestion==nil,positionMs>previous {
