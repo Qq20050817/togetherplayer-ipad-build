@@ -17,7 +17,8 @@ import Combine
  #endif
  private let store:FilmQuestionBankStore
  private let progressStore:FilmBankProgressStore
- init(store:FilmQuestionBankStore=FilmQuestionBankStore(),progressStore:FilmBankProgressStore=FilmBankProgressStore()){self.store=store;self.progressStore=progressStore}
+ private let uptimeNow:()->TimeInterval
+ init(store:FilmQuestionBankStore=FilmQuestionBankStore(),progressStore:FilmBankProgressStore=FilmBankProgressStore(),uptimeNow:@escaping()->TimeInterval={ProcessInfo.processInfo.systemUptime}) {self.store=store;self.progressStore=progressStore;self.uptimeNow=uptimeNow}
  private var key="",progressKey=""
  private var sourceURL:URL?
  private var generation=0
@@ -35,7 +36,7 @@ import Combine
  private var narrativeEndArmed=false
  private var narrativePauseRequested=false
  var storyEndAtMs:Int? {progress.storyEndOverrideMs ?? active?.storyEndMs}
- func playbackJumped() {continuousPlaybackSince=nil;narrativeEndArmed=false}
+ func playbackJumped() {continuousPlaybackSince=nil;narrativeEndArmed=false;if progress.finalText==nil {narrativePauseRequested=false}}
  func setStoryEnd(at positionMs:Double) {
   guard let bank=active,progress.finalText==nil,positionMs.isFinite else{return}
   let value=Int(positionMs.rounded())
@@ -262,7 +263,7 @@ import Combine
   // A verified story-end timestamp allows recap before credits. Require
   // sustained natural playback to prevent a SEEK to the finale from leaking
   // spoiler answers. A real native playback end remains the legacy fallback.
-  let uptime=ProcessInfo.processInfo.systemUptime
+  let uptime=uptimeNow()
   let nativeHadContinuousPlayback=continuousPlaybackSince.map{uptime-$0>=8} == true
   let continuity=lastPositionMs.map{positionMs>=$0 && positionMs-$0<=3500} ?? false
   if canFinish && continuity {
@@ -271,7 +272,7 @@ import Combine
   if let end=storyEndAtMs,
      canFinish,continuity,let previous=lastPositionMs,
      previous<Double(end),positionMs>=Double(end),
-     ProcessInfo.processInfo.systemUptime-(continuousPlaybackSince ?? .infinity)>=8 {
+     uptime-(continuousPlaybackSince ?? .infinity)>=8 {
    narrativeEndArmed=true
   }
   let endMs=Double(storyEndAtMs ?? bank.durationMs)
