@@ -17,6 +17,8 @@ final class WatchInterfaceTests: XCTestCase {
   for _ in 0..<5 {if delete.isHittable {break};app.swipeUp()}
   XCTAssertTrue(delete.isHittable);delete.tap()
   let confirm=app.buttons["确认删除副本"];XCTAssertTrue(confirm.waitForExistence(timeout:5));confirm.tap()
+  let list=app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
+  list.swipeDown()
   expectation(for:NSPredicate(format:"label CONTAINS '2 份'"),evaluatedWith:count);waitForExpectations(timeout:10)
   XCTAssertFalse(app.switches["import-library-select-LIBRARY-DUPLICATE.MP4"].exists)
   XCTAssertTrue(app.switches["import-library-select-LIBRARY-ACTIVE.MP4"].exists)

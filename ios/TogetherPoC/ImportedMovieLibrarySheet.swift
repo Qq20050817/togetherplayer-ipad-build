@@ -33,7 +33,7 @@ import SwiftUI
         }
        }.disabled(busy || protected.contains(file.id)).accessibilityIdentifier("import-library-select-"+file.url.lastPathComponent)
        if protected.contains(file.id) {Label("正在使用 · 已保护",systemImage:"lock.fill").font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("import-library-protected")}
-       else {Button("使用此副本"){model.useLocalFile(file.url);dismiss()}.disabled(busy).accessibilityIdentifier("import-library-use-"+file.url.lastPathComponent)}
+       else {Button("使用此副本"){model.beginLocalFileSelection();model.useLocalFile(file.url);dismiss()}.disabled(busy).accessibilityIdentifier("import-library-use-"+file.url.lastPathComponent)}
       }.padding(.vertical,4)
      }
     }

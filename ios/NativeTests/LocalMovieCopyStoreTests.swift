@@ -145,7 +145,7 @@ extension LocalMovieCopyStoreTests {
   let documents=root.appendingPathComponent("App/Documents")
   _=try legacyCopy(documents,name:"a.mkv",data:Data(repeating:7,count:2_097_152))
   _=try legacyCopy(documents,name:"b.mkv",data:Data(repeating:7,count:2_097_152))
-  let job=Task.detached{try LocalMovieCopyStore.duplicateExtras(documents:documents)};job.cancel()
+  let job=Task.detached{try LocalMovieCopyStore.duplicateExtras(documents:documents,progress:{_ in withUnsafeCurrentTask{$0?.cancel()}})}
   do {_=try await job.value;XCTFail("Cancelled scan should not finish") }catch is CancellationError {}catch {XCTFail("Unexpected \(error)")}
   XCTAssertEqual(try LocalMovieCopyStore.entries(documents:documents).count,2)
  }
