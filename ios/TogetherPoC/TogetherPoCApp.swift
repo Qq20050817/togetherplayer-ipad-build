@@ -65,11 +65,11 @@ import UniformTypeIdentifiers
  var body: some View {
   GeometryReader {geometry in
    let railWidth=min(340,geometry.size.width*0.32)
-   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen) ? railWidth+12 : 0)
+   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+12 : 0)
    let wide=availableWidth>=900 && availableWidth>geometry.size.height
    let sideWidth=wide ? min(320,availableWidth*0.26) : 0
    let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
-   HStack(spacing:questionOpen || plotPollOpen ? 12 : 0) {
+   HStack(spacing:questionOpen || plotPollOpen || recapOpen ? 12 : 0) {
    VStack(spacing:12) {
     header
     ScrollView {
@@ -83,19 +83,25 @@ import UniformTypeIdentifiers
      }
     }
    }.transaction {$0.animation=nil}
-   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen) {
+   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen || recapOpen) {
     PlotPollPanel(model:model,onClose:{plotPollOpen=false})
-   } question:{PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true})}
+   } question:{
+    if recapOpen {
+     FilmBankFinalDrawer(report:model.questionBankRuntime.finalReport,onClose:{recapOpen=false})
+    } else {
+     PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true})
+    }
+   }
    }.padding(16)
 
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
-   .sheet(isPresented:$recapOpen) {FilmBankFinalReportSheet(report:model.questionBankRuntime.finalReport)}
    .onReceive(model.questionBankRuntime.$finalReport) {text in
     if !recapInitialized {recapInitialized=true;return}
     if !text.isEmpty && !fullscreen {plotPollOpen=false;questionOpen=false;recapOpen=true}
+    if text.isEmpty {recapOpen=false}
    }
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;return}
@@ -446,8 +452,8 @@ struct FullscreenToolStyle:ButtonStyle {
  var body: some View {
   GeometryReader {geometry in
   let railWidth=min(340,geometry.size.width*0.30)
-  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen) ? railWidth+10 : 0)
-  HStack(spacing:questionOpen || plotPollOpen ? 10 : 0) {
+  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+10 : 0)
+  HStack(spacing:questionOpen || plotPollOpen || recapOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
    PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
@@ -545,10 +551,10 @@ struct FullscreenToolStyle:ButtonStyle {
     screenBrightness=Double(UIScreen.main.brightness)
    }
    .onDisappear {model.setSpeedHold(false);controls.cancel()}
-   .sheet(isPresented:$recapOpen) {FilmBankFinalReportSheet(report:model.questionBankRuntime.finalReport)}
    .onReceive(model.questionBankRuntime.$finalReport) {text in
     if !recapInitialized {recapInitialized=true;return}
     if !text.isEmpty {plotPollOpen=false;questionOpen=false;recapOpen=true}
+    if text.isEmpty {recapOpen=false}
    }
    .onChange(of:composing) {value in
     controls.setBusy("composer",value)
@@ -557,7 +563,7 @@ struct FullscreenToolStyle:ButtonStyle {
    .onChange(of:adjustingDanmaku) {controls.setBusy("danmaku",$0)}
    .onChange(of:adjustingSpeed) {controls.setBusy("speed",$0)}
    .onChange(of:plotPollOpen) {controls.setBusy("plot",$0)}
-   .onChange(of:questionOpen) {controls.setBusy("question",$0)}
+   .onChange(of:questionOpen || recapOpen) {controls.setBusy("question",$0)}
    .onChange(of:model.plotPoll?["id"] as? String) {id in
     guard id != nil else {questionOpen=false;plotHintVisible=false;return}
     guard !questionOpen else {return}
@@ -578,9 +584,15 @@ struct FullscreenToolStyle:ButtonStyle {
      questionOpen=false;plotHintVisible=false
     }
    }
-   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen) {
+   PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen || recapOpen) {
     PlotPollPanel(model:model,onClose:{plotPollOpen=false}).padding(.vertical,10)
-   } question:{PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).padding(.vertical,10)}
+   } question:{
+    if recapOpen {
+     FilmBankFinalDrawer(report:model.questionBankRuntime.finalReport,onClose:{recapOpen=false},fullscreen:true).padding(.vertical,10)
+    } else {
+     PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).padding(.vertical,10)
+    }
+   }
   }
 
   }
