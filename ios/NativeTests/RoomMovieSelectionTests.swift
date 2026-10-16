@@ -145,6 +145,16 @@ import AVFoundation
   try await Task.sleep(nanoseconds:200_000_000)
   XCTAssertFalse(second.usingLocalFile);XCTAssertNil(try store.load());XCTAssertTrue(FileManager.default.fileExists(atPath:movie.path))
  }
+ func testBackgroundDuringPendingRestoreCanRecoverOnNextWelcome()async throws {
+  let root=try root();defer{try? FileManager.default.removeItem(at:root)}
+  let (store,movie)=try setup(root),snapshot=room(try reference(movie))
+  let first=model(store);try await select(first,movie,snapshot);first.handleBackground()
+  let second=model(store);second.receive(["type":"WELCOME","room":snapshot],t4:0);second.handleBackground()
+  try await Task.sleep(nanoseconds:200_000_000)
+  second.receive(["type":"WELCOME","room":snapshot],t4:0)
+  try await wait{second.localMoviePersistenceStatus.contains("已自动恢复")}
+  XCTAssertEqual(second.cleanupSourceURL,movie)
+ }
  func testConfirmedDifferentQualityIsRestoredWithoutPromptingAgain()async throws {
   let root=try root();defer{try? FileManager.default.removeItem(at:root)}
   let (store,movie)=try setup(root),snapshot=room("baidu://"+String(repeating:"b",count:32)+"/"+String(repeating:"a",count:32)+"/5")
@@ -153,9 +163,11 @@ import AVFoundation
   try await wait{first.localQualityCandidate != nil};first.confirmLocalQuality()
   try await wait{first.localMoviePersistenceStatus.contains("已记住")}
   XCTAssertTrue(try XCTUnwrap(store.load()).confirmedVariant);first.handleBackground()
-  let second=model(store);second.receive(["type":"WELCOME","room":snapshot],t4:0)
-  try await wait{second.localMoviePersistenceStatus.contains("已自动恢复")}
+  var resumed=snapshot;resumed["duration"]=0
+  let second=model(store);second.receive(["type":"WELCOME","room":resumed],t4:0)
+  try await wait{second.localMoviePersistenceStatus.contains("已自动恢复") && second.adapter.duration>0}
   XCTAssertTrue(second.usingDifferentQuality);XCTAssertNil(second.localQualityCandidate)
+  XCTAssertEqual(second.variantDurationCheck,.compatible)
  }
  func testStoreRejectsOversizedCorruptAndEscapingRecord()throws {
   let root=try root();defer{try? FileManager.default.removeItem(at:root)}

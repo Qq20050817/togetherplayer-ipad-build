@@ -1294,10 +1294,10 @@ extension TestClient {
   restoreMovieTask=worker
   Task {[weak self] in
    let result=await worker.result
-   guard let self,selection==self.localSelectionGeneration,self.localFileURL==nil,self.pendingLocalFile==nil,
-         let current=self.engine.room,
-         RoomMovieContext(server:self.credentialServer,roomID:current.roomId,mediaID:current.mediaUrl)==context else{return}
+   guard let self,selection==self.localSelectionGeneration else{return}
    self.restoreMovieTask=nil
+   guard self.localFileURL==nil,self.pendingLocalFile==nil,let current=self.engine.room,
+         RoomMovieContext(server:self.credentialServer,roomID:current.roomId,mediaID:current.mediaUrl)==context else{return}
    switch result {
    case .success(let file):
     self.localFileURL=file.url;self.localFileSecurityScoped=file.transferAccess();self.localFileName=file.url.lastPathComponent
@@ -1306,7 +1306,8 @@ extension TestClient {
     self.baiduSourceID=BaiduMediaReference(value:context.mediaID)==nil ? "" : context.mediaID
     self.baiduSourceRoom=self.baiduSourceID.isEmpty ? "" : context.roomID
     self.variantRoomID=record.confirmedVariant ? context.roomID : "";self.variantMediaURL=record.confirmedVariant ? context.mediaID : ""
-    self.variantReferenceDuration=record.confirmedVariant ? current.duration ?? record.referenceDuration : 0
+    let currentDuration=current.duration ?? 0
+    self.variantReferenceDuration=record.confirmedVariant ? (currentDuration>0 ? currentDuration : record.referenceDuration) : 0
     do {try self.movieSelectionStore.save(file.refreshed);self.rememberedMovie=file.refreshed;self.localMoviePersistenceStatus="已自动恢复上次本机影片。"}
     catch {self.localMoviePersistenceStatus="影片已恢复，但更新文件授权失败，下次可能需要重新选择。"}
     self.loadedURL=context.mediaID;self.loadMedia(file.url);self.requestStatus="已恢复本机影片，按房间进度同步。"
