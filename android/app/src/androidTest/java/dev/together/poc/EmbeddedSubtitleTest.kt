@@ -43,14 +43,12 @@ class EmbeddedSubtitleTest {
     }
     val device=UiDevice.getInstance(i)
     assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg(java.util.regex.Pattern.compile("com\\.(google\\.)?android\\.documentsui"))),5000))
-    val by=androidx.test.uiautomator.By
-    val until=androidx.test.uiautomator.Until
     // Files rebinds its document rows on startup. A cached UiObject2 can
     // become stale between find and click even when its text remains visible.
     // Retry only the transient stale-node error and re-query the current tree.
     fun clickFresh(selector:androidx.test.uiautomator.BySelector,tries:Int=5):Boolean {
      repeat(tries) {
-      val objectNow=device.wait(until.findObject(selector),1000)
+      val objectNow=device.wait(androidx.test.uiautomator.Until.findObject(selector),1000)
       if(objectNow!=null) {
        try {objectNow.click();return true}
        catch(e:androidx.test.uiautomator.StaleObjectException) {SystemClock.sleep(180)}
@@ -58,12 +56,12 @@ class EmbeddedSubtitleTest {
      }
      return false
     }
-    if(!device.hasObject(by.text(name))) {
-     clickFresh(by.desc("Show roots"))
-     assertTrue("Downloads should be reachable in system Files",clickFresh(by.text("Downloads")))
+    if(!device.hasObject(androidx.test.uiautomator.By.text(name))) {
+     clickFresh(androidx.test.uiautomator.By.desc("Show roots"))
+     assertTrue("Downloads should be reachable in system Files",clickFresh(androidx.test.uiautomator.By.text("Downloads")))
     }
-    assertTrue("Subtitle must be selectable in actual system Files",clickFresh(by.text(name)))
-    assertTrue(device.wait(until.hasObject(by.pkg("dev.together.poc")),5000))
+    assertTrue("Subtitle must be selectable in actual system Files",clickFresh(androidx.test.uiautomator.By.text(name)))
+    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(by.pkg("dev.together.poc")),5000))
     var loaded=false
     repeat(50){if(!loaded){scenario.onActivity {a->loaded=a.javaClass.getDeclaredField("subtitleName").apply{isAccessible=true}.get(a)==name};SystemClock.sleep(100)}}
     assertTrue("Subtitle result must return without crashing",loaded)
