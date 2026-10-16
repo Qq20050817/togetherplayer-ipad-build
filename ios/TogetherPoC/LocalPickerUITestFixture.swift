@@ -3,6 +3,24 @@ import Foundation
 
 // Only used by the simulator UI test, never included in Release.
 @MainActor enum LocalPickerUITestFixture {
+ static func installLibrary(into model:TestClient)throws {
+  try install(into:model)
+  let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
+  let root=documents.appendingPathComponent("ImportedMovies")
+  try? FileManager.default.removeItem(at:root)
+  var active:URL?
+  for name in ["LIBRARY-ACTIVE.MP4","LIBRARY-DUPLICATE.MP4","LIBRARY-OTHER.MP4"] {
+   let folder=root.appendingPathComponent(UUID().uuidString)
+   try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+   let movie=folder.appendingPathComponent(name)
+   try FileManager.default.copyItem(at:documents.appendingPathComponent("LOCAL-PICKER-TEST.MP4"),to:movie)
+   if name=="LIBRARY-OTHER.MP4" {
+    let handle=try FileHandle(forWritingTo:movie);try handle.seekToEnd();try handle.write(contentsOf:Data([0]));try handle.close()
+   }
+   if name=="LIBRARY-ACTIVE.MP4" {active=movie}
+  }
+  if let active {model.installCleanupTestSource(active)}
+ }
  static func installCleanup(into model:TestClient)throws {
   try install(into:model)
   let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]

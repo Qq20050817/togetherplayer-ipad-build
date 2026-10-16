@@ -1,6 +1,29 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testImportLibraryFindsDuplicatesProtectsCurrentAndDeletesOnlyConfirmedCopy() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_IMPORT_LIBRARY_TEST"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  let settings=app.buttons["打开房间与片源"];XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
+  let manage=app.buttons["manage-imported-movies"]
+  for _ in 0..<7 {if manage.isHittable {break};app.swipeUp()}
+  XCTAssertTrue(manage.isHittable);manage.tap()
+  let count=app.staticTexts["import-library-count"];XCTAssertTrue(count.waitForExistence(timeout:10));XCTAssertTrue(count.label.contains("3 份"))
+  let active=app.switches["import-library-select-LIBRARY-ACTIVE.MP4"];XCTAssertTrue(active.exists);XCTAssertFalse(active.isEnabled)
+  app.buttons["import-library-find-duplicates"].tap()
+  let status=app.staticTexts["import-library-status"]
+  expectation(for:NSPredicate(format:"label CONTAINS '已选中 1 份多余副本'"),evaluatedWith:status);waitForExpectations(timeout:15)
+  let delete=app.buttons["import-library-delete"]
+  for _ in 0..<5 {if delete.isHittable {break};app.swipeUp()}
+  XCTAssertTrue(delete.isHittable);delete.tap()
+  let confirm=app.buttons["确认删除副本"];XCTAssertTrue(confirm.waitForExistence(timeout:5));confirm.tap()
+  expectation(for:NSPredicate(format:"label CONTAINS '2 份'"),evaluatedWith:count);waitForExpectations(timeout:10)
+  XCTAssertFalse(app.switches["import-library-select-LIBRARY-DUPLICATE.MP4"].exists)
+  XCTAssertTrue(app.switches["import-library-select-LIBRARY-ACTIVE.MP4"].exists)
+  XCTAssertTrue(app.switches["import-library-select-LIBRARY-OTHER.MP4"].exists)
+  capture("import-library-after-confirmed-cleanup",app)
+ }
+
  func testJSONDocumentSelectionImportsActualBankInFullscreen() {importActualBank(fullscreen:true,valid:true)}
  func testJSONDocumentSelectionImportsActualBankInWatchPage() {importActualBank(fullscreen:false,valid:true)}
  func testInvalidJSONDocumentSelectionShowsValidationFailure() {importActualBank(fullscreen:true,valid:false)}
