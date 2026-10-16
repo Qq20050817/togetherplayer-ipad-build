@@ -64,3 +64,41 @@ import SwiftUI
    .onChange(of:model.plotPoll?["id"] as? String) {_ in selected="";custom=""}
  }
 }
+
+@MainActor struct FilmBankFinalDrawer:View {
+ let report:String
+ let onClose:()->Void
+ var fullscreen=false
+ var body:some View {
+  VStack(alignment:.leading,spacing:14) {
+   HStack {
+    Label("观影结算",systemImage:"checkmark.seal.fill").font(.headline)
+    Spacer()
+    Button(action:onClose){Image(systemName:"xmark")}
+     .accessibilityLabel("收起观影结算")
+     .accessibilityIdentifier(fullscreen ? "fullscreen-close-film-recap" : "close-film-recap")
+   }
+   ScrollView {
+    LazyVStack(alignment:.leading,spacing:12) {
+     let sections=report.components(separatedBy:"\n第")
+     ForEach(sections.indices,id:\.self) {index in
+      Text(index==0 ? sections[index] : "第"+sections[index])
+       .font(index==0 ? .headline : .callout)
+       .foregroundStyle(.white)
+       .frame(maxWidth:.infinity,alignment:.leading)
+       .padding(12)
+       .background(Color.white.opacity(0.05))
+       .clipShape(RoundedRectangle(cornerRadius:10))
+       .textSelection(.enabled)
+     }
+    }
+   }.accessibilityIdentifier("film-recap-scroll")
+   Text("所有答案与解析已保存，可在剧情推理室重新查看。")
+    .font(.caption).foregroundStyle(.secondary)
+  }.padding(18).background(Color(red:0.055,green:0.07,blue:0.10))
+   .clipShape(RoundedRectangle(cornerRadius:18))
+   .overlay(RoundedRectangle(cornerRadius:18).stroke(.white.opacity(0.08)))
+   .preferredColorScheme(.dark).accessibilityElement(children:.contain)
+   .accessibilityIdentifier(fullscreen ? "fullscreen-film-recap-drawer" : "film-recap-drawer")
+ }
+}
