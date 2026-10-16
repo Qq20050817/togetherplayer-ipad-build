@@ -94,7 +94,7 @@ jobs:
   release-verified-android:
     name: Publish direct experimental APK (no ZIP)
     needs: android-build
-    if: ${{ success() && github.ref_name == 'feat/watched-cleanup-android-20261015' }}
+    if: ${{ success() && github.ref_name == 'feat/android-film-recap-drawer-20261016' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
