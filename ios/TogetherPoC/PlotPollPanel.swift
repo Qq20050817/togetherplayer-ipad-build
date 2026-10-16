@@ -391,9 +391,9 @@ import UniformTypeIdentifiers
    ScrollView {
     LazyVStack(alignment:.leading,spacing:14) {
      let sections=report.components(separatedBy:"\n第")
-     ForEach(Array(sections.enumerated()),id:\.offset) {i,body in
-      Text(i==0 ? body : "第"+body)
-       .font(i==0 ? .headline : .body)
+     ForEach(sections.indices,id:\.self) {index in
+      Text(index==0 ? sections[index] : "第"+sections[index])
+       .font(index==0 ? .headline : .body)
        .foregroundStyle(.white)
        .textSelection(.enabled)
        .frame(maxWidth:.infinity,alignment:.leading)
