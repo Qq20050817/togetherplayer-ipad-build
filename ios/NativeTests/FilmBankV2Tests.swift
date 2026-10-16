@@ -111,15 +111,13 @@ import AVFoundation
   second.tick(filmKey:"other-room",positionMs:60_100,durationMs:120_000,canPublish:false,canReveal:false,publish:{_ in},reveal:{messages.append($0)})
   XCTAssertTrue(messages.isEmpty,"Offline tick cannot consume reveal delivery")
   second.tick(filmKey:"other-room",positionMs:60_200,durationMs:120_000,canPublish:false,publish:{_ in},reveal:{messages.append($0)})
-  XCTAssertGreaterThan(messages.count,1,"Long explanations must be split, not truncated")
-  XCTAssertTrue(messages.allSatisfy{$0.text.count<1000})
-  // Lost acknowledgements after an app restart reuse the same chat IDs;
-  // the existing server deduplicates (room,user,clientMessageId).
+  XCTAssertTrue(messages.isEmpty,"Until the full story ends, no question solution is sent through chat")
+  // A reconnect retains the complete vote/poll progress without disclosing answers.
   let retry=FilmQuestionBankRuntime(store:store,progressStore:progress)
   retry.restore(filmKey:"other-room",source:moved,durationMs:120_000);await retry.waitForRestore()
   var resent:[FilmBankRevealPart]=[]
   retry.tick(filmKey:"other-room",positionMs:61_000,durationMs:120_000,canPublish:false,publish:{_ in},reveal:{resent.append($0)})
-  XCTAssertEqual(resent.map(\.id),messages.map(\.id))
+  XCTAssertTrue(resent.isEmpty,"A reconnect before the finale must not reveal any solutions")
   for message in messages {second.acknowledgeReveal(message.id)}
   await second.waitForProgress()
   let third=FilmQuestionBankRuntime(store:store,progressStore:progress)
