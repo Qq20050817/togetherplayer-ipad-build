@@ -107,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-phone --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-film-recap --dir verified
           # Artifact upload keeps its android-delivery/ subdirectory on some runners.
           build_report="$(find verified -type f -name BUILD.txt -print -quit)"
           test -n "$build_report"
