@@ -122,7 +122,7 @@ jobs:
               assert z.testzip() is None
               name=next(n for n in z.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist"))
               info=plistlib.loads(z.read(name));folder=name[:-len("Info.plist")]
-              assert (info["CFBundleIdentifier"],info["CFBundleShortVersionString"],info["CFBundleVersion"])==("dev.together.poc","0.6.44","103")
+              assert (info["CFBundleIdentifier"],info["CFBundleShortVersionString"],info["CFBundleVersion"])==("dev.together.poc","0.6.44","104")
               assert z.read(folder+"question-bank-v1.schema.json")==pathlib.Path("docs/question-bank-v1.schema.json").read_bytes()
               assert any("AppIcon" in n for n in z.namelist())
               assert any("Licens" in n or "NOTICE" in n.upper() for n in z.namelist())
@@ -135,25 +135,10 @@ jobs:
             echo 'Release exists; refusing to overwrite tested IPA';exit 1
           fi
           gh release create "$tag" verified/TogetherPlayer-0.6.44-Visual-Recap-unsigned.ipa verified/SHA256SUMS.txt verified/BUILD.txt \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.44 - Pre-credits story end and full recap" \
-            --prerelease --notes "0.6.44 optional storyEndMs for narrative conclusion before film credits, manual story-end override, sustained natural playback guard, automatic synchronized pause and full poll recap. Protect existing bank sync and local media. iPad simulator and tests are required before publication; physical iPad+Android validation remains outstanding."
-          git archive --format=zip --output=verified/TogetherPlayer-0.6.44-Film-Bank-V2-source.zip HEAD
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "TogetherPlayer iPad 0.6.44 - Visual movie recap cards and full-film review" \
+            --prerelease --notes "0.6.44 collapsible visual question cards, score overview, evidence snippets and optional whole-film timeline, character motives, theme and discussion. Answers and review remain hidden until verified ending. Supports old question banks and existing media/sync. Simulator tests passed; physical dual-device validation remains outstanding."
           cp docs/question-bank-v1.schema.json verified/question-bank-v1.schema.json
           cp docs/CHATGPT_MOVIE_BANK_PROJECT.txt verified/ChatGPT-Movie-Bank-Project.txt
           cp docs/FILM_BANK_V2.md verified/Film-Bank-V2-Guide.md
-          python3 - <<'PY'
-          import pathlib,zipfile,subprocess,json,hashlib
-          p=pathlib.Path("verified/TogetherPlayer-0.6.44-Film-Bank-V2-source.zip")
-          paths=subprocess.check_output(["git","ls-files","-z"]).decode().split("\0")
-          paths=[n for n in paths if n]
-          with zipfile.ZipFile(p) as z:
-              assert z.testzip() is None
-              for n in paths:
-                  assert z.read(n)==pathlib.Path(n).read_bytes(),n
-          record=json.loads(pathlib.Path("verified/VERIFICATION.json").read_text())
-          record.update(sourceZIPIntegrity="passed",sourcePathsCompared=len(paths),sourceZIPBytes=p.stat().st_size,sourceZIPSHA256=hashlib.sha256(p.read_bytes()).hexdigest())
-          pathlib.Path("verified/VERIFICATION.json").write_text(json.dumps(record,ensure_ascii=False,indent=2))
-          print(json.dumps(record))
-          PY
-          (cd verified && sha256sum TogetherPlayer-0.6.44-Film-Bank-V2-source.zip question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md VERIFICATION.json > SOURCE-SHA256SUMS.txt)
-          gh release upload "$tag" verified/TogetherPlayer-0.6.44-Film-Bank-V2-source.zip verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt verified/VERIFICATION.json --repo "$GITHUB_REPOSITORY"
+          (cd verified && sha256sum question-bank-v1.schema.json ChatGPT-Movie-Bank-Project.txt Film-Bank-V2-Guide.md VERIFICATION.json > SOURCE-SHA256SUMS.txt)
+          gh release upload "$tag" verified/question-bank-v1.schema.json verified/ChatGPT-Movie-Bank-Project.txt verified/Film-Bank-V2-Guide.md verified/SOURCE-SHA256SUMS.txt verified/VERIFICATION.json --repo "$GITHUB_REPOSITORY"
