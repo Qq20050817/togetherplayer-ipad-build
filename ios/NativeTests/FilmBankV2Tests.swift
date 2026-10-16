@@ -77,6 +77,24 @@ import AVFoundation
    XCTAssertTrue(error.localizedDescription.contains("schemaVersion"),error.localizedDescription)
   }
  }
+ func testOptionalWholeFilmReviewSurvivesEncodingAndOldBanksStillLoad() throws {
+  var bank=sample(String(repeating:"b",count:64))
+  let legacy=try FilmBankCodec.decode(JSONEncoder().encode(bank))
+  XCTAssertNil(legacy.filmReview)
+  bank.filmReview=FilmReview(
+   plotBeats:[FilmReviewBeat(title:"事件起因",detail:"主角发现失踪的线索"),FilmReviewBeat(title:"最终真相",detail:"调查结束后确认了真正的事件顺序")],
+   characters:[FilmReviewCharacter(name:"调查者",role:"希望用实物证据澄清动机")],
+   theme:"电影通过多次证词冲突，提醒观众区分直接证据与角色主观叙述。",
+   discussion:"如果你是调查者，听到冲突证词时，会优先相信哪一条证据？"
+  )
+  let json=try JSONEncoder().encode(bank)
+  let decoded=try FilmBankCodec.decode(json)
+  XCTAssertEqual(decoded.filmReview,bank.filmReview)
+  var shape=try XCTUnwrap(try JSONSerialization.jsonObject(with:json) as? [String:Any])
+  var review=try XCTUnwrap(shape["filmReview"] as? [String:Any])
+  review["unexpected"]="forbidden";shape["filmReview"]=review
+  XCTAssertThrowsError(try FilmBankCodec.decode(JSONSerialization.data(withJSONObject:shape)))
+ }
  func testHDRThumbnailTransformIsMonotonicAndLeavesOpaquePixels() {
   var bytes=Data((0..<256).flatMap{[UInt8($0),UInt8($0),UInt8($0),255]})
   FilmHDRToneMap.apply(&bytes,pq:true,bt2020:true)
