@@ -1269,6 +1269,10 @@ extension TestClient {
   guard let data=try? JSONSerialization.data(withJSONObject:raw),let message=try? JSONDecoder().decode(ChatMessage.self,from:data) else {return}
   outbox.removeValue(forKey:message.clientMessageId)
   if message.userId == credentials?["userId"] as? String {questionBankRuntime.acknowledgeReveal(message.clientMessageId)}
+  // Private final recap segments are transported through the existing room
+  // chat protocol, but shown only in the dedicated plot drawer. Do not flood
+  // chat or fullscreen danmaku with partial correct answers.
+  if message.clientMessageId.hasPrefix("bank-final:") {return}
   chat.accept(message,mine:message.userId == credentials?["userId"] as? String,live:live,now:clock.localNow())
  }
  private var hasBaiduMatch: Bool {(baiduPlaybackURL != nil || localFileURL != nil) && baiduSourceID==engine.room?.mediaUrl && baiduSourceRoom==engine.room?.roomId}
