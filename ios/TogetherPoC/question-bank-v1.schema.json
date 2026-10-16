@@ -38,6 +38,15 @@
       "minimum": 60000,
       "maximum": 43200000
     },
+    "storyEndMs": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 60000,
+      "maximum": 43200000,
+      "description": "最后一个必要剧情镜头结束、演职员名单开始的电影时间（毫秒）。若无法核实则为 null；含片尾彩蛋时须覆盖重要彩蛋。"
+    },
     "sourceFingerprint": {
       "type": "string",
       "pattern": "^[a-fA-F0-9]{64}$"
