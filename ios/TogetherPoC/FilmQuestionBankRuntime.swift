@@ -7,6 +7,7 @@ import Combine
  @Published private(set) var active:FilmQuestionBank?
  @Published private(set) var status="当前影片未导入题库"
  @Published private(set) var revealedAnswer=""
+ @Published private(set) var finalReport=""
  @Published private(set) var publishedCount=0
  @Published private(set) var completedCount=0
  @Published private(set) var importing=false
@@ -37,12 +38,13 @@ import Combine
   let saved=await progressStore.load(identity)
   guard generation==token,!Task.isCancelled else{return}
   progressKey=identity;progress=saved;publishedCount=saved.published.count;completedCount=saved.answered.count
+  finalReport=saved.finalText ?? ""
   active=bank;onBankReady?();status="已加载 \(bank.questions.count) 道题 · 本轮已发布 \(publishedCount) 道 · 播放时不请求 AI"
  }
  func restore(filmKey:String,source:URL,durationMs:Double) {
   if key==filmKey,sourceURL==source,active != nil {return}
   importWorker?.cancel();importWorker=nil;importing=false
-  active=nil;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer=""
+  active=nil;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer="";finalReport=""
   generation+=1;let token=generation
   restoring?.cancel();fingerprinting?.cancel();publishing?.cancel()
   guard source.isFileURL else {status="远程片源无法严格校验，题库自动提问未启用";return}
@@ -128,7 +130,7 @@ import Combine
  func startNewRound() {
   guard active != nil,!importing else{return}
   generation+=1;publishing?.cancel()
-  progress=FilmBankProgress(revision:progress.revision+1);publishedCount=0;completedCount=0;revealedAnswer="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
+  progress=FilmBankProgress(revision:progress.revision+1);publishedCount=0;completedCount=0;revealedAnswer="";finalReport="";lastPositionMs=nil;pendingQuestion=nil;sendingParts=[]
   let write=persist();Task {do{try await write.value}catch{self.status="本轮记录保存失败："+error.localizedDescription}}
   status="已开始新一轮，题库保留；从实际播放进度触发"
  }
@@ -143,8 +145,10 @@ import Combine
    guard progress.publicPollIDs[q.id]==nil else{return}
    progress.publicPollIDs[q.id]=publicID
   } else {
-   guard progress.publicPollIDs[q.id]==publicID,!progress.answered.contains(q.id) else{return}
+   guard progress.publicPollIDs[q.id]==publicID else{return}
+   if progress.answered.contains(q.id) && progress.votes[q.id] != nil {return}
    progress.answered.insert(q.id);completedCount=progress.answered.count
+   if let answers=poll["answers"] as? [String:String] {progress.votes[q.id]=answers}
   }
   let write=persist();Task {do{try await write.value}catch{self.status="答题进度未能保存；题库本身仍保留"}}
  }
@@ -156,8 +160,65 @@ import Combine
   let prefix="bank:"+String(PlotMemoryStore.key(progressKey+progress.roundID+q.id).prefix(32))+":"
   return texts.enumerated().map{FilmBankRevealPart(id:prefix+String($0.offset),text:"剧情题库揭晓（\($0.offset+1)/\(texts.count)）\n"+$0.element)}
  }
+
+ private func completedReport(_ bank:FilmQuestionBank,names:[String:String])->String {
+  let ordered=bank.questions.filter{progress.published.contains($0.id)}.sorted{$0.triggerAtMs<$1.triggerAtMs}
+  var lines=["🎬 电影观影结算 · "+bank.title,
+   "本轮发题 \(ordered.count) 道，完成 \(progress.answered.count) 道。"]
+  var scores:[String:(right:Int,graded:Int)]=[:]
+  for (number,q) in ordered.enumerated() {
+   lines.append("\n第\(number+1)题："+q.question)
+   let answers=progress.votes[q.id] ?? [:]
+   if answers.isEmpty {lines.append("本题没有保存到双方的提交内容。")}
+   for user in answers.keys.sorted() {
+    let submitted=answers[user] ?? ""
+    let player=names[user] ?? "玩家 "+String(user.prefix(6))
+    var verdict=""
+    if let correct=q.answerIndex,q.options.indices.contains(correct) {
+     if q.options.contains(where:{PlotQuality.normalized($0)==PlotQuality.normalized(submitted)}) {
+      var tally=scores[user] ?? (right:0,graded:0);tally.graded+=1
+      if PlotQuality.normalized(submitted)==PlotQuality.normalized(q.options[correct]) {tally.right+=1;verdict=" ✓"} else {verdict=" ✗"}
+      scores[user]=tally
+     } else {verdict="（自由回答，不自动评分）"}
+    }
+    lines.append(player+"："+submitted+verdict)
+   }
+   if let correct=q.answerIndex,q.options.indices.contains(correct) {
+    lines.append("正确答案："+q.options[correct])
+   } else {lines.append("开放讨论题，无唯一标准答案。")}
+   if !q.explanation.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
+    lines.append("剧情解析："+q.explanation)
+   }
+  }
+  if !scores.isEmpty {
+   lines.insert("成绩："+scores.keys.sorted().map{user in
+    let score=scores[user]!
+    return (names[user] ?? "玩家 "+String(user.prefix(6)))+" \(score.right)/\(score.graded)"
+   }.joined(separator:" · "),at:2)
+  }
+  lines.append("\n本轮答案与解析已统一公布，回看进度不会重新结算。")
+  return lines.joined(separator:"\n")
+ }
+ private func finalParts(_ text:String)->[FilmBankRevealPart] {
+  var rest=text,sections:[String]=[]
+  while !rest.isEmpty {
+   let section=String(rest.prefix(700));sections.append(section);rest=String(rest.dropFirst(section.count))
+  }
+  let prefix="bank-final:"+String(PlotMemoryStore.key(progressKey+progress.roundID).prefix(32))+":"
+  return sections.enumerated().map{FilmBankRevealPart(id:prefix+String($0.offset),text:"🎬 片尾结算（\($0.offset+1)/\(sections.count)）\n"+$0.element)}
+ }
+
  func acknowledgeReveal(_ id:String) {
   guard let bank=active else{return}
+  if let text=progress.finalText {
+   let messages=finalParts(text)
+   if messages.contains(where:{$0.id==id}) {
+    progress.delivered.insert(id);sendingParts.remove(id)
+    if messages.allSatisfy({progress.delivered.contains($0.id)}) {progress.finalDelivered=true}
+    let write=persist();Task {try? await write.value}
+    return
+   }
+  }
   for q in bank.questions where progress.published.contains(q.id) && !progress.revealed.contains(q.id) {
    let messages=parts(q)
    guard messages.contains(where:{$0.id==id}) else{continue}
@@ -168,11 +229,29 @@ import Combine
   }
  }
  func reconnected() {sendingParts.removeAll()}
- func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,revealPositionMs:Double?=nil,subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
+ func tick(filmKey:String?,positionMs:Double,durationMs:Double,canPublish:Bool,canReveal:Bool=true,revealPositionMs:Double?=nil,naturalEnd:Bool=false,participantNames:[String:String]=[:],subtitleShown:Bool=false,captionSequence:Int=0,publish:@escaping(PlotQuestion)->Void,reveal:(FilmBankRevealPart)->Void={_ in}) {
   guard let bank=active,key==filmKey,positionMs.isFinite,positionMs>=0 else{lastPositionMs=nil;return}
   guard durationMs.isFinite,durationMs>0 else{lastPositionMs=nil;return}
   guard FilmBankCodec.matches(bank,playbackDuration:durationMs) else{active=nil;pendingQuestion=nil;lastPositionMs=nil;status="题库与播放器确认的原片时长不匹配，自动提问已停止";return}
   defer{lastPositionMs=positionMs}
+  // Completion is driven by an actual native playback-end signal or the
+  // canonical server ended state, gated by a continuous final-seconds playback
+  // check in TestClient. Seeking straight to the end cannot create a report.
+  if naturalEnd && canReveal && min(positionMs,revealPositionMs ?? 0)>=durationMs-2500 &&
+     !progress.published.isEmpty && progress.answered.count==progress.published.count {
+   if progress.finalText==nil {
+    let text=completedReport(bank,names:participantNames)
+    progress.finalText=text
+    finalReport=text
+    let write=persist()
+    Task {try? await write.value}
+   }
+   if let text=progress.finalText,!progress.finalDelivered {
+    for message in finalParts(text) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
+     sendingParts.insert(message.id);reveal(message)
+    }
+   }
+  }
   if canReveal {
    for q in bank.questions where progress.published.contains(q.id) && !progress.revealed.contains(q.id) {
     guard let when=q.revealAtMs,min(positionMs,revealPositionMs ?? positionMs)>=Double(when),let index=q.answerIndex else{continue}
