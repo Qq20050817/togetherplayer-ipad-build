@@ -111,6 +111,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var baiduSourceRoom=""
  private var baiduPlaybackURL: URL?
  private var baiduFileName=""
+ private let movieSelectionStore:RoomMovieSelectionStore
+ private var rememberedMovie:RoomMovieSelection?
+ private var restoreMovieTask:Task<RoomMovieSelection.Resolved,Error>?
+ private var saveMovieTask:Task<RoomMovieSelection,Error>?
+ @Published private(set) var localMoviePersistenceStatus=""
  private var localFileURL: URL?
  private var localFileSecurityScoped=false
  private var localSelectionGeneration=0
@@ -240,9 +245,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var observers: [NSObjectProtocol]=[]
  private var playerObservation: NSKeyValueObservation?
  private var itemObservation: NSKeyValueObservation?
- init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil) {
+ init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil,movieSelectionStore:RoomMovieSelectionStore? = nil) {
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
+  self.movieSelectionStore=movieSelectionStore ?? RoomMovieSelectionStore.applicationDefault()
+  do {self.rememberedMovie=try self.movieSelectionStore.load()} catch {localMoviePersistenceStatus="保存的本机影片记录暂不可读取，请重新选择一次。"}
   plotIntelligence.displayPosition={ [weak self] in self?.plotDisplayPosition() }
   plotIntelligence.frame={ [weak self] in
    // Offline local analysis should not require a live room transport.
@@ -351,7 +358,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   self.timer=timer;RunLoop.main.add(timer,forMode:.common)
   if automaticallyConnect,credentials != nil {connect()}
  }
- deinit {timer?.invalidate();for observer in observers {NotificationCenter.default.removeObserver(observer)}}
+ deinit {timer?.invalidate();restoreMovieTask?.cancel();saveMovieTask?.cancel();if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()};for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func plotDisplayPosition()->PlotDisplayPosition? {
   guard adapter.player.currentItem != nil else{return nil}
   let identity=engine.room?.mediaUrl ?? currentOriginalURL?.absoluteString ?? loadedURL
@@ -816,6 +823,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     }
     guard let next=try JSONSerialization.jsonObject(with:data) as? [String:Any],let nextRoom=next["roomId"] as? String,!nextRoom.isEmpty,
      let user=next["userId"] as? String,!user.isEmpty,let token=next["token"] as? String,!token.isEmpty else {requestStatus="服务器返回了无效房间凭证";return}
+    forgetRememberedMovie();releaseLocalFileAccess()
     credentials=next;credentialServer=base;roomID=nextRoom
     UserDefaults.standard.set(data,forKey:"credentials");UserDefaults.standard.set(base,forKey:"server");connect()
    } catch {requestStatus="房间请求失败：\(error.localizedDescription)"}
@@ -885,6 +893,16 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if !optimisticRoomID.isEmpty && optimisticRoomID != room.roomId {clearOptimisticPlayback()}
    if (room.roomId != engine.room?.roomId || room.version >= (engine.room?.version ?? 0)),
       engine.room.map(RoomPresentationState.init) != RoomPresentationState(room) {objectWillChange.send()}
+   let prior=engine.room
+   if (prior==nil || prior?.roomId != room.roomId || room.version >= (prior?.version ?? 0)),
+      prior != nil,(prior?.roomId != room.roomId || prior?.mediaUrl != room.mediaUrl),
+      (localFileURL != nil || restoreMovieTask != nil),
+      localSourceRoomID != room.roomId || localSourceRoomURL != room.mediaUrl {
+    // A real room/source switch invalidates the old association. A host's
+    // acknowledged reference equals localSourceRoomURL and is retained.
+    let expected=rememberedMovie?.context
+    if localFileURL != nil || expected?.roomID != room.roomId || expected?.mediaID != room.mediaUrl {forgetRememberedMovie();releaseLocalFileAccess()}
+   }
    engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
    if plotPollWaiting {clearOptimisticPlayback()}
    if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
@@ -892,6 +910,8 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    let reasons=["buffering":"等待对方缓冲","disconnected":"等待对方重新连接","ended":"播放完毕，点播放可重播","source":"等待双方授权并匹配同一百度影片","server_restart":"同步服务器已恢复，影片保持暂停；点播放继续"]
    let nextNotice=reasons[room.pauseReason ?? ""] ?? "";if roomNotice != nextNotice {roomNotice=nextNotice}
    if let rawMembers=obj["members"],let data=try? JSONSerialization.data(withJSONObject:rawMembers),let roster=try? JSONDecoder().decode([RoomMember].self,from:data) {applyMembers(roster)}
+   let restoring=(type=="WELCOME" && pendingLocalFile==nil && localFileURL==nil) ? restoreRememberedMovie(for:room) : false
+   if restoring {loadedURL=room.mediaUrl}
    if BaiduMediaReference(value:room.mediaUrl) != nil {
     // A nil player item is expected during asynchronous remux preparation.
     // Periodic STATE snapshots must not cancel/restart the same media attempt.
@@ -1236,6 +1256,66 @@ extension TestClient {
   }
   return roomURL
  }
+ private func forgetRememberedMovie() {
+  localSelectionGeneration+=1;restoreMovieTask?.cancel();restoreMovieTask=nil;saveMovieTask?.cancel();saveMovieTask=nil
+  rememberedMovie=nil;localMoviePersistenceStatus=""
+  do {try movieSelectionStore.clear()} catch {localMoviePersistenceStatus="清除影片关联失败，请检查本机存储。"}
+ }
+ private func rememberCurrentLocalMovie() {
+  guard let url=localFileURL,!localSourceRoomID.isEmpty,!localSourceRoomURL.isEmpty else{return}
+  let context=RoomMovieContext(server:credentialServer,roomID:localSourceRoomID,mediaID:localSourceRoomURL)
+  let selection=localSelectionGeneration,documents=movieSelectionStore.documents
+  let variant=variantRoomID==context.roomID && variantMediaURL==context.mediaID,duration=variantReferenceDuration
+  saveMovieTask?.cancel();rememberedMovie=nil;try? movieSelectionStore.clear();localMoviePersistenceStatus="正在记住本机影片…"
+  let worker=Task.detached(priority:.utility){try RoomMovieSelection.capture(url,context:context,documents:documents,confirmedVariant:variant,referenceDuration:duration)}
+  saveMovieTask=worker
+  Task {[weak self] in
+   let result=await worker.result
+   guard let self,selection==self.localSelectionGeneration,self.localFileURL==url,
+         self.localSourceRoomID==context.roomID,self.localSourceRoomURL==context.mediaID else{return}
+   self.saveMovieTask=nil
+   switch result {
+   case .success(let record):
+    do {try self.movieSelectionStore.save(record);self.rememberedMovie=record;self.localMoviePersistenceStatus="已记住本机影片，重新打开 App 自动恢复。"}
+    catch {self.localMoviePersistenceStatus="影片已选择，但保存关联失败，请检查可用空间。"}
+   case .failure(let error):
+    if !(error is CancellationError) {self.localMoviePersistenceStatus="影片可继续播放，但暂未保存重启授权："+error.localizedDescription}
+   }
+  }
+ }
+ @discardableResult private func restoreRememberedMovie(for room:Room)->Bool {
+  guard let record=rememberedMovie else{return false}
+  let context=RoomMovieContext(server:credentialServer,roomID:room.roomId,mediaID:room.mediaUrl)
+  guard record.context==context else{forgetRememberedMovie();return false}
+  if restoreMovieTask != nil {return true}
+  let selection=localSelectionGeneration,documents=movieSelectionStore.documents
+  localMoviePersistenceStatus="正在恢复上次本机影片…";requestStatus=localMoviePersistenceStatus
+  let worker=Task.detached(priority:.utility){try record.resolve(documents:documents)}
+  restoreMovieTask=worker
+  Task {[weak self] in
+   let result=await worker.result
+   guard let self,selection==self.localSelectionGeneration,self.localFileURL==nil,self.pendingLocalFile==nil,
+         let current=self.engine.room,
+         RoomMovieContext(server:self.credentialServer,roomID:current.roomId,mediaID:current.mediaUrl)==context else{return}
+   self.restoreMovieTask=nil
+   switch result {
+   case .success(let file):
+    self.localFileURL=file.url;self.localFileSecurityScoped=file.transferAccess();self.localFileName=file.url.lastPathComponent
+    self.localSourceRoomID=context.roomID;self.localSourceRoomURL=context.mediaID
+    self.baiduPlaybackURL=nil;self.baiduFileName="";self.activeLocalSource="";self.localMediaURL=""
+    self.baiduSourceID=BaiduMediaReference(value:context.mediaID)==nil ? "" : context.mediaID
+    self.baiduSourceRoom=self.baiduSourceID.isEmpty ? "" : context.roomID
+    self.variantRoomID=record.confirmedVariant ? context.roomID : "";self.variantMediaURL=record.confirmedVariant ? context.mediaID : ""
+    self.variantReferenceDuration=record.confirmedVariant ? current.duration ?? record.referenceDuration : 0
+    do {try self.movieSelectionStore.save(file.refreshed);self.rememberedMovie=file.refreshed;self.localMoviePersistenceStatus="已自动恢复上次本机影片。"}
+    catch {self.localMoviePersistenceStatus="影片已恢复，但更新文件授权失败，下次可能需要重新选择。"}
+    self.loadedURL=context.mediaID;self.loadMedia(file.url);self.requestStatus="已恢复本机影片，按房间进度同步。"
+   case .failure(let error):
+    if !(error is CancellationError) {self.localMoviePersistenceStatus="本机影片恢复失败："+error.localizedDescription;self.requestStatus=self.localMoviePersistenceStatus}
+   }
+  }
+  return true
+ }
  private func releaseLocalFileAccess() {
   if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()}
   localFileSecurityScoped=false;localFileURL=nil;localFileName=""
@@ -1291,13 +1371,13 @@ extension TestClient {
   guard let roomURL=engine.room?.mediaUrl,let room=URL(string:roomURL) else {requestStatus="请先加入房间";return}
   guard BaiduMediaReference(value:roomURL)==nil else {requestStatus="当前房间使用文件匹配，请点“选择本地影片”或使用自己的百度授权选片。";return}
   if !localMediaURL.isEmpty && MediaSourceCatalog.resolve(localMediaURL)==nil {requestStatus="本机片源需要 HTTP、HLS 或 WebDAV 文件直链";return}
-  releaseLocalFileAccess();activeLocalSource=localMediaURL;localSourceRoomURL=roomURL;localSourceRoomID=engine.room?.roomId ?? "";loadMedia(playbackSource(for:room))
+  forgetRememberedMovie();releaseLocalFileAccess();activeLocalSource=localMediaURL;localSourceRoomURL=roomURL;localSourceRoomID=engine.room?.roomId ?? "";loadMedia(playbackSource(for:room))
   requestStatus=localMediaURL.isEmpty ? "恢复房间片源" : "本机片源已应用；链接未传给服务器或对方，请确认同一剪辑版本"
  }
  func beginLocalFileSelection(publishRoom: Bool=true) {
   localQualityCandidate=nil
   requestStatus="请选择已下载的本地影片。"
-  localSelectionGeneration += 1;pendingLocalFile=nil
+  localSelectionGeneration += 1;restoreMovieTask?.cancel();restoreMovieTask=nil;saveMovieTask?.cancel();saveMovieTask=nil;localMoviePersistenceStatus="";pendingLocalFile=nil
   localSelectionRoom=engine.room?.roomId ?? (credentials?["roomId"] as? String ?? "")
   localSelectionMedia=engine.room?.mediaUrl ?? "";localSelectionPublishes=publishRoom
  }
@@ -1319,6 +1399,7 @@ extension TestClient {
   localFileURL=url;localFileSecurityScoped=scoped;localFileName=url.lastPathComponent
   Task {
   do {
+   guard selection==localSelectionGeneration,engine.room?.roomId==room.roomId,engine.room?.mediaUrl==room.mediaUrl else{return}
    let existing=BaiduMediaReference(value:room.mediaUrl)
    var reference=existing
    if existing != nil || (isHost && localSelectionPublishes) {
@@ -1352,6 +1433,7 @@ extension TestClient {
     baiduSourceID="";baiduSourceRoom="";localSourceRoomURL=room.mediaUrl
     loadMedia(url);requestStatus="本地影片已应用；文件只从这台 iPad 读取，不会上传或共享。"
    }
+   rememberCurrentLocalMovie()
   } catch {
    guard selection==localSelectionGeneration else {return}
    releaseLocalFileAccess();requestStatus="读取本地影片失败，请确认文件已完整下载并可在“文件”App中打开。"
@@ -1371,6 +1453,7 @@ extension TestClient {
  var cleanupSourceURL:URL? {usingLocalFile ? localFileURL : nil}
  func detachLocalFileForCleanup(_ expected:URL)->Bool {
   guard cleanupSourceURL==expected,currentOriginalURL==expected || currentOriginalURL==nil else{return false}
+  forgetRememberedMovie()
   plotIntelligence.wholeFilm.cancel()
   voice.disable();setSpeedHold(false);clearOptimisticPlayback()
   plotIntelligence.preserveCurrentFilmEvidence();plotIntelligence.cancel()
@@ -1394,6 +1477,7 @@ extension TestClient {
  }
  #endif
  func clearLocalFileSource() {
+  forgetRememberedMovie()
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
   localSelectionGeneration += 1;pendingLocalFile=nil
   guard let room=engine.room else {releaseLocalFileAccess();requestStatus="本地影片已清除";return}
@@ -1422,7 +1506,7 @@ extension TestClient {
    reference=target.value
   }
   guard !isHost || variant || queuedOperations.count<8 else {requestStatus="请等待前面的操作完成";return false}
-  releaseLocalFileAccess();baiduSourceID=reference;baiduSourceRoom=room.roomId;baiduPlaybackURL=url;baiduFileName=file.name
+  forgetRememberedMovie();releaseLocalFileAccess();baiduSourceID=reference;baiduSourceRoom=room.roomId;baiduPlaybackURL=url;baiduFileName=file.name
   activeLocalSource=url.absoluteString;localSourceRoomURL=reference;localSourceRoomID=room.roomId;localMediaURL=""
   variantRoomID=variant ? room.roomId : "";variantMediaURL=variant ? room.mediaUrl : ""
   variantReferenceDuration=variant ? room.duration ?? 0 : 0
@@ -1487,8 +1571,9 @@ extension TestClient {
   let now=clock.localNow();guard connected,now-lastTyping>1000 else {return};lastTyping=now;send(["type":"CHAT_TYPING"])
  }
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
- func leaveRoom() {voice.disable();guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
+ func leaveRoom() {forgetRememberedMovie();voice.disable();guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
+  forgetRememberedMovie()
   supportsBlockingPolls=false
   plotIntelligence.cancel()
   voice.disable()

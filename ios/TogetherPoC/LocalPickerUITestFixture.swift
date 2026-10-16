@@ -27,6 +27,22 @@ import Foundation
   }
   if let active {model.installCleanupTestSource(active)}
  }
+ private static var persistenceInstalled=false
+ static func installPersistence(into model:TestClient)throws {
+  guard !persistenceInstalled else{return};persistenceInstalled=true
+  let seed=ProcessInfo.processInfo.environment["TOGETHER_PERSISTENCE_SEED"]=="1"
+  if seed {model.clearLocalFileSource()}
+  try install(into:model)
+  if seed {
+   let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
+   let folder=documents.appendingPathComponent("ImportedMovies/46420000-0000-4000-8000-000000000042")
+   try? FileManager.default.removeItem(at:folder)
+   try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+   let movie=folder.appendingPathComponent("REMEMBERED-ROOM-MOVIE.MP4")
+   try FileManager.default.copyItem(at:documents.appendingPathComponent("LOCAL-PICKER-TEST.MP4"),to:movie)
+   model.beginLocalFileSelection();model.useLocalFile(movie)
+  }
+ }
  static func installCleanup(into model:TestClient)throws {
   try install(into:model)
   let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]

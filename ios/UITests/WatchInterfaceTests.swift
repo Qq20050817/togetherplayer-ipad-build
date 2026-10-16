@@ -1,6 +1,38 @@
 import XCTest
 
 final class WatchInterfaceTests: XCTestCase {
+ func testRememberedMovieSurvivesRelaunchAndLeaveKeepsFileButClearsAssociation() {
+  let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1"
+  app.launchEnvironment["TOGETHER_PERSISTENCE_UI_TEST"]="1";app.launchEnvironment["TOGETHER_PERSISTENCE_SEED"]="1"
+  app.launch();XCUIDevice.shared.orientation = .landscapeLeft
+  func openSettings() {
+   let button=app.buttons["打开房间与片源"];XCTAssertTrue(button.waitForExistence(timeout:15));button.tap()
+  }
+  func revealLocal() {
+   let manage=app.buttons["manage-imported-movies"]
+   for _ in 0..<7 {if manage.isHittable {break};app.swipeUp()}
+   XCTAssertTrue(manage.isHittable)
+  }
+  openSettings();revealLocal()
+  let status=app.staticTexts["local-movie-persistence-status"],local=app.staticTexts["本地影片：REMEMBERED-ROOM-MOVIE.MP4"]
+  expectation(for:NSPredicate(format:"label CONTAINS '已记住'"),evaluatedWith:status);waitForExpectations(timeout:15)
+  XCTAssertTrue(local.exists);app.terminate()
+  app.launchEnvironment["TOGETHER_PERSISTENCE_SEED"]="0";app.launch();openSettings();revealLocal()
+  expectation(for:NSPredicate(format:"label CONTAINS '已自动恢复'"),evaluatedWith:status);waitForExpectations(timeout:15)
+  XCTAssertTrue(local.exists)
+  XCTAssertFalse(app.otherElements["local-movie-document-picker"].exists)
+  capture("remembered-movie-after-process-relaunch",app)
+  let leave=app.buttons["离开房间"]
+  for _ in 0..<7 {if leave.isHittable {break};app.swipeDown()}
+  XCTAssertTrue(leave.isHittable);leave.tap();app.terminate()
+  app.launch();openSettings();revealLocal()
+  XCTAssertFalse(local.exists)
+  app.buttons["manage-imported-movies"].tap()
+  let kept=app.switches["import-library-select-REMEMBERED-ROOM-MOVIE.MP4"]
+  XCTAssertTrue(kept.waitForExistence(timeout:10))
+  capture("room-leave-keeps-copy-clears-association",app)
+ }
+
  func testImportLibraryFindsDuplicatesProtectsCurrentAndDeletesOnlyConfirmedCopy() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_IMPORT_LIBRARY_TEST"]="1"
   app.launch();XCUIDevice.shared.orientation = .landscapeLeft

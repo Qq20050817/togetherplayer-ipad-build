@@ -44,6 +44,7 @@ import UniformTypeIdentifiers
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_IMPORT_LIBRARY_TEST"]=="1" {try? LocalPickerUITestFixture.installLibrary(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_MKV_TEST"]=="1" {try? LocalPickerUITestFixture.installMKV(into:model)}
+   if ProcessInfo.processInfo.environment["TOGETHER_PERSISTENCE_UI_TEST"]=="1" {try? LocalPickerUITestFixture.installPersistence(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_BANK_PICKER_TEST"]=="1" {try? FilmBankPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {try? LocalPickerUITestFixture.installRoomMediaValidation(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_LOCAL_QUALITY_TEST"]=="1" {try? LocalPickerUITestFixture.installQualitySelection(into:model)}
@@ -784,6 +785,7 @@ struct RoomActionStyle:ButtonStyle {
      if !moviePickerProgress.isEmpty {Text(moviePickerProgress).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("local-movie-import-status")}
      Text("直接选择读取原文件；兼容导入保存副本，相同内容会复用。新影片需要额外空间。").font(.caption).foregroundStyle(.secondary)
      Button {picker = .library} label:{Label("管理导入副本",systemImage:"internaldrive").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("manage-imported-movies")
+     if !model.localMoviePersistenceStatus.isEmpty {Text(model.localMoviePersistenceStatus).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("local-movie-persistence-status")}
      if !model.sourceNotice.isEmpty {Text(model.sourceNotice).font(.caption).foregroundStyle(.orange)}
      if model.cleanupSourceURL != nil {
       Button(role:.destructive) {if let source=model.cleanupSourceURL {picker = .cleanup(source,model.externalSubtitles.importedFileURL)}} label:{Label("看完清理 · 影片与字幕",systemImage:"trash.circle").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("watched-cleanup")
