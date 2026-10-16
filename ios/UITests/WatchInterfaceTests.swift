@@ -22,7 +22,7 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertTrue(local.exists)
   XCTAssertFalse(app.otherElements["local-movie-document-picker"].exists)
   capture("remembered-movie-after-process-relaunch",app)
-  let leave=app.buttons["离开房间"]
+  let leave=app.buttons["room-page-leave"]
   for _ in 0..<7 {if leave.isHittable {break};app.swipeDown()}
   XCTAssertTrue(leave.isHittable);leave.tap();app.terminate()
   app.launch();openSettings();revealLocal()
