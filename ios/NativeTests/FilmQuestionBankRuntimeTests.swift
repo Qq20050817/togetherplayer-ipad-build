@@ -65,6 +65,12 @@ import XCTest
   let store=FilmQuestionBankStore(directory:root.appendingPathComponent("bank"))
   var generatedBank=bank(fingerprint:hash)
   generatedBank.storyEndMs=90_000
+  generatedBank.filmReview=FilmReview(
+   plotBeats:[FilmReviewBeat(title:"谜团",detail:"手套引出案件主线"),FilmReviewBeat(title:"真相",detail:"录像确定了物证的真实来源")],
+   characters:[FilmReviewCharacter(name:"调查者",role:"通过核对监控追查证人动机")],
+   theme:"故事借一件不起眼的物证，提醒观众不要仅凭直觉判定他人的动机。",
+   discussion:"你认为调查者应该先去确认哪一条线索，才能尽量避免误判？"
+  )
   try await store.save(generatedBank,filmKey:"room-film")
   var monotonic=1000.0
   let runtime=FilmQuestionBankRuntime(store:store,progressStore:FilmBankProgressStore(directory:root.appendingPathComponent("progress")),uptimeNow:{monotonic})
@@ -103,6 +109,9 @@ import XCTest
   }
   XCTAssertEqual(paused,1)
   XCTAssertTrue(runtime.finalReport.contains("正确答案"))
+  XCTAssertTrue(runtime.finalReport.contains("🎞 全片复盘"))
+  XCTAssertTrue(runtime.finalReport.contains("剧情节点：1｜谜团"))
+  XCTAssertTrue(runtime.finalReport.contains("观后讨论："))
   XCTAssertTrue(runtime.finalReport.contains("玩家A"))
   XCTAssertTrue(recaps.joined().contains("观影结算"))
   await clock(92_000,playing:false)
