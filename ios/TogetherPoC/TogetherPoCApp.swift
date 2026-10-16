@@ -43,6 +43,7 @@ import UniformTypeIdentifiers
    if ProcessInfo.processInfo.environment["TOGETHER_SUBTITLE_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.installSubtitle(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_PICKER_SELECTION_TEST"]=="1" {try? LocalPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_IMPORT_LIBRARY_TEST"]=="1" {try? LocalPickerUITestFixture.installLibrary(into:model)}
+   if ProcessInfo.processInfo.environment["TOGETHER_PICKER_MKV_TEST"]=="1" {try? LocalPickerUITestFixture.installMKV(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_BANK_PICKER_TEST"]=="1" {try? FilmBankPickerUITestFixture.install(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {try? LocalPickerUITestFixture.installRoomMediaValidation(into:model)}
    if ProcessInfo.processInfo.environment["TOGETHER_LOCAL_QUALITY_TEST"]=="1" {try? LocalPickerUITestFixture.installQualitySelection(into:model)}
@@ -839,11 +840,25 @@ struct RoomActionStyle:ButtonStyle {
      },onProcessing:{message in
       guard movieSelectionToken==token else{return}
       moviePickerProgress=message;model.requestStatus=message
-     })
+     }).allowsHitTesting(moviePickerProgress.isEmpty)
+      .safeAreaInset(edge:.bottom,spacing:0) {
+       if moviePickerProgress.isEmpty {
+        VStack(spacing:4) {
+         Text(mode == .copy ? "兼容复制导入" : "直接读取原文件").font(.headline).accessibilityIdentifier("local-movie-picker-mode")
+         Text(mode == .copy ? "选中文件后由系统复制到 App；大影片需要临时空间。" : "使用文件提供程序授予的读取权限，不创建副本。")
+          .font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth:.infinity).padding(12).background(Color(white:0.08))
+       }
+      }
      if !moviePickerProgress.isEmpty {
-      VStack(spacing:12) {ProgressView();Text(moviePickerProgress).font(.callout).multilineTextAlignment(.center)}
-       .padding(24).background(.regularMaterial).clipShape(RoundedRectangle(cornerRadius:16))
-       .accessibilityIdentifier("local-movie-picker-processing").allowsHitTesting(false)
+      // Retain the actual picker until the selected temporary URL has become
+      // durable. A full progress surface distinguishes this from a frozen Files view.
+      Color(white:0.04).ignoresSafeArea()
+      VStack(spacing:16) {
+       ProgressView().controlSize(.large)
+       Text(moviePickerProgress).font(.callout).multilineTextAlignment(.center)
+       Text("处理完成后自动打开影片").font(.caption).foregroundStyle(.secondary)
+      }.padding(28).accessibilityIdentifier("local-movie-picker-processing")
      }
     }
    }.alert("使用同一影片的另一画质？",isPresented:Binding(get:{model.localQualityCandidate != nil},set:{if !$0 {model.cancelLocalQuality()}}),presenting:model.localQualityCandidate) {candidate in
@@ -882,7 +897,7 @@ struct RoomActionStyle:ButtonStyle {
 }
 // Use one presentation route for this screen. In particular, the document
 // browser must also work when RoomScreen itself is shown inside a settings sheet.
-struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
+@MainActor struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  var asCopy=false
  static var contentTypes:[UTType] {
   // .item includes folders; explicit file types do not depend on Infuse's UTI.
@@ -895,31 +910,35 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  var onProcessing:(String)->Void={_ in}
  func makeCoordinator()->Coordinator {Coordinator(asCopy:asCopy,onPick:onPick,onCancel:onCancel,onFailure:onFailure,onProcessing:onProcessing)}
  func makeUIViewController(context:Context)->UIDocumentPickerViewController {
-  // Inspect the granted original first. Let the App copy only when needed,
-  // rather than making Files create another full-size temporary copy upfront.
-  let controller=UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:false)
+  let controller=Self.makeController(asCopy:asCopy)
   controller.allowsMultipleSelection=false;controller.delegate=context.coordinator
   controller.shouldShowFileExtensions=true
   if let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask).first {controller.directoryURL=documents}
   controller.view.accessibilityIdentifier="local-movie-document-picker"
   return controller
  }
+ // Compatibility is a real system-copy import. Opening an external provider
+ // in-place cannot replace it: some providers do not support open-in-place.
+ static func makeController(asCopy:Bool)->UIDocumentPickerViewController {
+  UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:asCopy)
+ }
  func updateUIViewController(_ controller:UIDocumentPickerViewController,context:Context) {}
- final class Coordinator:NSObject,UIDocumentPickerDelegate {
+ @MainActor final class Coordinator:NSObject,UIDocumentPickerDelegate {
   let asCopy:Bool;let onPick:(URL)->Void;let onCancel:()->Void;let onFailure:(String)->Void;let onProcessing:(String)->Void
   private var completed=false
-  init(asCopy:Bool,onPick:@escaping(URL)->Void,onCancel:@escaping()->Void,onFailure:@escaping(String)->Void,onProcessing:@escaping(String)->Void){
-   self.asCopy=asCopy;self.onPick=onPick;self.onCancel=onCancel;self.onFailure=onFailure;self.onProcessing=onProcessing
+  private let documents:URL
+  init(asCopy:Bool,documents:URL=LocalMovieCopyStore.documents,onPick:@escaping(URL)->Void,onCancel:@escaping()->Void,onFailure:@escaping(String)->Void,onProcessing:@escaping(String)->Void){
+   self.asCopy=asCopy;self.documents=documents;self.onPick=onPick;self.onCancel=onCancel;self.onFailure=onFailure;self.onProcessing=onProcessing
   }
   func documentPicker(_ controller:UIDocumentPickerViewController,didPickDocumentsAt urls:[URL]) {
    guard !completed else {return};completed=true
    guard let url=urls.first else {onCancel();return}
    guard asCopy else {onPick(url);return}
-   onProcessing("已选中 \(url.lastPathComponent)，正在保存影片副本…")
+   onProcessing("已收到影片：\(url.lastPathComponent)\n正在读取系统导入副本…")
    // Keep a provider grant alive until the imported copy is durable.
-   let scoped=url.startAccessingSecurityScopedResource()
-   DispatchQueue.global(qos:.userInitiated).async { [self] in
-    let result=Result {try LocalMovieCopyStore.persistCoordinated(url){message in DispatchQueue.main.async{[self] in onProcessing(message)}}}
+   let scoped=url.startAccessingSecurityScopedResource(),destination=documents
+   DispatchQueue.global(qos:.utility).async { [self] in
+    let result=Result {try LocalMovieCopyStore.persistCoordinated(url,documents:destination){message in DispatchQueue.main.async{[self] in onProcessing(message)}}}
     if scoped {url.stopAccessingSecurityScopedResource()}
     DispatchQueue.main.async { [self] in
      switch result {
@@ -928,7 +947,7 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
       onPick(result.url)
      case .failure(let error):
       let code=(error as NSError).code
-      onFailure("兼容导入副本保存失败（错误码 \(code)），请检查可用空间后重试。原片未修改。")
+      onFailure("兼容导入失败：\(error.localizedDescription)（错误码 \(code)）。请确认影片已下载并检查可用空间。")
      }
     }
    }

@@ -681,23 +681,33 @@ final class WatchInterfaceTests: XCTestCase {
  func testCompatibleCopyImportReturnsFromFilesAndLoadsLocalSource() {
   selectUppercaseMP4(copy:true)
  }
- private func selectUppercaseMP4(copy:Bool) {
+ func testCompatibleMKVSystemCopyClosesFilesAndLoadsMovie() {
+  selectUppercaseMP4(copy:true,mkv:true)
+ }
+
+ private func selectUppercaseMP4(copy:Bool,mkv:Bool=false) {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1"
-  app.launchEnvironment["TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
+  app.launchEnvironment[mkv ? "TOGETHER_PICKER_MKV_TEST" : "TOGETHER_PICKER_SELECTION_TEST"]="1";app.launch()
   XCUIDevice.shared.orientation = .landscapeLeft
   let settings=app.buttons["打开房间与片源"]
   XCTAssertTrue(settings.waitForExistence(timeout:15));settings.tap()
   let choose=app.buttons[copy ? "import-local-movie-copy" : "choose-local-movie"]
   for _ in 0..<6 {if choose.isHittable {break};app.swipeUp()}
   XCTAssertTrue(choose.isHittable);choose.tap()
-  let file=app.cells.matching(NSPredicate(format:"label CONTAINS %@", "LOCAL-PICKER-TEST")).firstMatch
+  let mode=app.staticTexts["local-movie-picker-mode"];XCTAssertTrue(mode.waitForExistence(timeout:10))
+  XCTAssertEqual(mode.label,copy ? "兼容复制导入" : "直接读取原文件")
+  let file=app.cells.matching(NSPredicate(format:"label CONTAINS %@",mkv ? "COMPAT-MKV-FIXTURE" : "LOCAL-PICKER-TEST")).firstMatch
   // The first simulator DocumentsUI provider can start slowly; select the real file cell.
   XCTAssertTrue(file.waitForExistence(timeout:90),app.debugDescription)
   file.tap()
-  let local=app.staticTexts["本地影片：LOCAL-PICKER-TEST.MP4"]
+  let local=app.staticTexts[mkv ? "本地影片：COMPAT-MKV-FIXTURE.mkv" : "本地影片：LOCAL-PICKER-TEST.MP4"]
   XCTAssertTrue(local.waitForExistence(timeout:12),app.debugDescription)
   XCTAssertFalse(app.otherElements["local-movie-document-picker"].exists)
-  capture("08-selected-uppercase-mp4",app)
+  if copy {
+   let result=app.staticTexts["local-movie-import-status"];XCTAssertTrue(result.exists)
+   XCTAssertTrue(result.label.contains("影片副本已保存") || result.label.contains("已复用已有文件"),result.label)
+  }
+  capture(mkv ? "compat-system-copy-mkv" : "08-selected-uppercase-mp4",app)
  }
  func testLocalMoviePickerOpensFromRoomSettingsSheet() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launch()
