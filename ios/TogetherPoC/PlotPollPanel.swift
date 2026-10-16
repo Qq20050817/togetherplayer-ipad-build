@@ -181,7 +181,25 @@ import UniformTypeIdentifiers
     Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本轮已发布 \(bank.publishedCount) 道 · 已答完 \(bank.completedCount) 道")
      .font(.caption).foregroundStyle(.secondary)
     Text("原片指纹已核对；题目随播放触发，正确答案仅在揭晓后发送。").font(.caption2).foregroundStyle(.secondary)
+    if let ending=bank.storyEndAtMs {
+     Text("剧情结束点：\(ending/60000):\(String(format:"%02d",(ending/1000)%60)) · 自动跳过后续演职员表")
+      .font(.caption).accessibilityIdentifier("plot-story-end-marker")
+    } else {
+     Text("尚无可靠剧情结束点，暂按真实影片播放完毕结算。").font(.caption2).foregroundStyle(.secondary)
+    }
+    Button("把当前播放位置设为剧情结束点") {bank.setStoryEnd(at:model.bankPlaybackPositionMs)}
+     .font(.caption).buttonStyle(.bordered).accessibilityIdentifier("plot-set-story-end")
+    if bank.storyEndAtMs != nil {
+     Button("恢复题库推荐结束点") {bank.restoreStoryEndSuggestion()}
+      .font(.caption).buttonStyle(.bordered)
+    }
     Button("开始新一轮题库") {restartBankRound=true}.disabled(bank.importing).accessibilityIdentifier("plot-restart-bank-round")
+   }
+   if !bank.finalReport.isEmpty {
+    DisclosureGroup("🎬 上一轮观影结算与全部解析") {
+     Text(bank.finalReport).font(.callout).textSelection(.enabled)
+      .accessibilityIdentifier("plot-film-final-report")
+    }.accessibilityIdentifier("plot-final-report-section")
    }
    if !bank.revealedAnswer.isEmpty {
     Text("剧情已揭晓").font(.headline)
