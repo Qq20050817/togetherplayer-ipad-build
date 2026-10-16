@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Qq20050817/togetherplayer-ipad-build/blob/feat/film-bank-v2-completion-20261016/docs/question-bank-v1.schema.json",
+  "$id": "https://github.com/Qq20050817/togetherplayer-ipad-build/blob/feat/ipad-visual-recap-review-20261017/docs/question-bank-v1.schema.json",
   "title": "TogetherPlayer AI Question Bank v1",
   "type": "object",
   "additionalProperties": false,
@@ -64,6 +64,9 @@
       "items": {
         "$ref": "#/$defs/question"
       }
+    },
+    "filmReview": {
+      "$ref": "#/$defs/filmReview"
     }
   },
   "$defs": {
@@ -230,6 +233,77 @@
           }
         }
       ]
+    },
+    "filmReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plotBeats",
+        "characters",
+        "theme",
+        "discussion"
+      ],
+      "properties": {
+        "plotBeats": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "detail"
+            ],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 36
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 160
+              }
+            }
+          }
+        },
+        "characters": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "role"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "role": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 150
+              }
+            }
+          }
+        },
+        "theme": {
+          "type": "string",
+          "minLength": 15,
+          "maxLength": 260
+        },
+        "discussion": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 180
+        }
+      }
     }
   }
 }
