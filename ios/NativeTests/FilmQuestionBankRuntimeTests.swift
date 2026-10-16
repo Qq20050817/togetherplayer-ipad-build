@@ -56,6 +56,67 @@ import XCTest
   }
   XCTAssertNil(runtime.active)
  }
+ func testNarrativeCreditsMarkerFinishesWithoutWatchingCreditsOrJumpSpoilers() async throws {
+  let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+  defer{try? FileManager.default.removeItem(at:root)}
+  let movie=root.appendingPathComponent("story-end.mp4")
+  try Data(repeating:0x31,count:512).write(to:movie)
+  let hash=try FilmMaterialFingerprint.source(movie)
+  let store=FilmQuestionBankStore(directory:root.appendingPathComponent("bank"))
+  var generatedBank=bank(fingerprint:hash)
+  generatedBank.storyEndMs=90_000
+  try await store.save(generatedBank,filmKey:"room-film")
+  var monotonic=1000.0
+  let runtime=FilmQuestionBankRuntime(store:store,progressStore:FilmBankProgressStore(directory:root.appendingPathComponent("progress")),uptimeNow:{monotonic})
+  runtime.restore(filmKey:"room-film",source:movie,durationMs:120_000)
+  await runtime.waitForRestore()
+  XCTAssertNotNil(runtime.active)
+  var paused=0,sent:[String]=[],recaps:[String]=[]
+  func clock(_ ms:Double,playing:Bool=true) async {
+   monotonic+=1
+   runtime.tick(filmKey:"room-film",positionMs:ms,durationMs:120_000,
+    canPublish:playing,canReveal:true,revealPositionMs:ms,
+    canFinish:playing,pauseAtStoryEnd:{paused+=1},participantNames:["alice":"玩家A"],
+    publish:{sent.append($0.text)},
+    reveal:{part in
+     if part.id.hasPrefix("bank-final:") {recaps.append(part.text)}
+     runtime.acknowledgeReveal(part.id)
+    })
+   await runtime.waitForProgress()
+  }
+  await clock(29_500);await clock(30_500)
+  XCTAssertEqual(sent.count,1)
+  let options=generatedBank.questions[0].options
+  runtime.observePoll(["id":"poll1","question":generatedBank.questions[0].question,
+   "options":options,"revealed":false])
+  runtime.observePoll(["id":"poll1","question":generatedBank.questions[0].question,
+   "options":options,"revealed":true,"answers":["alice":options[1]]])
+  await runtime.waitForProgress()
+  // Seek directly to the last second of the story: must never unveil.
+  await clock(89_500,playing:false)
+  await clock(90_500)
+  XCTAssertTrue(runtime.finalReport.isEmpty)
+  XCTAssertEqual(paused,0)
+  await clock(76_000,playing:false)
+  for time in stride(from:77_000,through:91_000,by:1_000) {
+   await clock(Double(time))
+  }
+  XCTAssertEqual(paused,1)
+  XCTAssertTrue(runtime.finalReport.contains("正确答案"))
+  XCTAssertTrue(runtime.finalReport.contains("玩家A"))
+  XCTAssertTrue(recaps.joined().contains("观影结算"))
+  await clock(92_000,playing:false)
+  XCTAssertEqual(paused,1)
+  XCTAssertFalse(runtime.finalReport.isEmpty)
+ }
+ func testStoryEndMarkerMustFollowLastReveal() throws {
+  var invalid=bank(fingerprint:String(repeating:"a",count:64))
+  invalid.storyEndMs=45_000
+  XCTAssertThrowsError(try FilmBankCodec.validate(invalid))
+  invalid.storyEndMs=90_000
+  XCTAssertNoThrow(try FilmBankCodec.validate(invalid))
+ }
  func testFFmpegDecodesKnownVideoFrameWithoutLivePlayer() throws {
   let movie=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".mp4")
   try TestMovieFixture.mp4.write(to:movie)
