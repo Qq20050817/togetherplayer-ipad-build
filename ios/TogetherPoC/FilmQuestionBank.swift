@@ -10,6 +10,16 @@ struct FilmBankEvidence:Codable,Equatable {
  let text:String
 }
 
+// Optional whole-film recap, created offline from verified full-film evidence.
+struct FilmReviewBeat:Codable,Equatable {let title:String;let detail:String}
+struct FilmReviewCharacter:Codable,Equatable {let name:String;let role:String}
+struct FilmReview:Codable,Equatable {
+ let plotBeats:[FilmReviewBeat]
+ let characters:[FilmReviewCharacter]
+ let theme:String
+ let discussion:String
+}
+
 struct FilmBankQuestion:Codable,Equatable,Identifiable {
  let id:String
  let triggerAtMs:Int
@@ -32,6 +42,7 @@ struct FilmQuestionBank:Codable,Equatable {
  let edition:String?
  let durationMs:Int
  var storyEndMs:Int?=nil
+ var filmReview:FilmReview?=nil
  let sourceFingerprint:String?
  let subtitleFingerprint:String?
  let questions:[FilmBankQuestion]
@@ -75,7 +86,7 @@ enum FilmBankCodec {
    if let unknown=fields.subtracting(allowed).sorted().first {throw FilmBankValidation.detail(path+" 存在 Schema 未定义字段："+unknown)}
   }
   guard let root=try JSONSerialization.jsonObject(with:data) as? [String:Any] else{throw FilmBankValidation.invalidFormat}
-  try keys(root,required:["schemaVersion","title","durationMs","sourceFingerprint","subtitleFingerprint","questions"],allowed:["schemaVersion","title","year","edition","durationMs","storyEndMs","sourceFingerprint","subtitleFingerprint","questions"],path:"题库")
+  try keys(root,required:["schemaVersion","title","durationMs","sourceFingerprint","subtitleFingerprint","questions"],allowed:["schemaVersion","title","year","edition","durationMs","storyEndMs","filmReview","sourceFingerprint","subtitleFingerprint","questions"],path:"题库")
   for (index,q) in ((root["questions"] as? [[String:Any]]) ?? []).enumerated() {
    let fields:Set<String>=["id","triggerAtMs","revealAtMs","type","question","options","answerIndex","evidence","revealEvidence","explanation","confidence","qualityScore"]
    try keys(q,required:fields,allowed:fields,path:"第\(index+1)题")
@@ -94,6 +105,14 @@ enum FilmBankCodec {
    bank.durationMs<=43_200_000,!bank.questions.isEmpty,bank.questions.count<=30 else {throw FilmBankValidation.missingIdentity}
   if let end=bank.storyEndMs {
    guard end>=60_000,end<=bank.durationMs,bank.questions.allSatisfy({$0.triggerAtMs<=end && ($0.revealAtMs ?? 0)<=end}) else {throw FilmBankValidation.detail("剧情结束时间必须覆盖全部题目及揭晓，并且不得超过影片时长。")}
+  }
+  if let review=bank.filmReview {
+   guard (2...5).contains(review.plotBeats.count),review.characters.count<=6,
+    review.plotBeats.allSatisfy({(1...36).contains($0.title.count) && (3...160).contains($0.detail.count)}),
+    review.characters.allSatisfy({(1...40).contains($0.name.count) && (3...150).contains($0.role.count)}),
+    (15...260).contains(review.theme.count),(8...180).contains(review.discussion.count) else {
+     throw FilmBankValidation.detail("全片复盘结构或字数超出 Schema 限制。")
+    }
   }
   guard fingerprintValid(bank.sourceFingerprint),bank.subtitleFingerprint==nil || fingerprintValid(bank.subtitleFingerprint) else{throw FilmBankValidation.detail("sourceFingerprint/subtitleFingerprint 必须是导出素材中的64位SHA256指纹。 ")}
   var ids=Set<String>();var triggers=Set<Int>();var texts=Set<String>()
@@ -164,12 +183,12 @@ actor FilmQuestionBankStore {
 }
 
 extension FilmQuestionBank {
- enum CodingKeys:String,CodingKey {case schemaVersion,title,year,edition,durationMs,storyEndMs,sourceFingerprint,subtitleFingerprint,questions}
+ enum CodingKeys:String,CodingKey {case schemaVersion,title,year,edition,durationMs,storyEndMs,filmReview,sourceFingerprint,subtitleFingerprint,questions}
  func encode(to encoder:Encoder)throws {
   var c=encoder.container(keyedBy:CodingKeys.self)
   try c.encode(schemaVersion,forKey:.schemaVersion);try c.encode(title,forKey:.title)
   try c.encodeIfPresent(year,forKey:.year);try c.encodeIfPresent(edition,forKey:.edition)
-  try c.encode(durationMs,forKey:.durationMs);try c.encodeIfPresent(storyEndMs,forKey:.storyEndMs);try c.encode(sourceFingerprint,forKey:.sourceFingerprint)
+  try c.encode(durationMs,forKey:.durationMs);try c.encodeIfPresent(storyEndMs,forKey:.storyEndMs);try c.encodeIfPresent(filmReview,forKey:.filmReview);try c.encode(sourceFingerprint,forKey:.sourceFingerprint)
   try c.encode(subtitleFingerprint,forKey:.subtitleFingerprint);try c.encode(questions,forKey:.questions)
  }
 }
