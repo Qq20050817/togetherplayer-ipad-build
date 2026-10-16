@@ -737,8 +737,6 @@ struct RoomActionStyle:ButtonStyle {
  @State private var moviePicker:MoviePicker?
  @State private var moviePickerProgress=""
  @State private var movieSelectionToken=UUID()
- @State private var movieSelectionDelivered=false
- @State private var movieSelectionProcessing=false
  var body: some View {
   ScrollView {
    VStack(alignment:.leading,spacing:14) {
@@ -820,23 +818,23 @@ struct RoomActionStyle:ButtonStyle {
     case .cleanup(let source,let subtitle):
      WatchedCleanupSheet(source:source,importedSubtitle:subtitle,detach:{model.detachLocalFileForCleanup($0)},report:{model.requestStatus=$0},clearAnalysis:{[film=model.plotIntelligence.wholeFilm.filmKey] in try await model.plotIntelligence.wholeFilm.clearSavedAnalysis(expectedFilm:film)})
     }
-   }.fullScreenCover(item:$moviePicker,onDismiss:finishMovieSelection) {mode in
+   }.fullScreenCover(item:$moviePicker) {mode in
     let token=movieSelectionToken
     ZStack {
      LocalMovieDocumentPicker(asCopy:mode == .copy,onPick:{url in
       guard movieSelectionToken==token else{return}
-      movieSelectionDelivered=true;movieSelectionProcessing=false;moviePickerProgress="";moviePicker=nil
+      moviePickerProgress="";moviePicker=nil
       DispatchQueue.main.async {model.useLocalFile(url)}
      },onCancel:{
       guard movieSelectionToken==token else{return}
-      movieSelectionToken=UUID();movieSelectionProcessing=false;moviePickerProgress="";moviePicker=nil;model.cancelLocalFileSelection()
+      movieSelectionToken=UUID();moviePickerProgress="";moviePicker=nil;model.cancelLocalFileSelection()
      },onFailure:{message in
       guard movieSelectionToken==token else{return}
-      movieSelectionDelivered=true;movieSelectionProcessing=false;moviePickerProgress="";moviePicker=nil
+      moviePickerProgress="";moviePicker=nil
       model.cancelLocalFileSelection();model.requestStatus=message
      },onProcessing:{message in
       guard movieSelectionToken==token else{return}
-      movieSelectionProcessing=true;moviePickerProgress=message;model.requestStatus=message
+      moviePickerProgress=message;model.requestStatus=message
      })
      if !moviePickerProgress.isEmpty {
       VStack(spacing:12) {ProgressView();Text(moviePickerProgress).font(.callout).multilineTextAlignment(.center)}
@@ -852,16 +850,12 @@ struct RoomActionStyle:ButtonStyle {
    }
  }
  private func beginMovieSelection(_ mode:MoviePicker) {
-  movieSelectionToken=UUID();movieSelectionDelivered=false;movieSelectionProcessing=false;moviePickerProgress=""
+  movieSelectionToken=UUID();moviePickerProgress=""
   model.beginLocalFileSelection();moviePicker=mode
  }
- private func finishMovieSelection() {
-  // DocumentsUI can dismiss itself BEFORE an asynchronous imported copy is
-  // ready. Presentation state must not discard that already-selected result.
-  if !movieSelectionDelivered && !movieSelectionProcessing {
-   movieSelectionToken=UUID();model.cancelLocalFileSelection()
-  }
- }
+ // DocumentsUI dismissal is not a cancellation event. A provider can deliver
+ // the picked URL after that dismissal; only its explicit delegate Cancel or
+ // a new selection invalidates the delivery token.
  private var localMovieButton:some View {
   Button {beginMovieSelection(.open)} label:{Label("选择本地影片",systemImage:"folder.fill").frame(maxWidth:.infinity,alignment:.leading)}.accessibilityIdentifier("choose-local-movie")
  }
