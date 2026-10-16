@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [feat/android-film-recap-drawer-20261016]
+    branches: [feat/android-visual-recap-review-20261017]
     paths: ['android/**', '.github/workflows/android-film-recap-069.yml']
 permissions:
   contents: read
@@ -58,22 +58,22 @@ jobs:
         working-directory: android
         run: |
           mkdir -p ../android-delivery
-          cp app/build/outputs/apk/debug/app-debug.apk ../android-delivery/TogetherPlayer-Android-0.6.9-Film-Recap.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../android-delivery/TogetherPlayer-Android-0.6.10-Visual-Recap.apk
           gradle --no-daemon -PdeliveryArm64=true assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk ../android-delivery/TogetherPlayer-Android-0.6.9-Film-Recap-arm64.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../android-delivery/TogetherPlayer-Android-0.6.10-Visual-Recap-arm64.apk
       - name: Collect native phone screenshots
         if: always()
         run: |
           mkdir -p android-delivery/screenshots
-          if test -f android-delivery/TogetherPlayer-Android-0.6.9-Film-Recap.apk; then
-            test -s android-delivery/TogetherPlayer-Android-0.6.9-Film-Recap.apk
-            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.9-Film-Recap*.apk > SHA256SUMS.txt)
-            printf 'Source SHA: %s\nAndroid: 0.6.9\nScope: automatic solution recap drawer with final host chat-fragment reassembly. Preserves 0.6.8 cleanup and playback.\nValidation: unit tests and full emulator suite including real DocumentsUI folder grant and provider deletion; physical-device acceptance remains pending.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+          if test -f android-delivery/TogetherPlayer-Android-0.6.10-Visual-Recap.apk; then
+            test -s android-delivery/TogetherPlayer-Android-0.6.10-Visual-Recap.apk
+            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.10-Visual-Recap*.apk > SHA256SUMS.txt)
+            printf 'Source SHA: %s\nAndroid: 0.6.10\nScope: automatic solution recap drawer with final host chat-fragment reassembly. Preserves 0.6.8 cleanup and playback.\nValidation: unit tests and full emulator suite including real DocumentsUI folder grant and provider deletion; physical-device acceptance remains pending.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
           fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: TogetherPlayer-Android-film-recap
+          name: TogetherPlayer-Android-visual-recap
           path: |
             android-delivery/
             android/app/build/reports/
@@ -94,7 +94,7 @@ jobs:
   release-verified-android:
     name: Publish direct experimental APK (no ZIP)
     needs: android-build
-    if: ${{ success() && github.ref_name == 'feat/android-film-recap-drawer-20261016' }}
+    if: ${{ success() && github.ref_name == 'feat/android-visual-recap-review-20261017' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -107,14 +107,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-film-recap --dir verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-visual-recap --dir verified
           # Artifact upload keeps its android-delivery/ subdirectory on some runners.
           build_report="$(find verified -type f -name BUILD.txt -print -quit)"
           test -n "$build_report"
           archive_dir="$(dirname "$build_report")"
           grep -Fx "Source SHA: $GITHUB_SHA" "$build_report"
           (cd "$archive_dir" && sha256sum -c SHA256SUMS.txt)
-          test -s "$archive_dir/TogetherPlayer-Android-0.6.9-Film-Recap.apk"
+          test -s "$archive_dir/TogetherPlayer-Android-0.6.10-Visual-Recap.apk"
           mkdir -p release-files
           cp "$archive_dir/"*.apk "$archive_dir/BUILD.txt" "$archive_dir/SHA256SUMS.txt" release-files/
       - name: Release direct APK only after all tests pass
@@ -122,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="v0.6.9-android-film-recap-20261016"
+          tag="v0.6.10-android-visual-recap-20261017"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Tag already exists; refusing to overwrite existing assets." >&2
             exit 1
@@ -131,5 +131,5 @@ jobs:
             release-files/*.apk \
             release-files/BUILD.txt release-files/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "TogetherPlayer Android 0.6.9 - Automatic film recap drawer (preview)" \
-            --notes "0.6.9 auto opens the final film recap in the same side drawer as the plot poll. Reveals only after receiving all ordered host messages. Keeps legacy 0.6.8 movie cleanup, player, audio, subtitles and sync. Physical dual-device acceptance is outstanding."
+            --title "TogetherPlayer Android 0.6.10 - Visual question results and full-film review (preview)" \
+            --notes "0.6.10 auto opens the final film recap in the same side drawer as the plot poll. Reveals only after receiving all ordered host messages. Keeps legacy 0.6.8 movie cleanup, player, audio, subtitles and sync. Physical dual-device acceptance is outstanding."
