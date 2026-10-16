@@ -895,7 +895,9 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
  var onProcessing:(String)->Void={_ in}
  func makeCoordinator()->Coordinator {Coordinator(asCopy:asCopy,onPick:onPick,onCancel:onCancel,onFailure:onFailure,onProcessing:onProcessing)}
  func makeUIViewController(context:Context)->UIDocumentPickerViewController {
-  let controller=UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:asCopy)
+  // Inspect the granted original first. Let the App copy only when needed,
+  // rather than making Files create another full-size temporary copy upfront.
+  let controller=UIDocumentPickerViewController(forOpeningContentTypes:Self.contentTypes,asCopy:false)
   controller.allowsMultipleSelection=false;controller.delegate=context.coordinator
   controller.shouldShowFileExtensions=true
   if let documents=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask).first {controller.directoryURL=documents}
@@ -917,7 +919,7 @@ struct LocalMovieDocumentPicker: UIViewControllerRepresentable {
    // Keep a provider grant alive until the imported copy is durable.
    let scoped=url.startAccessingSecurityScopedResource()
    DispatchQueue.global(qos:.userInitiated).async { [self] in
-    let result=Result {try LocalMovieCopyStore.persistResult(url){message in DispatchQueue.main.async{[self] in onProcessing(message)}}}
+    let result=Result {try LocalMovieCopyStore.persistCoordinated(url){message in DispatchQueue.main.async{[self] in onProcessing(message)}}}
     if scoped {url.stopAccessingSecurityScopedResource()}
     DispatchQueue.main.async { [self] in
      switch result {

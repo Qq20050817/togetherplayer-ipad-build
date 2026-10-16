@@ -65,6 +65,16 @@ enum LocalMovieCopyStore {
   guard bytes==stamp.size,try CleanupFileStamp.read(url)==stamp else{throw Failure.changed}
   return hash.finalize().map{String(format:"%02x",$0)}.joined()
  }
+ /// Caller holds the provider security scope for the entire coordinated read/copy.
+ static func persistCoordinated(_ selected:URL,documents:URL=LocalMovieCopyStore.documents,progress:(String)->Void={_ in})throws->ImportResult {
+  guard selected.isFileURL else{throw Failure.invalidURL}
+  var result:Result<ImportResult,Error>?,coordinationError:NSError?
+  NSFileCoordinator().coordinate(readingItemAt:selected,options:.withoutChanges,error:&coordinationError) {readable in
+   result=Result{try persistResult(readable,documents:documents,progress:progress)}
+  }
+  if let coordinationError {throw coordinationError}
+  guard let result else{throw Failure.unreadable};return try result.get()
+ }
  static func persist(_ selected:URL,documents:URL=LocalMovieCopyStore.documents)throws->URL {
   try persistResult(selected,documents:documents).url
  }

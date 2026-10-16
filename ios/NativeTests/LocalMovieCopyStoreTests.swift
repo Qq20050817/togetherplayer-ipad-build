@@ -63,6 +63,15 @@ extension LocalMovieCopyStoreTests {
   try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
   let file=dir.appendingPathComponent(name);try data.write(to:file);return file
  }
+ func testCoordinatedCompatibilityImportKeepsOriginalAndReusesCopy()throws {
+  let root=try sandbox();defer{try? FileManager.default.removeItem(at:root)}
+  let documents=root.appendingPathComponent("App/Documents"),source=root.appendingPathComponent("Provider.mkv")
+  try Data([1,2,3]).write(to:source)
+  let first=try LocalMovieCopyStore.persistCoordinated(source,documents:documents)
+  let second=try LocalMovieCopyStore.persistCoordinated(source,documents:documents)
+  XCTAssertFalse(first.reused);XCTAssertTrue(second.reused);XCTAssertEqual(first.url,second.url)
+  XCTAssertTrue(FileManager.default.fileExists(atPath:source.path))
+ }
  func testRepeatedAndRenamedContentReusesOneCopyAndKeepsExternalOriginals()throws {
   let root=try sandbox();defer{try? FileManager.default.removeItem(at:root)}
   let documents=root.appendingPathComponent("App/Documents"),external=root.appendingPathComponent("original.mkv")
