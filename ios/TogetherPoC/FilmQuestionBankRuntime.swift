@@ -34,9 +34,10 @@ import Combine
  private var publishing:Task<Void,Never>?
  private var continuousPlaybackSince:TimeInterval?
  private var narrativeEndArmed=false
+ private var nativeEndArmed=false
  private var narrativePauseRequested=false
  var storyEndAtMs:Int? {progress.storyEndOverrideMs ?? active?.storyEndMs}
- func playbackJumped() {continuousPlaybackSince=nil;narrativeEndArmed=false;if progress.finalText==nil {narrativePauseRequested=false}}
+ func playbackJumped() {continuousPlaybackSince=nil;narrativeEndArmed=false;nativeEndArmed=false;if progress.finalText==nil {narrativePauseRequested=false}}
  func setStoryEnd(at positionMs:Double) {
   guard let bank=active,progress.finalText==nil,positionMs.isFinite else{return}
   let value=Int(positionMs.rounded())
@@ -266,6 +267,7 @@ import Combine
   let uptime=uptimeNow()
   let nativeHadContinuousPlayback=continuousPlaybackSince.map{uptime-$0>=8} == true
   let continuity=lastPositionMs.map{positionMs>=$0 && positionMs-$0<=3500} ?? false
+  if naturalEnd && nativeHadContinuousPlayback {nativeEndArmed=true}
   if canFinish && continuity {
    if continuousPlaybackSince==nil {continuousPlaybackSince=uptime}
   } else {continuousPlaybackSince=nil}
@@ -282,8 +284,8 @@ import Combine
    narrativePauseRequested=true
    pauseAtStoryEnd()
   }
-  if ((naturalEnd && nativeHadContinuousPlayback) || narrativeFinished) && canReveal && nearEnding &&
-     !progress.published.isEmpty && progress.answered.count==progress.published.count {
+  if (nativeEndArmed || narrativeFinished) && canReveal && nearEnding &&
+     !progress.published.isEmpty {
    if progress.finalText==nil {
     let text=completedReport(bank,names:participantNames)
     progress.finalText=text
