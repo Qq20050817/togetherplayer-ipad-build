@@ -213,6 +213,9 @@ import Combine
    if let correct=q.answerIndex,q.options.indices.contains(correct) {
     lines.append("正确答案："+q.options[correct])
    } else {lines.append("开放讨论题，无唯一标准答案。")}
+   for item in q.revealEvidence.prefix(3) {
+    lines.append("关键证据："+item.text)
+   }
    if !q.explanation.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
     lines.append("剧情解析："+q.explanation)
    }
@@ -224,6 +227,15 @@ import Combine
    }.joined(separator:" · "),at:2)
   }
   lines.append("\n本轮答案与解析已统一公布，回看进度不会重新结算。")
+  if let review=bank.filmReview {
+   lines.append("\n🎞 全片复盘")
+   for (number,beat) in review.plotBeats.enumerated() {
+    lines.append("剧情节点：\(number+1)｜"+beat.title+"｜"+beat.detail)
+   }
+   for character in review.characters {lines.append("人物关系："+character.name+"｜"+character.role)}
+   lines.append("主题解读："+review.theme)
+   lines.append("观后讨论："+review.discussion)
+  }
   return lines.joined(separator:"\n")
  }
  private func finalParts(_ text:String)->[FilmBankRevealPart] {
