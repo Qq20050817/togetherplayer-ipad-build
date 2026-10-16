@@ -87,6 +87,16 @@ enum FilmBankCodec {
   }
   guard let root=try JSONSerialization.jsonObject(with:data) as? [String:Any] else{throw FilmBankValidation.invalidFormat}
   try keys(root,required:["schemaVersion","title","durationMs","sourceFingerprint","subtitleFingerprint","questions"],allowed:["schemaVersion","title","year","edition","durationMs","storyEndMs","filmReview","sourceFingerprint","subtitleFingerprint","questions"],path:"题库")
+  if let supplied=root["filmReview"] {
+   guard let review=supplied as? [String:Any] else {throw FilmBankValidation.detail("filmReview 必须是对象，不能为 null")}
+   try keys(review,required:["plotBeats","characters","theme","discussion"],allowed:["plotBeats","characters","theme","discussion"],path:"全片复盘")
+   for beat in (review["plotBeats"] as? [[String:Any]]) ?? [] {
+    try keys(beat,required:["title","detail"],allowed:["title","detail"],path:"全片复盘·剧情节点")
+   }
+   for person in (review["characters"] as? [[String:Any]]) ?? [] {
+    try keys(person,required:["name","role"],allowed:["name","role"],path:"全片复盘·人物关系")
+   }
+  }
   for (index,q) in ((root["questions"] as? [[String:Any]]) ?? []).enumerated() {
    let fields:Set<String>=["id","triggerAtMs","revealAtMs","type","question","options","answerIndex","evidence","revealEvidence","explanation","confidence","qualityScore"]
    try keys(q,required:fields,allowed:fields,path:"第\(index+1)题")
