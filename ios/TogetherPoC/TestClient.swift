@@ -35,6 +35,7 @@ import CoreMedia
  let filmMaterials=FilmMaterialExportSession()
  let questionBankRuntime=FilmQuestionBankRuntime()
  private var lastBankPollDispatch = -Double.infinity
+ private var bankNativePlaybackEnded=false
  var bankMovieURL:URL? {currentOriginalURL}
  var bankMovieKey:String? {plotDisplayPosition()?.key}
  // Material-only imported subtitles win. Playback-side external subtitles are
@@ -56,6 +57,11 @@ import CoreMedia
    (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
  }
  var bankPlaybackPositionMs:Double {max(0,adapter.position)}
+ var bankCanFinish:Bool {
+  isConnected && isRoomHost && clock.ready && supportsBlockingPolls &&
+  variantDurationCheck == .compatible && adapter.player.rate>0 &&
+  !adapter.isSeeking && engine.room?.state == "playing" && !plotPollWaiting
+ }
  var bankSafeRevealPositionMs:Double {
   guard clock.ready,let room=engine.room else{return 0}
   let peers=members.filter{$0.online && $0.userId != credentials?["userId"] as? String}.map{max(0,$0.position-$0.timelineOffset)}
@@ -65,6 +71,13 @@ import CoreMedia
   guard questionBankRuntime.active != nil else{return}
 questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,durationMs:adapter.duration,canPublish:bankCanPublish,
     canReveal:isRoomHost && isConnected,revealPositionMs:bankSafeRevealPositionMs,
+    naturalEnd:bankNativePlaybackEnded && adapter.duration>0 && bankPlaybackPositionMs>=adapter.duration-2500,
+    canFinish:bankCanFinish,
+    pauseAtStoryEnd:{[weak self] in
+     guard let self,self.isRoomHost,self.isConnected else{return}
+     self.control("PAUSE")
+    },
+    participantNames:Dictionary(uniqueKeysWithValues:members.map{($0.userId,$0.name)}),
     subtitleShown:plotIntelligence.isSubtitleCurrentlyShown?() ?? true,
     captionSequence:externalSubtitles.plotCaptionSequence,
     publish:{[weak self] question in guard let self,self.bankCanPublish else{return};self.lastBankPollDispatch=self.clock.localNow();self.publishPlotPoll(question)},
@@ -301,7 +314,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    self?.plotIntelligence.playbackJumped()
   }
   visualSampler.onNewEvidence={ [weak self] in self?.plotIntelligence.visualChanged() }
-  externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped() }
+  externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped();self?.questionBankRuntime.playbackJumped();self?.bankNativePlaybackEnded=false }
   externalSubtitles.plotCaptionChanged={ [weak self] text in self?.plotIntelligence.subtitleChanged(text) }
   externalSubtitles.plotFullFilmReset={ [weak self] in self?.plotIntelligence.resetFullFilmPreparation() }
   externalSubtitles.onAIOnlyPGSChanged={ [weak self] in
@@ -336,6 +349,13 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   voice.roomKey={ [weak self] in self?.engine.room?.roomId ?? "" }
   voice.duck={ [weak self] lowered in if lowered {self?.voiceDucker?.begin()} else {self?.voiceDucker?.end()} }
   do {try AVAudioSession.sharedInstance().setCategory(.playback,mode:.moviePlayback);try AVAudioSession.sharedInstance().setSupportsMultichannelContent(true);try AVAudioSession.sharedInstance().setActive(true)} catch {requestStatus="音频会话设置失败"}
+  observers.append(NotificationCenter.default.addObserver(forName:.AVPlayerItemDidPlayToEndTime,object:nil,queue:.main) { [weak self] note in
+   Task { @MainActor in
+    guard let self,let item=note.object as? AVPlayerItem,item === self.adapter.player.currentItem else{return}
+    self.bankNativePlaybackEnded=true
+    self.tickFilmBank()
+   }
+  })
   for name in [Notification.Name.AVPlayerItemPlaybackStalled,Notification.Name.AVPlayerItemNewAccessLogEntry,Notification.Name.AVPlayerItemNewErrorLogEntry] {
    observers.append(NotificationCenter.default.addObserver(forName:name,object:nil,queue:.main) { [weak self] note in
     Task { @MainActor in
@@ -433,6 +453,8 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   // Rebuilding the same AVPlayerItem retains the film identity, selected
   // subtitle track and existing plot evidence. The room clock stays intact.
   playbackRecovery.reset();setPlaybackRecoveryVisible(false)
+  bankNativePlaybackEnded=false
+  questionBankRuntime.playbackJumped()
   // Room media identity remains stable across WebSocket reconnects and
   // refreshed signed playback URLs. Only a genuinely different film resets
   // watched subtitle evidence and imported subtitle state.
@@ -1021,6 +1043,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   control("SEEK",position:bounded)
  }
  func control(_ type: String,position: Double=0) {
+  if type == "SEEK" || type == "REPLAY" {bankNativePlaybackEnded=false;questionBankRuntime.playbackJumped()}
   if plotPollWaiting && type != "PAUSE" {requestStatus="请双方先回答剧情问题，再继续播放";feedback.showPlaybackAction(requestStatus);return}
   guard position.isFinite else {return}
   cancelRecoveryPreroll()
