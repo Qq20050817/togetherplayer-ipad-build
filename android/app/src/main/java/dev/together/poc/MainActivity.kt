@@ -360,18 +360,87 @@ class MainActivity: Activity() {
    text="收起";textSize=12f;setOnClickListener{dialog.dismiss()};ButtonMotion.install(this)
   },LinearLayout.LayoutParams(-2,-2))
   root.addView(title)
-  val sections=report.split(10.toChar().toString()+"第")
+  val data=FilmRecapLayout.parse(report)
   val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(0,dp(16),0,dp(10))}
-  for((i,value) in sections.withIndex()) {
-   val section=if(i==0)value else "第"+value
-   body.addView(TextView(this).apply {
-    text=section;textSize=if(i==0)17f else 15f;setTextColor(-1)
-    setPadding(dp(12),dp(12),dp(12),dp(12))
-    setBackground(rounded(0xff1b2939.toInt(),10))
-    setLineSpacing(dp(3).toFloat(),1f)
-    contentDescription="观影结算第${i+1}部分"
-   },LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,0,0,dp(12))})
+  fun textCard(container:LinearLayout,value:String,font:Float=14f,color:Int=-1,bg:Int=0xff1b2939.toInt()) {
+   container.addView(TextView(this).apply {
+    text=value;textSize=font;setTextColor(color)
+    setPadding(dp(12),dp(11),dp(12),dp(11))
+    background=rounded(bg,11)
+    setLineSpacing(dp(2).toFloat(),1f)
+   },LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,0,0,dp(8))})
   }
+  val summary=LinearLayout(this).apply{
+   orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(12),dp(12),dp(12))
+   background=rounded(0xff223247.toInt(),14)
+  }
+  textCard(summary,"🏆 本轮成绩",18f,0xffffdf84.toInt(),0xff223247.toInt())
+  if(data.heading.isNotBlank())textCard(summary,data.heading,15f,-1,0xff263a52.toInt())
+  if(data.stats.isNotBlank())textCard(summary,data.stats,14f,0xffb2e3dc.toInt(),0xff263a52.toInt())
+  if(data.total>0){
+   summary.addView(android.widget.ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{
+    max=data.total;progress=data.completed.coerceAtMost(data.total)
+    progressTintList=android.content.res.ColorStateList.valueOf(0xff65d6b1.toInt())
+   },LinearLayout.LayoutParams(-1,dp(7)).apply{setMargins(0,0,0,dp(10))})
+  }
+  if(data.score.isNotBlank())textCard(summary,data.score,14f,-1,0xff263a52.toInt())
+  body.addView(summary,LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,0,0,dp(14))})
+  for((index,card) in data.cards.withIndex()) {
+   val box=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL
+    background=rounded(if(card.wrong)0xff39302f.toInt() else 0xff1b2939.toInt(),13)
+   }
+   val marker=when{
+    card.wrong->"❌ 答错题"
+    card.right->"✅ 已答对"
+    else->"🧩 剧情推理"
+   }
+   val opener=TextView(this).apply{
+    text=marker+"  ·  第"+(index+1)+"题  ▾\n"+card.heading.substringAfter("题：",card.heading)
+    textSize=15f;setTextColor(-1);setPadding(dp(12),dp(12),dp(12),dp(12))
+    contentDescription="观影结算第"+(index+1)+"题，展开解析"
+   }
+   box.addView(opener)
+   val detail=LinearLayout(this).apply{
+    orientation=LinearLayout.VERTICAL
+    setPadding(dp(12),0,dp(12),dp(12))
+    visibility=View.GONE
+   }
+   for(vote in card.votes) textCard(detail,vote,13f,if(vote.endsWith(" ✗"))0xffffbf94.toInt() else 0xffcde9e2.toInt(),0xff283448.toInt())
+   if(card.correct!=null)textCard(detail,card.correct,14f,0xff7fe5ae.toInt(),0xff1a3a37.toInt())
+   else textCard(detail,"💬 开放讨论题 · 不计分",13f,0xff91d9f0.toInt(),0xff273b4b.toInt())
+   if(card.explanation.isNotBlank()) {
+    val fragments=card.explanation.split("。").filter{it.isNotBlank()}
+    textCard(detail,"💡 一句话结论\n"+(fragments.firstOrNull() ?: card.explanation)+"。",14f,0xffffe4a0.toInt())
+    if(fragments.size>1)textCard(detail,"🧠 剧情意义\n"+fragments.drop(1).joinToString("。")+"。",13f,0xffe4edf6.toInt())
+   }
+   if(card.evidence.isNotEmpty()) {
+    textCard(detail,"🔍 关键证据",14f,0xff9bddf7.toInt())
+    for(item in card.evidence.take(3))textCard(detail,"✓ "+item,13f,0xffc5e7db.toInt(),0xff233640.toInt())
+   }
+   box.addView(detail)
+   opener.setOnClickListener {
+    val show=detail.visibility!=View.VISIBLE
+    detail.visibility=if(show)View.VISIBLE else View.GONE
+    opener.text=marker+"  ·  第"+(index+1)+"题  "+(if(show)"▴" else "▾")+"\n"+card.heading.substringAfter("题：",card.heading)
+   }
+   body.addView(box,LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,0,0,dp(12))})
+  }
+  // Backwards-compatible report bodies without the numbered question prefix.
+  if(data.cards.isEmpty())for(line in report.lines().filter{it.startsWith("正确答案：")})textCard(body,line,14f,0xff7fe5ae.toInt())
+  if(data.plotBeats.isNotEmpty() || data.people.isNotEmpty() || data.theme.isNotBlank()) {
+   val review=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(12),dp(12),dp(12));background=rounded(0xff233449.toInt(),14)}
+   textCard(review,"🎞 全片复盘",18f,-1,0xff233449.toInt())
+   textCard(review,"剧情脉络",14f,0xff8fe2fd.toInt(),0xff233449.toInt())
+   for((i,beat) in data.plotBeats.withIndex())textCard(review,(i+1).toString()+"  ●  "+beat.first+"\n"+beat.second,13f,-1,0xff314359.toInt())
+   if(data.people.isNotEmpty()) {
+    textCard(review,"🎭 人物关系与动机",14f,0xff8fe2fd.toInt(),0xff233449.toInt())
+    for(person in data.people)textCard(review,person.first+"\n"+person.second,13f,-1,0xff314359.toInt())
+   }
+   if(data.theme.isNotBlank())textCard(review,"🧠 电影想表达什么\n"+data.theme,14f,0xffffe2a5.toInt(),0xff314359.toInt())
+   if(data.discussion.isNotBlank())textCard(review,"💬 留给两个人的问题\n"+data.discussion,14f,0xffc7e5ff.toInt(),0xff314359.toInt())
+   body.addView(review,LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,0,0,dp(12))})
+  } else textCard(body,"这份旧题库暂无全片复盘；新版题库可提供时间线、人物动机和观后讨论。",12f,0xffa9b9c7.toInt())
   root.addView(ScrollView(this).apply{isFillViewport=true;addView(body)},LinearLayout.LayoutParams(-1,0,1f))
   dialog.setContentView(root)
   dialog.setOnDismissListener {
