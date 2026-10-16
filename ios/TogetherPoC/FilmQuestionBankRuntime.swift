@@ -296,7 +296,10 @@ import Combine
   // the socket dropped after the finale, restore and send missing segments
   // without forcing viewers to watch the final scene again.
   if canReveal,let text=progress.finalText,!progress.finalDelivered {
+   // Keep the socket outbox small for full-length explanations. Each ack
+   // frees a slot for more sections on the next playback/connection tick.
    for message in finalParts(text) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
+    if sendingParts.count>=8 {break}
     sendingParts.insert(message.id);reveal(message)
    }
   }
