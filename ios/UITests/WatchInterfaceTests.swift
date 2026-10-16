@@ -23,8 +23,10 @@ final class WatchInterfaceTests: XCTestCase {
   XCTAssertFalse(app.otherElements["local-movie-document-picker"].exists)
   capture("remembered-movie-after-process-relaunch",app)
   let leave=app.buttons["room-page-leave"]
-  for _ in 0..<7 {if leave.isHittable {break};app.swipeDown()}
-  XCTAssertTrue(leave.isHittable);leave.tap();app.terminate()
+  // A nested settings ScrollView can report isHittable=false until XCUI's
+  // built-in tap performs scroll-to-visible. The earlier attempt actually
+  // left the room, but failed its unrelated pre-tap hittability assertion.
+  XCTAssertTrue(leave.waitForExistence(timeout:10));leave.tap();app.terminate()
   app.launch();openSettings();revealLocal()
   XCTAssertFalse(local.exists)
   app.buttons["manage-imported-movies"].tap()
