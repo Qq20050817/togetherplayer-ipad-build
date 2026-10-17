@@ -70,6 +70,7 @@ import SwiftUI
  let onClose:()->Void
  var fullscreen=false
  @State private var expanded:Set<Int>=[]
+ @State private var showQuestionDetails=false
  private let dark=Color(red:0.055,green:0.07,blue:0.10)
  private let tile=Color(red:0.10,green:0.14,blue:0.20)
  private func lines(_ text:String)->[String] {text.components(separatedBy:"\n").filter{!$0.isEmpty}}
@@ -214,7 +215,7 @@ import SwiftUI
   let quiz=chunks[0].components(separatedBy:"\n第")
   VStack(alignment:.leading,spacing:14) {
    HStack {
-    Label("观影结算",systemImage:"checkmark.seal.fill").font(.headline)
+    Label("观影结算 · 全片解读",systemImage:"checkmark.seal.fill").font(.headline)
     Spacer()
     Button(action:onClose){Image(systemName:"xmark")}.accessibilityLabel("收起观影结算")
      .accessibilityIdentifier(fullscreen ? "fullscreen-close-film-recap":"close-film-recap")
@@ -222,16 +223,35 @@ import SwiftUI
    ScrollView {
     LazyVStack(alignment:.leading,spacing:12) {
      summary(quiz[0])
-     ForEach(quiz.indices.dropFirst(),id:\.self) {index in question(quiz[index],number:index)}
+     // Film-wide analysis comes before per-question details. Previously it was
+     // buried after up to 30 long answer cards and appeared to be missing.
      if chunks.count>1 {movieReview(chunks[1])}
      else {
-      Label("这份旧题库暂无全片复盘，新生成的题库可附带时间线与主题解读。",systemImage:"film")
-       .font(.caption).foregroundStyle(.secondary).padding(10)
+      VStack(alignment:.leading,spacing:9) {
+       Label("本题库缺少全片梳理与解读",systemImage:"exclamationmark.triangle.fill")
+        .font(.subheadline.bold()).foregroundStyle(.orange)
+       Text("本轮答题记录已经保留，但制作题库时没有提供 filmReview 全片复盘。无法仅凭这些题目可靠还原整部电影。")
+        .font(.subheadline)
+       Text("请把完整字幕、分镜素材和原题库交给 ChatGPT，补齐剧情节点、人物关系、主题解读和观后讨论后重新导入。")
+        .font(.caption).foregroundStyle(.secondary)
+      }.padding(14).frame(maxWidth:.infinity,alignment:.leading)
+       .background(tile).clipShape(RoundedRectangle(cornerRadius:14))
+       .accessibilityIdentifier("recap-missing-film-review")
      }
+     DisclosureGroup(isExpanded:$showQuestionDetails) {
+      VStack(alignment:.leading,spacing:10) {
+       ForEach(quiz.indices.dropFirst(),id:\.self) {index in question(quiz[index],number:index)}
+      }.padding(.top,8)
+     } label:{
+      Label("查看逐题答案与剧情解析（\(max(0,quiz.count-1)) 题）",systemImage:"list.bullet.rectangle")
+       .font(.subheadline.bold()).foregroundStyle(.cyan)
+     }.padding(12).background(tile).clipShape(RoundedRectangle(cornerRadius:14))
+      .accessibilityIdentifier("recap-answer-details")
     }
    }.accessibilityIdentifier("film-recap-scroll")
    Text("全部答案仅在片尾公开，回看可在剧情推理室重新查看。").font(.caption).foregroundStyle(.secondary)
   }.padding(18).background(dark).clipShape(RoundedRectangle(cornerRadius:18))
+   .onChange(of:report) {_ in showQuestionDetails=false;expanded=[]}
    .overlay(RoundedRectangle(cornerRadius:18).stroke(.white.opacity(0.08)))
    .preferredColorScheme(.dark).accessibilityElement(children:.contain)
    .accessibilityIdentifier(fullscreen ? "fullscreen-film-recap-drawer":"film-recap-drawer")
