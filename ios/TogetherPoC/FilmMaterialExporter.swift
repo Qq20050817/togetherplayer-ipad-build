@@ -433,13 +433,13 @@ enum FilmMaterialExporter {
   if !url.isFileURL {manifest.fingerprintAlgorithm="sha256-sparse-http-range-v1"}
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
-  let instructions="TogetherPlayer 电影素材包 v1\n本包含完整时间轴字幕、按时间顺序的多张分镜图以及严格对应的时间信息。\n请用 ChatGPT 项目指令制作 AI 题库。每道题提供已观看证据、未来揭晓依据、触发时间和安全答案揭晓时间。\n图片是离散截图，无法证明缺失画面之间的连续动作。不要编造未覆盖的视觉情节。\n生成 JSON 时 schemaVersion=1，影片 durationMs、sourceFingerprint、subtitleFingerprint 必须从 manifest.json 原样复制。\n题库还需通过 App 的校验再运行。\n"
+  let instructions="TogetherPlayer 电影素材包 v1\n本包含完整字幕、分镜图及时间轴。ChatGPT 必须根据这部影片的主类型与实际副类型选取独立出题指南，制作有片内证据、不跑题的个性化互动问题。\n使用 ChatGPT项目指令.txt 和 genres 文件夹内的 21 类电影独立规则。多类型电影按真实情节混合，而不是一律套用侦探题。\n静态截图不能证明缺失片段的动作；缺少素材时先补齐，不要编造。\n生成 JSON 时使用正式Schema，影片指纹和时长从 manifest.json 原样复制，并包含完整 filmReview 片尾解读。\n"
   let schemaURL=Bundle.main.url(forResource:"question-bank-v1.schema",withExtension:"json")
   guard let schemaURL else{throw FilmBankValidation.detail("安装包缺少正式题库Schema，素材未发布。")}
   let schema=try Data(contentsOf:schemaURL)
   let projectGuide=FilmBankProjectInstructions.text
   let sourceNote=url.isFileURL ? "原片指纹采用完整文件SHA256" : "U盘 HTTP 原片使用首尾分段与 HTTP 元数据指纹（sha256-sparse-http-range-v1），是轻量识别而非完整文件SHA256；请使用同一片源链接导入题库"
-  let entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]
+  let entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]+FilmBankGenreInstructions.exportFiles
   let name=url.deletingPathExtension().lastPathComponent
    .replacingOccurrences(of:"[^a-zA-Z0-9_\\-一-龥]",with:"_",options:.regularExpression)
   let filename=String(name.prefix(52))
