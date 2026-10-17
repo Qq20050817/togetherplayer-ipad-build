@@ -1,0 +1,65 @@
+name: Verify mandatory film review and recap-first presentation
+on:
+  push:
+    branches:
+      - fix/ipad-final-review-first-required-20261018
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ipad-final-review-required.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ipad-review-required-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ipad:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact branch revision
+        run: |
+          set -euo pipefail
+          actual=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
+          test "$actual" = "$GITHUB_SHA"
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          for v in 26.3 26.2 26.1.1 26.0.1; do
+            d="/Applications/Xcode_${v}.app/Contents/Developer"
+            if [ -d "$d" ]; then sudo xcode-select -s "$d"; break; fi
+          done
+          xcodebuild -version
+      - name: Generate project and resolve dependencies
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath http-build
+          python3 tools/patch_prism_swift61.py http-build/SourcePackages/checkouts/PrismCore
+      - name: Build Release for iPad
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath http-build CODE_SIGNING_ALLOWED=NO build
+      - name: Run native playback recovery tests
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/together-ipad-http-devices.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/together-ipad-http-devices.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath http-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/FilmBankV2Tests -only-testing:TogetherPoCCoreTests/FilmQuestionBankTests -only-testing:TogetherPoCCoreTests/FilmMaterialRemoteTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests test
+      - name: Package direct unsigned IPA
+        run: |
+          set -euo pipefail
+          mkdir -p http-delivery
+          python3 tools/package_unsigned_ipa.py http-build/Build/Products/Release-iphoneos/TogetherPoC.app http-delivery/TogetherPlayer-iPad-v0.6.47-Build107-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          (cd http-delivery && shasum -a 256 TogetherPlayer-iPad-v0.6.47-Build107-unsigned.ipa > SHA256SUMS.txt)
+          printf 'Source branch: %s\nSource SHA: %s\nTests: bank mandatory final review, USB HTTP material fingerprint, playback recovery\nSigning: required before install\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > http-delivery/BUILD.txt
+      - name: Upload validated unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-iPad-0.6.47-Final-Review
+          path: http-delivery/
+          retention-days: 7
