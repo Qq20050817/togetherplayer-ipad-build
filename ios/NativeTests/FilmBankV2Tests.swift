@@ -176,12 +176,20 @@ import AVFoundation
   let store=FilmQuestionBankStore(directory:directory.appendingPathComponent("bank")),progress=FilmBankProgressStore(directory:directory.appendingPathComponent("progress"))
   let runtime=FilmQuestionBankRuntime(store:store,progressStore:progress)
   runtime.restore(filmKey:"f",source:movie,durationMs:120_000);await runtime.waitForRestore();XCTAssertNil(runtime.active)
-  let hash=try FilmMaterialFingerprint.source(movie),bank=sample(hash)
+  let hash=try FilmMaterialFingerprint.source(movie)
+  let review=FilmReview(
+   plotBeats:[FilmReviewBeat(title:"事件起因",detail:"有人取走钥匙，引发了后续调查"),
+              FilmReviewBeat(title:"影片结局",detail:"守门人交代了钥匙的真实用途")],
+   characters:[FilmReviewCharacter(name:"守门人",role:"隐藏钥匙以保护重要证人的安全")],
+   theme:"影片通过钥匙去向的多次反转，提醒观众将当事人的解释与真正查明的事实区别对待。",
+   discussion:"如果你是调查者，应该先相信证词还是找到物证？")
+  var bank=sample(hash);bank.filmReview=review
   try JSONEncoder().encode(bank).write(to:json)
   await runtime.importFile(json,filmKey:"f",source:movie,durationMs:120_000)
   XCTAssertEqual(runtime.active,bank)
   let saved=await store.loadForSource(hash);XCTAssertEqual(saved,bank)
-  try JSONEncoder().encode(sample(String(repeating:"f",count:64))).write(to:json)
+  var wrongSource=sample(String(repeating:"f",count:64));wrongSource.filmReview=review
+  try JSONEncoder().encode(wrongSource).write(to:json)
   await runtime.importFile(json,filmKey:"f",source:movie,durationMs:120_000)
   XCTAssertEqual(runtime.active,bank);XCTAssertTrue(runtime.status.contains("不匹配"))
   let publicJSON=WholeFilmPlan.json(FilmBankCodec.question(bank.questions[0],blocking:true))
