@@ -6,10 +6,11 @@ import CryptoKit
 // Offline, explicitly initiated export. No film, frames or subtitles are
 // automatically transmitted to a server or to an AI provider.
 enum FilmMaterialExportFailure:LocalizedError {
- case localFileRequired,missingSubtitles,framesUnavailable,missingDuration,tooManyFiles,sourceChanged,busy
+ case localFileRequired,remoteUnavailable,missingSubtitles,framesUnavailable,missingDuration,tooManyFiles,sourceChanged,busy
  case frameExtractionDiagnostic(String)
  var errorDescription:String? {switch self {
-  case .localFileRequired:return "请先在 iPad“文件”中选择可读取的本地原片；网盘在线播放链接不支持直接导出原始画面。"
+  case .localFileRequired:return "请先选择本机影片，或可直接读取原始文件并支持 HTTP Range 的 U 盘影片链接。"
+  case .remoteUnavailable:return "远程影片读取失败或未支持 HTTP Range；请确认 U 盘服务在线、原始片源链接有效，并重新选片。无需复制原片到 iPad。"
   case .missingSubtitles:return "未读取到完整字幕。可以先导入 SRT/ASS 字幕，再导出素材。"
   case .framesUnavailable:return "原片可读取字幕，但独立抽帧失败，未导出只有字幕的假完整素材。请使用可本地解码的影片文件。"
   case .frameExtractionDiagnostic(let detail):return "原片字幕已读取，但电影画面提取未达标（"+detail+"）。不会导出缺少画面的假完整素材；原片未改变。请将此诊断文字反馈以继续排查。"
@@ -31,7 +32,7 @@ struct FilmMaterialManifest:Codable {
  let contactSheets:[String]
  let frameTimesMs:[Int]
  let frameExportMode:String
- let fingerprintAlgorithm="sha256-complete-file"
+ var fingerprintAlgorithm="sha256-complete-file"
  let frameTimeline="frame-timeline.json"
  let requestedFrameCount:Int
  let missingFrameTimesMs:[Int]
@@ -39,6 +40,7 @@ struct FilmMaterialManifest:Codable {
 
 enum FilmMaterialFingerprint {
  static func source(_ url:URL,progress:(Double)->Void={_ in})throws->String {
+  if !url.isFileURL {return try remote(url,progress:progress)}
   let handle=try FileHandle(forReadingFrom:url)
   defer {try? handle.close()}
   let size=try handle.seekToEnd()
@@ -63,8 +65,62 @@ enum FilmMaterialFingerprint {
   return sha.finalize().map{String(format:"%02x",$0)}.joined()
 
  }
+
+ // Remote sources are sampled over three small HTTP requests, never copied to
+ // iPad. This is a *different*, explicitly labelled identifier from the
+ // complete-file SHA256 used for local films. Signed query tokens are excluded
+ // so refreshing an expiring USB link does not invalidate an otherwise
+ // unchanged film bank.
+ static func remote(_ url:URL,session:URLSession = .shared,progress:(Double)->Void={_ in})throws->String {
+  guard ["http","https"].contains(url.scheme?.lowercased() ?? ""),url.host != nil else {
+   throw FilmMaterialExportFailure.localFileRequired
+  }
+  try Task.checkCancellation()
+  func request(_ method:String,range:String?=nil)->URLRequest {
+   var result=URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:45)
+   result.httpMethod=method
+   if let range {result.setValue(range,forHTTPHeaderField:"Range")}
+   return result
+  }
+  func load(_ request:URLRequest,expected:Int,limit:Int)->(Data,HTTPURLResponse)? {
+   // URLSession range requests must stay bounded. A non-range server can
+   // return the whole 50 GB movie; refuse it before receiving its body.
+   let reader=FilmMaterialRangeRequest(limit:limit,expectedStatus:expected)
+   return reader.fetch(request:request,configuration:session.configuration)
+  }
+  guard let (_,head)=load(request("HEAD"),expected:200,limit:0),
+        let lengthText=head.value(forHTTPHeaderField:"Content-Length"),
+        let size=Int64(lengthText),size>0 else{throw FilmMaterialExportFailure.remoteUnavailable}
+  progress(0.3)
+  let chunk:Int64=min(65_536,size)
+  let firstRange="bytes=0-\\(chunk-1)"
+  guard let (first,firstResponse)=load(request("GET",range:firstRange),expected:206,limit:Int(chunk)),
+        first.count==Int(chunk),
+        firstResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\\(size)")==true else {
+   throw FilmMaterialExportFailure.remoteUnavailable
+  }
+  progress(0.65)
+  let lastRange="bytes=\\(size-chunk)-\\(size-1)"
+  guard let (last,lastResponse)=load(request("GET",range:lastRange),expected:206,limit:Int(chunk)),
+        last.count==Int(chunk),
+        lastResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\\(size)")==true else {
+   throw FilmMaterialExportFailure.remoteUnavailable
+  }
+  var identity=URLComponents(url:url,resolvingAgainstBaseURL:false)
+  identity?.query=nil;identity?.fragment=nil;identity?.user=nil;identity?.password=nil
+  var hash=SHA256()
+  hash.update(data:Data("togetherplayer-http-range-v1\n".utf8))
+  hash.update(data:Data((identity?.string ?? url.path).utf8))
+  hash.update(data:Data("\n\\(size)\n".utf8))
+  hash.update(data:Data((head.value(forHTTPHeaderField:"ETag") ?? "").utf8))
+  hash.update(data:Data((head.value(forHTTPHeaderField:"Last-Modified") ?? "").utf8))
+  hash.update(data:first);hash.update(data:last)
+  progress(1)
+  return hash.finalize().map{String(format:"%02x",$0)}.joined()
+ }
  // Candidate lookup only; never accepted as a strict source match.
  static func candidate(_ url:URL)throws->String {
+  if !url.isFileURL {return try remote(url)}
   let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()}
   let size=try handle.seekToEnd();try handle.seek(toOffset:0)
   let first=try handle.read(upToCount:65_536) ?? Data()
@@ -242,11 +298,11 @@ enum FilmMaterialExporter {
  }
  private static func createExclusive(url:URL,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?,preferredLanguage:String?,preferredStreamIndex:Int?,preferredDurationSeconds:Double?,progress:@escaping (Double)->Void,stage:(FilmMaterialExportStage)->Void)throws->URL {
   try Task.checkCancellation()
-  guard url.isFileURL else{throw FilmMaterialExportFailure.localFileRequired}
-  let scoped=url.startAccessingSecurityScopedResource()
+  guard url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "") else{throw FilmMaterialExportFailure.localFileRequired}
+  let scoped=url.isFileURL && url.startAccessingSecurityScopedResource()
   defer {if scoped {url.stopAccessingSecurityScopedResource()}}
-  guard FileManager.default.isReadableFile(atPath:url.path) else{throw FilmMaterialExportFailure.localFileRequired}
-  let attributes=try url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey])
+  if url.isFileURL && !FileManager.default.isReadableFile(atPath:url.path) {throw FilmMaterialExportFailure.localFileRequired}
+  let attributes=try url.isFileURL ? url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey]) : nil
   stage(.fingerprint)
   let fingerprint=try FilmMaterialFingerprint.source(url,progress:{progress($0*0.05)})
   stage(.subtitles)
@@ -262,7 +318,7 @@ enum FilmMaterialExporter {
   let srt=SubtitleSRTEncoder.encode(subtitles)
   guard !srt.isEmpty else{throw FilmMaterialExportFailure.missingSubtitles}
   let asset=AVURLAsset(url:url)
-  let assetDuration=asset.duration.seconds
+  let assetDuration=url.isFileURL ? asset.duration.seconds : 0
   // The remuxed live player may know the original MKV duration before AVURLAsset.
   let supplied=preferredDurationSeconds ?? 0
   let duration=extracted?.duration ?? (supplied.isFinite && supplied>=60 ? supplied : (assetDuration.isFinite && assetDuration>0 ? assetDuration : FilmFFmpegFrameSampler.mediaDuration(url) ?? 0))
@@ -286,7 +342,7 @@ enum FilmMaterialExporter {
   var timeline:[FilmFrameRecord]=[]
   // AVAssetImageGenerator cannot decode many MKV/HEVC containers directly.
   // Use the already-shipped FFmpeg libraries for local, independent decoding.
-  let directFFmpeg=["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
+  let directFFmpeg = !url.isFileURL || ["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
   var ffmpegOpenFailure:String?
   var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler.openCoordinated(url:url,onFailure:{ffmpegOpenFailure=$0}) : nil
   var attempted:[Double]=[],previousSignature:[Double]?,previousRequested:Double?
@@ -303,7 +359,7 @@ enum FilmMaterialExporter {
      // Some local HEVC tracks can be decoded natively, even when the
      // container is not universally supported by AVFoundation. Probe once
      // to avoid 250 failed image-generator calls on unsupported MKVs.
-     if !nativeFrameProbeTried || nativeFrameProbeWorks {
+     if url.isFileURL && (!nativeFrameProbeTried || nativeFrameProbeWorks) {
       nativeFrameProbeTried=true
       var nativeActual=CMTime.invalid
       let nativeImage=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&nativeActual)
@@ -373,7 +429,8 @@ enum FilmMaterialExporter {
     throw FilmMaterialExportFailure.frameExtractionDiagnostic("实际画面\(frameTimes.count)/\(attempted.count)；"+(lastFrameError ?? "视频轨道无法解码"))
    }
   stage(.archive)
-  let manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; interval, dialogue-gap and sampled-histogram visual-change followups; incomplete motion evidence",requestedFrameCount:attempted.count,missingFrameTimesMs:attempted.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
+  var manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; interval, dialogue-gap and sampled-histogram visual-change followups; incomplete motion evidence",requestedFrameCount:attempted.count,missingFrameTimesMs:attempted.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
+  if !url.isFileURL {manifest.fingerprintAlgorithm="sha256-sparse-http-range-v1"}
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
   let instructions="TogetherPlayer 电影素材包 v1\n本包含完整时间轴字幕、按时间顺序的多张分镜图以及严格对应的时间信息。\n请用 ChatGPT 项目指令制作 AI 题库。每道题提供已观看证据、未来揭晓依据、触发时间和安全答案揭晓时间。\n图片是离散截图，无法证明缺失画面之间的连续动作。不要编造未覆盖的视觉情节。\n生成 JSON 时 schemaVersion=1，影片 durationMs、sourceFingerprint、subtitleFingerprint 必须从 manifest.json 原样复制。\n题库还需通过 App 的校验再运行。\n"
@@ -381,7 +438,8 @@ enum FilmMaterialExporter {
   guard let schemaURL else{throw FilmBankValidation.detail("安装包缺少正式题库Schema，素材未发布。")}
   let schema=try Data(contentsOf:schemaURL)
   let projectGuide=FilmBankProjectInstructions.text
-  let entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n原片指纹采用完整文件SHA256；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]
+  let sourceNote=url.isFileURL ? "原片指纹采用完整文件SHA256" : "U盘 HTTP 原片使用首尾分段与 HTTP 元数据指纹（sha256-sparse-http-range-v1），是轻量识别而非完整文件SHA256；请使用同一片源链接导入题库"
+  let entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]
   let name=url.deletingPathExtension().lastPathComponent
    .replacingOccurrences(of:"[^a-zA-Z0-9_\\-一-龥]",with:"_",options:.regularExpression)
   let filename=String(name.prefix(52))
@@ -395,8 +453,12 @@ enum FilmMaterialExporter {
   let paths=entries.map{$0.0}+sheets
   try FilmMaterialZip.write(paths.map{($0,staging.appendingPathComponent($0))},to:staging.appendingPathComponent("电影_AI素材.zip"))
   try Task.checkCancellation()
-  let finalAttributes=try url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey])
-  guard attributes.fileSize==finalAttributes.fileSize,attributes.contentModificationDate==finalAttributes.contentModificationDate else{throw FilmMaterialExportFailure.sourceChanged}
+  if let attributes {
+   let finalAttributes=try url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey])
+   guard attributes.fileSize==finalAttributes.fileSize,attributes.contentModificationDate==finalAttributes.contentModificationDate else{throw FilmMaterialExportFailure.sourceChanged}
+  } else {
+   guard fingerprint==FilmMaterialFingerprint.remote(url) else{throw FilmMaterialExportFailure.sourceChanged}
+  }
   try FileManager.default.moveItem(at:staging,to:bundle);installed=true
   progress(1)
   return bundle.appendingPathComponent("电影_AI素材.zip")
@@ -416,7 +478,7 @@ struct FilmFrameRecord:Codable {
 @MainActor final class FilmMaterialExportSession:ObservableObject {
  @Published private(set) var working=false
  @Published private(set) var progress=0.0
- @Published private(set) var status="请先加载本地原片"
+ @Published private(set) var status="请先加载影片（支持本机与 U 盘 HTTP）"
  @Published private(set) var file:URL?
  @Published private(set) var individualFiles:[URL]=[]
  @Published private(set) var previewSubtitle=""
@@ -454,17 +516,17 @@ struct FilmFrameRecord:Codable {
  }
  func begin(url:URL?,title:String,external:SubtitleDocument?,allowOCR:Bool,preferredTitle:String?=nil,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,preferredDurationSeconds:Double?=nil) {
   guard !working else{return}
-  guard let url,url.isFileURL else{status=FilmMaterialExportFailure.localFileRequired.localizedDescription;return}
+  guard let url,url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "") else{status=FilmMaterialExportFailure.localFileRequired.localizedDescription;return}
   selectMovie(url);generation+=1;let token=generation
   working=true;progress=0;file=nil;individualFiles=[];cancellationNote=nil;currentStage = .fingerprint
   defaults.set(FilmMaterialExportStage.fingerprint.rawValue,forKey:Self.checkpointKey)
-  status="正在核对原片 0%（逐块读取，不复制原片）"
+  status=url.isFileURL ? "正在核对本地原片 0%（不复制原片）" : "正在核对 U 盘原片 0%（仅读取首尾少量数据）"
   let job=Task.detached(priority:.utility) {
    try FilmMaterialExporter.create(url:url,title:title,external:external,allowOCR:allowOCR,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,preferredDurationSeconds:preferredDurationSeconds,progress:{[weak self] value in
     Task {@MainActor in
      guard let self,self.generation==token,self.working,self.cancellationNote==nil else{return}
      self.progress=value
-     if self.currentStage == .fingerprint {self.status="正在核对原片 \(Int(min(100,value/0.05*100)))%（逐块读取，不复制原片）"}
+     if self.currentStage == .fingerprint {self.status="正在核对原片 \(Int(min(100,value/0.05*100)))%（"+(url.isFileURL ? "本地逐块校验" : "HTTP 分段校验")+"）"}
     }
    },stage:{[weak self] phase in
     Task {@MainActor in
