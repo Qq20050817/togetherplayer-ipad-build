@@ -5,7 +5,7 @@ import Libavcodec
 import Libavutil
 import Libswscale
 
-// Read-only, separate FFmpeg decoder for locally accessible MKV/HEVC movies.
+// Read-only, separate FFmpeg decoder for local or HTTP Range MKV/HEVC movies.
 // This never seeks the live AVPlayer, touches the room clock or starts a server.
 final class FilmFFmpegFrameSampler {
  private var format:UnsafeMutablePointer<AVFormatContext>?
@@ -19,9 +19,10 @@ final class FilmFFmpegFrameSampler {
  private(set) var lastFailure:String?
 
  static func mediaDuration(_ url:URL)->Double? {
-  guard url.isFileURL,!Task.isCancelled else{return nil}
+  guard (url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "")),!Task.isCancelled else{return nil}
   var pointer:UnsafeMutablePointer<AVFormatContext>?
-  guard avformat_open_input(&pointer,url.path,nil,nil)>=0,let format=pointer else{return nil}
+  let source=url.isFileURL ? url.path : url.absoluteString
+  guard avformat_open_input(&pointer,source,nil,nil)>=0,let format=pointer else{return nil}
   defer{avformat_close_input(&pointer)}
   guard avformat_find_stream_info(format,nil)>=0 else{return nil}
   let value=Double(format.pointee.duration)/1_000_000
@@ -37,7 +38,10 @@ final class FilmFFmpegFrameSampler {
  // container open. The subtitle scanner already follows this pattern.
  // Once FFmpeg opens its own read-only FD, sampling never seeks the player.
  static func openCoordinated(url:URL,onFailure:@escaping (String)->Void={_ in})->FilmFFmpegFrameSampler? {
-  guard url.isFileURL else {onFailure("只能读取本地电影");return nil}
+  if !url.isFileURL {
+   guard ["http","https"].contains(url.scheme?.lowercased() ?? "") else {onFailure("当前片源地址不受支持");return nil}
+   return FilmFFmpegFrameSampler(url:url,onFailure:onFailure)
+  }
   let coordinator=NSFileCoordinator(filePresenter:nil)
   var coordinationError:NSError?
   var sampler:FilmFFmpegFrameSampler?
@@ -50,12 +54,13 @@ final class FilmFFmpegFrameSampler {
   return sampler
  }
  init?(url:URL,onFailure:(String)->Void={_ in}) {
-  guard url.isFileURL else{onFailure("容器打开失败：需要本地电影文件");return nil}
+  guard url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "") else{onFailure("容器打开失败：不支持当前片源类型");return nil}
   var opened:UnsafeMutablePointer<AVFormatContext>?
-  let openResult=avformat_open_input(&opened,url.path,nil,nil)
+  let source=url.isFileURL ? url.path : url.absoluteString
+  let openResult=avformat_open_input(&opened,source,nil,nil)
   guard openResult>=0,let source=opened else {
    if opened != nil {avformat_close_input(&opened)}
-   onFailure("FFmpeg容器打开失败（错误码 \(openResult)）；请检查文件授权或文件提供程序是否已完成本地下载")
+   onFailure("FFmpeg容器打开失败（错误码 \(openResult)）；请检查本地文件授权或 U 盘原始媒体 HTTP Range 服务")
    return nil
   }
   let inspectResult=avformat_find_stream_info(source,nil)
