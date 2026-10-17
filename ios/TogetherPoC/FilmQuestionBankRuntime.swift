@@ -64,7 +64,9 @@ import Combine
   guard generation==token,!Task.isCancelled else{return}
   progressKey=identity;progress=saved;publishedCount=saved.published.count;completedCount=saved.answered.count
   finalReport=saved.finalText ?? ""
-  active=bank;onBankReady?();status="已加载 \(bank.questions.count) 道题 · 本轮已发布 \(publishedCount) 道 · 播放时不请求 AI"
+  active=bank;onBankReady?()
+  status="已加载 \(bank.questions.count) 道题 · 本轮已发布 \(publishedCount) 道 · 播放时不请求 AI"
+  if bank.filmReview == nil {status += " · ⚠️ 旧题库缺少片尾全片解读，建议重新制作含 filmReview 的题库"}
  }
  func restore(filmKey:String,source:URL,durationMs:Double) {
   if key==filmKey,sourceURL==source,active != nil {return}
@@ -123,6 +125,7 @@ import Combine
   do {
    let worker=Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
     let data=try read(),bank=try FilmBankCodec.decode(data)
+    try FilmBankCodec.requireCompleteReviewForImport(bank)
     let scoped=source.startAccessingSecurityScopedResource();defer{if scoped {source.stopAccessingSecurityScopedResource()}}
     let fingerprint=try FilmMaterialFingerprint.source(source,progress:{[weak self] value in
      Task {@MainActor in
