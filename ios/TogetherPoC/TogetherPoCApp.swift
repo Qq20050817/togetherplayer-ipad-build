@@ -498,7 +498,7 @@ struct FullscreenToolStyle:ButtonStyle {
    }
    if controls.visible && !composing {
     HStack {
-     Text(model.roomTitle).lineLimit(1).accessibilityIdentifier("fullscreen-movie-title")
+     Text(model.playbackTitle).lineLimit(1).accessibilityIdentifier("fullscreen-movie-title")
      Spacer()
      Image(systemName:"sun.max.fill").accessibilityHidden(true)
      Slider(value:Binding(get:{screenBrightness},set:{level in
@@ -789,7 +789,7 @@ struct RoomActionStyle:ButtonStyle {
      DisclosureGroup("设置房间影片") {
       VStack(alignment:.leading,spacing:14) {
        TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder).accessibilityIdentifier("room-movie-title")
-       TextField("HTTP / HLS / WebDAV 文件链接",text:$model.mediaURL).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
+       TextField("HTTP / HLS / WebDAV 文件链接",text:Binding(get:{model.mediaURL},set:{model.updateRoomMediaDraft($0)})).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).textFieldStyle(.roundedBorder)
        RoomMediaAction(model:model,feedback:model.mediaFeedback)
       }.padding(.top,12)
      }
