@@ -104,7 +104,26 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
 
  @Published var videoBadges: [String]=[]
  var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : (playbackNeedsRecovery ? false : (optimisticPlaying ?? (engine.room?.state == "playing")))}
- var playbackTitle: String {usingLocalFile ? localFileName : usingBaiduSource ? baiduFileName : roomTitle}
+ // Show the selected playback source, not a stale room title. Keep the
+ // canonical room title untouched when a guest chooses another quality.
+ var playbackTitle: String {
+  if usingLocalFile {return FilmSourceTitle.fromFileName(localFileName) ?? localFileName}
+  if usingBaiduSource {return FilmSourceTitle.fromFileName(baiduFileName) ?? baiduFileName}
+  if !activeLocalSource.isEmpty,
+     localSourceRoomURL==engine.room?.mediaUrl,
+     localSourceRoomID==engine.room?.roomId,
+     currentOriginalURL?.absoluteString==activeLocalSource,
+     let name=FilmSourceTitle.fromMediaURL(activeLocalSource) {return name}
+  if roomTitle=="一起看电影",
+     let name=FilmSourceTitle.fromMediaURL(engine.room?.mediaUrl ?? "") {return name}
+  return roomTitle
+ }
+ // Called only by the user-editable media URL field. Programmatic incoming
+ // room snapshots must not overwrite a custom title.
+ func updateRoomMediaDraft(_ raw:String) {
+  mediaURL=raw
+  if let name=FilmSourceTitle.fromMediaURL(raw) {movieTitle=name}
+ }
  func isMyMessage(_ message: ChatMessage) -> Bool {message.userId == credentials?["userId"] as? String}
  var usingBaiduSource: Bool {baiduPlaybackURL != nil && activeLocalSource==baiduPlaybackURL?.absoluteString && localSourceRoomURL==engine.room?.mediaUrl && localSourceRoomID==engine.room?.roomId}
  var usingLocalFile: Bool {localFileURL != nil && localSourceRoomURL==engine.room?.mediaUrl && localSourceRoomID==engine.room?.roomId}
@@ -1484,6 +1503,7 @@ extension TestClient {
     }
    }
    baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomID=room.roomId
+   if isHost && localSelectionPublishes,let name=FilmSourceTitle.fromFileName(url.lastPathComponent) {movieTitle=name}
    variantRoomID=confirmedVariant == nil ? "" : room.roomId
    variantMediaURL=confirmedVariant == nil ? "" : room.mediaUrl
    variantReferenceDuration=confirmedVariant == nil ? 0 : room.duration ?? 0
