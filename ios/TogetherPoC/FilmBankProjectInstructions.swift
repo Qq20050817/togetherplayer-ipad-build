@@ -13,9 +13,9 @@ enum FilmBankProjectInstructions {
 triggerAtMs必须在观众获得足够线索且当前一句字幕结束之后、电影揭晓答案之前。证据evidence的endMs不得晚于triggerAtMs。题干与选项不得预告未见人物身份、死亡、反转或答案。revealAtMs必须晚于triggerAtMs并不早于真实揭晓证据结束；revealEvidence只使用trigger之后、revealAtMs之前的字幕或确切画面时间。answerIndex为0起算；开放讨论用type=discussion, answerIndex=null,revealAtMs=null,revealEvidence=[]，不捏造唯一答案。explanation可以包含结局，但只能在电影剧情结束后的统一结算弹窗里展示。revealAtMs用于标明后续证据真正揭晓的时间点并校验题目是否有客观答案，不代表要在观影途中通过聊天公布正确答案。
 同时识别剧情的真实结束位置：若完整字幕与实际分镜足以确认最后必要剧情镜头结束、演职员名单/致谢字幕开始，可填写 storyEndMs（原片毫秒），作为观影自动结算时间；必须晚于全部题目揭晓时刻，并考虑有重要片尾彩蛋的情况。若证据无法可靠确定，就设为 null，绝不直接用最后一句对白、影片总时长减固定分钟数猜测。用户还可以在APP手动校正该时间。
 
-在题库最外层同时输出可选 filmReview，用于片尾最后一页可视化「全片复盘」。必须从已审阅的全片字幕和分镜中提炼，不能凭影评、片名或猜测补全：plotBeats 为2至5个按电影叙事顺序排列的 {title,detail} 关键节点（故事起因、冲突、反转与结局）；characters 为0至6个 {name,role} 人物关系及行动动机的精炼事实；theme 为15至260字的核心主题解读，明确区分故事证据和个人解读；discussion 为8至180字给两位观众的开放式观后讨论题，不计分。整体阅读时长控制在1至2分钟。若画面、字幕或结局证据不完整无法做可靠全片复盘，省略 filmReview 整个字段，绝不伪造剧情。旧题库没有该字段也仍可导入。无论何时都不得把 filmReview 提前发送到聊天室，只有剧情终结之后进入双端结算弹窗才揭晓。
+在题库最外层必须输出 filmReview，用于片尾结算弹窗最前面的「全片梳理与解读」。必须从已审阅的全片字幕和分镜中提炼，不能凭影评、片名或猜测补全：plotBeats 为2至5个按电影叙事顺序排列的 {title,detail} 关键节点（故事起因、冲突、反转与结局）；characters 为0至6个 {name,role} 人物关系及行动动机的精炼事实；theme 为15至260字的核心主题解读，明确区分故事证据和个人解读；discussion 为8至180字给两位观众的开放式观后讨论题，不计分。整体阅读时长控制在1至2分钟。如果画面、字幕或结局证据不完整，必须先告知用户缺失的素材范围并请求补齐，暂不输出无法通过导入校验的题库JSON；绝不伪造剧情。已保存的旧题库仍可读取，但新导入的题库必须包含 filmReview。无论何时都不得把 filmReview 提前发送到聊天室，只有剧情终结之后进入双端结算弹窗才揭晓。
 最后逐题独立审查主线价值、因果关系、两位观众是否能仅用已看线索推理、备选项质量、时机及防剧透，低质量题删除而不是凑数。confidence和qualityScore是参考评分，不是验证准确率。
-输出可下载的纯JSON文件，严格遵守随包正式Schema，不额外改字段名、添加字段或Markdown围栏。schemaVersion=1；title/year/edition按原片；durationMs/sourceFingerprint/subtitleFingerprint从manifest原样复制，不能根据电影名称猜测指纹或时间。所有时间毫秒，问题按triggerAtMs升序、id唯一。
+输出前必须自检：filmReview.plotBeats 应完整覆盖有证据的故事开端、发展、重大反转及结局；characters 解释关键人物关系和行动动机；theme 提供基于全片证据的核心主题解读；discussion 提出适合两人交流的问题。以上内容不能只是题目解析拼接或空泛评价。输出可下载的纯JSON文件，严格遵守随包正式Schema，不额外改字段名、添加字段或Markdown围栏。schemaVersion=1；title/year/edition按原片；durationMs/sourceFingerprint/subtitleFingerprint从manifest原样复制，不能根据电影名称猜测指纹或时间。所有时间毫秒，问题按triggerAtMs升序、id唯一。
 请先确认所有分镜已查看、全片字幕已覆盖，再提供JSON。若聊天附件/上下文限制导致无法完整处理，明确列出缺失范围，请用户分批补齐，不声称全片完成。
 """
 }
