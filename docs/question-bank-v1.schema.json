@@ -10,7 +10,8 @@
     "durationMs",
     "sourceFingerprint",
     "subtitleFingerprint",
-    "questions"
+    "questions",
+    "filmReview"
   ],
   "properties": {
     "schemaVersion": {
