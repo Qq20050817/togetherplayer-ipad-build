@@ -45,6 +45,7 @@ import XCTest
   }
   XCTAssertTrue(model.usingLocalFile)
   XCTAssertEqual(model.playbackTitle,"新影片.2026")
+  XCTAssertEqual(model.movieTitle,"新影片.2026","Current source title should update the editable name field")
   XCTAssertEqual(model.roomTitle,"旧影片","Guest cannot rename shared room metadata")
  }
  func testLocalUSBOverrideUsesOwnFilenameWithoutChangingRoomTitle() {
@@ -53,6 +54,7 @@ import XCTest
   model.localMediaURL="https://usb.example.invalid/media/usb-id/Selected.USB.Movie.mkv?sig=q"
   model.applyLocalSource()
   XCTAssertEqual(model.playbackTitle,"Selected.USB.Movie")
+  XCTAssertEqual(model.movieTitle,"Selected.USB.Movie")
   XCTAssertEqual(model.roomTitle,"房间原片")
   XCTAssertEqual(model.mediaURL,"https://example.invalid/room.mp4")
  }
