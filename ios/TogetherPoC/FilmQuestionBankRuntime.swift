@@ -72,8 +72,8 @@ import Combine
   active=nil;playbackJumped();narrativePauseRequested=false;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer="";finalReport=""
   generation+=1;let token=generation
   restoring?.cancel();fingerprinting?.cancel();publishing?.cancel()
-  guard source.isFileURL else {status="远程片源无法严格校验，题库自动提问未启用";return}
-  status="正在校验本地原片指纹和已保存题库…"
+  guard source.isFileURL || ["http","https"].contains(source.scheme?.lowercased() ?? "") else {status="无法校验当前片源，题库自动提问未启用";return}
+  status=source.isFileURL ? "正在校验本地原片指纹和已保存题库…" : "正在分段校验 U 盘 HTTP 原片和已保存题库…"
   let job=Task.detached(priority:.utility){() throws->String in
    let access=source.startAccessingSecurityScopedResource();defer{if access {source.stopAccessingSecurityScopedResource()}}
    return try FilmMaterialFingerprint.candidate(source)
@@ -115,11 +115,11 @@ import Combine
   await importPrepared(filmKey:filmKey,source:source,durationMs:durationMs,read:{document.data})
  }
  private func importPrepared(filmKey:String?,source:URL?,durationMs:Double,read:@escaping()throws->Data) async {
-  guard let filmKey,!filmKey.isEmpty,let source,source.isFileURL,key==filmKey,sourceURL==source else {status="请先加载本地原片，再导入题库";return}
+  guard let filmKey,!filmKey.isEmpty,let source,(source.isFileURL || ["http","https"].contains(source.scheme?.lowercased() ?? "")),key==filmKey,sourceURL==source else {status="请先加载本地或 U 盘 HTTP 原片，再导入题库";return}
   guard !importing else{return}
   importing=true;let token=generation
   defer{if generation==token {importing=false;importWorker=nil}}
-  status="正在校验 Schema、完整原片 SHA256 与时间轴…"
+  status=source.isFileURL ? "正在校验 Schema、完整原片 SHA256 与时间轴…" : "正在校验 Schema、U 盘分段指纹与时间轴…"
   do {
    let worker=Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
     let data=try read(),bank=try FilmBankCodec.decode(data)
