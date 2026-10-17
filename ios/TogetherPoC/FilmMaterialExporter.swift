@@ -499,7 +499,7 @@ struct FilmFrameRecord:Codable {
    Task {@MainActor [weak self] in self?.stopForMemoryPressure()}
   }
  }
- func selectMovie(_ url:URL?) {if source != url {cancel();source=url;file=nil;individualFiles=[];previewSubtitle="";status=url.isFileURL ? "点击提取后在本机扫描原片字幕和画面" : "点击提取后通过 U 盘 HTTP 读取字幕和关键帧，不复制原片到 iPad"}}
+ func selectMovie(_ url:URL?) {if source != url {cancel();source=url;file=nil;individualFiles=[];previewSubtitle="";status=url == nil ? "请先选择影片" : (url?.isFileURL == true ? "点击提取后在本机扫描原片字幕和画面" : "点击提取后通过 U 盘 HTTP 读取字幕和关键帧，不复制原片到 iPad")}}
  func invalidateSubtitleSelection() {
   guard !working else{return}
   generation+=1;worker?.cancel();worker=nil
