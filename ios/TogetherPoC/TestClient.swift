@@ -1386,6 +1386,7 @@ extension TestClient {
    switch result {
    case .success(let file):
     self.localFileURL=file.url;self.localFileSecurityScoped=file.transferAccess();self.localFileName=file.url.lastPathComponent
+    if let name=FilmSourceTitle.fromFileName(file.url.lastPathComponent) {self.movieTitle=name}
     self.localSourceRoomID=context.roomID;self.localSourceRoomURL=context.mediaID
     self.baiduPlaybackURL=nil;self.baiduFileName="";self.activeLocalSource="";self.localMediaURL=""
     self.baiduSourceID=BaiduMediaReference(value:context.mediaID)==nil ? "" : context.mediaID
@@ -1457,7 +1458,10 @@ extension TestClient {
   guard let roomURL=engine.room?.mediaUrl,let room=URL(string:roomURL) else {requestStatus="请先加入房间";return}
   guard BaiduMediaReference(value:roomURL)==nil else {requestStatus="当前房间使用文件匹配，请点“选择本地影片”或使用自己的百度授权选片。";return}
   if !localMediaURL.isEmpty && MediaSourceCatalog.resolve(localMediaURL)==nil {requestStatus="本机片源需要 HTTP、HLS 或 WebDAV 文件直链";return}
-  forgetRememberedMovie();releaseLocalFileAccess();activeLocalSource=localMediaURL;localSourceRoomURL=roomURL;localSourceRoomID=engine.room?.roomId ?? "";loadMedia(playbackSource(for:room))
+  forgetRememberedMovie();releaseLocalFileAccess();activeLocalSource=localMediaURL;localSourceRoomURL=roomURL;localSourceRoomID=engine.room?.roomId ?? ""
+  if localMediaURL.isEmpty {movieTitle=roomTitle}
+  else if let name=FilmSourceTitle.fromMediaURL(localMediaURL) {movieTitle=name}
+  loadMedia(playbackSource(for:room))
   requestStatus=localMediaURL.isEmpty ? "恢复房间片源" : "本机片源已应用；链接未传给服务器或对方，请确认同一剪辑版本"
  }
  func beginLocalFileSelection(publishRoom: Bool=true) {
@@ -1503,7 +1507,7 @@ extension TestClient {
     }
    }
    baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomID=room.roomId
-   if isHost && localSelectionPublishes,let name=FilmSourceTitle.fromFileName(url.lastPathComponent) {movieTitle=name}
+   if let name=FilmSourceTitle.fromFileName(url.lastPathComponent) {movieTitle=name}
    variantRoomID=confirmedVariant == nil ? "" : room.roomId
    variantMediaURL=confirmedVariant == nil ? "" : room.mediaUrl
    variantReferenceDuration=confirmedVariant == nil ? 0 : room.duration ?? 0
@@ -1570,6 +1574,7 @@ extension TestClient {
   guard let room=engine.room else {releaseLocalFileAccess();requestStatus="本地影片已清除";return}
   let wasMatched=BaiduMediaReference(value:room.mediaUrl) != nil
   releaseLocalFileAccess();activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
+  movieTitle=roomTitle
   if wasMatched {
    baiduSourceID="";baiduSourceRoom="";stopUnmatchedMedia()
    requestStatus="本地影片已清除；当前房间仍需重新选择同一文件。"
