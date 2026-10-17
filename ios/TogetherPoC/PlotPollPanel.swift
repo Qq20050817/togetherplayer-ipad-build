@@ -181,6 +181,13 @@ import UniformTypeIdentifiers
     Text("题库：\(active.title) · 共 \(active.questions.count) 道题 · 本轮已发布 \(bank.publishedCount) 道 · 已答完 \(bank.completedCount) 道")
      .font(.caption).foregroundStyle(.secondary)
     Text("原片指纹已核对；题目随播放触发，正确答案仅在揭晓后发送。").font(.caption2).foregroundStyle(.secondary)
+    if active.filmReview != nil {
+     Label("片尾已包含：关键剧情时间线、人物动机、主题解读与观后讨论",systemImage:"checkmark.seal.fill")
+      .font(.caption).foregroundStyle(.green).accessibilityIdentifier("plot-film-review-ready")
+    } else {
+     Label("旧题库缺少全片解读。结算时只会展示已有题目的解析，请用原素材补齐 filmReview 后重新导入。",systemImage:"exclamationmark.triangle.fill")
+      .font(.caption).foregroundStyle(.orange).accessibilityIdentifier("plot-film-review-missing")
+    }
     if let ending=bank.storyEndAtMs {
      Text("剧情结束点：\(ending/60000):\(String(format:"%02d",(ending/1000)%60)) · 自动跳过后续演职员表")
       .font(.caption).accessibilityIdentifier("plot-story-end-marker")
