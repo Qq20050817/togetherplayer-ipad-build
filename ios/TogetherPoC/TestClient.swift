@@ -192,6 +192,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var recoveryStartedAt: Double?
  private var lastPrerollAt = -Double.infinity
  private var playbackRecovery=PlaybackRecovery()
+ private var localPlayIntent=false
  @Published private(set) var playbackNeedsRecovery=false
  private var recoveryResumePosition:Double?
  private var recoveryRebuilds=0
@@ -502,7 +503,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     guard g==mediaLoadGeneration else {return}
     if needsRemux {requestStatus="兼容片源已准备，正在读取播放信息。"}
     installMedia(playbackURL,originalURL:url,allowRemuxRetry:!useAtmos && !needsRemux)
-    if localVideoTest {adapter.play()}
+    if localVideoTest && localPlayIntent {adapter.play()}
    } catch {
     guard g==mediaLoadGeneration else {return}
     requestStatus=useAtmos ? "Atmos本机清单加载失败，可点恢复官方自适应音轨。" : ((error as? MKVRemux.Failure)?.errorDescription ?? MKVRemux.safeFailure(error).errorDescription ?? "本机片源准备失败")
@@ -555,7 +556,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     }
     else if observed.status == .readyToPlay {
      self.adapter.itemBecameReady(observed)
-     if self.localVideoTest {self.adapter.play()}
+     if self.localVideoTest && self.localPlayIntent {self.adapter.play()}
      if self.requestStatus=="兼容片源已准备，正在读取播放信息。" {self.requestStatus=""}
      self.loadTrackSelections(observed);self.inspectFormats()
     }
@@ -852,7 +853,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
  }
  func connect() {
-  supportsInstantControls=false;localVideoTest=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
+  supportsInstantControls=false;localVideoTest=false;localPlayIntent=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
   guard foreground,let token=credentials?["token"] as? String else {return}
   plotIntelligence.preserveCurrentFilmEvidence()
   generation += 1;let g=generation;socket?.cancel(with:.goingAway,reason:nil);connected=false;engine.resetSession();pending=nil;requestStatus=""
@@ -1022,7 +1023,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  #endif
  func checkLocalVideo() {
-  generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;clock.reset();localVideoTest=true
+  generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;clock.reset();localVideoTest=true;localPlayIntent=true;recoveryRebuilds=0
   guard let url=HTTPSource().resolve(mediaURL) else {status="无效测试视频 URL";return}
   adapter.setPlaybackSpeed(1);loadedURL=mediaURL;loadMedia(url)
   status="本机视频验证：可测试 PLAY / PAUSE / SEEK；尚未加入同步房间"
@@ -1050,6 +1051,20 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if type != "SEEK" {lastStepTarget=nil}
   let action=["PLAY":"播放","PAUSE":"暂停","SEEK":"跳转"][type] ?? "操作"
   feedback.showPlaybackAction(localVideoTest ? "正在\(action)…" : (isHost ? "正在同步\(action)…" : "正在请求房主\(action)…"))
+  // A manual PLAY during a known stall must rebuild the wedged local HLS
+  // session instead of resetting the recovery clock or sending another
+  // room playback command. Preserve the signed source and current position.
+  if type == "PLAY" && playbackNeedsRecovery,let original=currentOriginalURL {
+   recoveryResumePosition=localVideoTest ? adapter.position : (engine.target()?.0 ?? adapter.position)
+   recoveryRebuilds=0
+   requestStatus="正在恢复停止读取的影片…"
+   loadMedia(original)
+   return
+  }
+  if localVideoTest {
+   if type == "PLAY" {localPlayIntent=true}
+   else if type == "PAUSE" {localPlayIntent=false;recoveryRebuilds=0}
+  }
   playbackRecovery.reset();setPlaybackRecoveryVisible(false)
   controlSettleUntil=clock.localNow()+2500
   if localVideoTest {
@@ -1123,6 +1138,30 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private func setPlaybackRecoveryVisible(_ value:Bool) {
   if playbackNeedsRecovery != value {playbackNeedsRecovery=value}
  }
+ private func monitorLocalPlaybackRecovery() {
+  let now=clock.localNow()
+  let shouldPlay=foreground && localPlayIntent && currentOriginalURL != nil &&
+   adapter.player.currentItem?.status == .readyToPlay && !adapter.isSeeking
+  let action=playbackRecovery.observe(now:now,position:adapter.position,shouldPlay:shouldPlay)
+  switch action {
+  case .none:
+   setPlaybackRecoveryVisible(shouldPlay && now-(playbackRecovery.stalledSince ?? now)>=5000)
+  case .wake:
+   setPlaybackRecoveryVisible(true)
+   adapter.play()
+   diagnostic("localResumeAfterStall")
+  case .rebuild:
+   guard let original=currentOriginalURL else{return}
+   guard recoveryRebuilds < 2 else {
+    requestStatus="本机播放连续恢复失败，请重新打开影片"
+    return
+   }
+   recoveryResumePosition=adapter.position
+   recoveryRebuilds += 1
+   diagnostic("localRebuildAfterStall")
+   loadMedia(original)
+  }
+ }
  private func monitorPlaybackRecovery() {
   let current=engine.room
   let now=clock.localNow()
@@ -1185,7 +1224,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
  }
  private func tick() {
-  if localVideoTest {ticks += 1;if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
+  if localVideoTest {ticks += 1;monitorLocalPlaybackRecovery();if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
   if socket != nil {
    if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
