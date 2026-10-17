@@ -5,16 +5,16 @@ import Libavformat
 import Libavcodec
 import Libavutil
 
-/// Independent local demuxer: never requests the player's demand-generated HLS
+/// Independent demuxer for local files and HTTP Range originals: never requests the player's demand-generated HLS
 /// segments, decodes movie frames, changes selected subtitles, or uploads audio.
 enum FullFilmTranscriptReader {
  struct Output {let document:SubtitleDocument;let track:Int;let label:String;let duration:Double;let ocr:Bool}
  enum Failure:LocalizedError {
   case localOnly,noTrack,open,coordinate,inspect,decode,incomplete,tooLarge
   var errorDescription:String? {switch self {
-   case .localOnly:return "完整内置字幕读取目前需要本机文件；可导入完整 SRT/ASS 字幕。"
+   case .localOnly:return "需要本地文件或可读取的 U 盘 HTTP 影片；也可导入完整 SRT/ASS 字幕。"
    case .noTrack:return "影片没有可读取的内置字幕，可使用完整外置字幕。"
-   case .open:return "已找到本机原片，但无法打开视频容器。请从“文件”App重新选择已下载完成的原片。"
+   case .open:return "无法打开原片容器。请检查本地授权或 U 盘 HTTP Range 地址是否有效。"
    case .coordinate:return "“文件”App 暂未授权读取原片，请重新选择已完整下载的本地影片。"
    case .inspect:return "原片可打开，但字幕轨道信息读取失败。请重新选择原片再试。"
    case .decode:return "这个内置字幕轨道无法解码，可导入完整 SRT/ASS 字幕。"
@@ -30,7 +30,12 @@ enum FullFilmTranscriptReader {
   return tracks.first(where:{["zh","chi","zho"].contains($0.language.lowercased()) || $0.language.lowercased().hasPrefix("zh-")}) ?? tracks.first
  }
  static func extract(_ url:URL,preferredTitle:String?,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,allowOCR:Bool,progress:(Double)->Void)throws->Output {
-  guard url.isFileURL else{throw Failure.localOnly}
+  guard url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "") else{throw Failure.localOnly}
+  if !url.isFileURL {
+   // Streaming embedded subtitles still scans across the whole movie.
+   // No full movie is saved, and the playback remux stays untouched.
+   return try extractAccessibleMovie(url,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:progress)
+  }
   // File Provider URLs can play through AVPlayer before their raw paths are
   // ready for FFmpeg. The coordinator grants access without copying the movie.
   let scope=url.startAccessingSecurityScopedResource()
@@ -49,7 +54,8 @@ enum FullFilmTranscriptReader {
  private static func extractAccessibleMovie(_ url:URL,preferredTitle:String?,preferredLanguage:String?,preferredStreamIndex:Int?,allowOCR:Bool,progress:(Double)->Void)throws->Output {
   try Task.checkCancellation()
   var allocated:UnsafeMutablePointer<AVFormatContext>?
-  guard avformat_open_input(&allocated,url.path,nil,nil)>=0,let format=allocated else{throw Failure.open}
+  let source=url.isFileURL ? url.path : url.absoluteString
+  guard avformat_open_input(&allocated,source,nil,nil)>=0,let format=allocated else{throw Failure.open}
   defer{avformat_close_input(&allocated)}
   let infoResult=avformat_find_stream_info(format,nil)
   // Unsupported video/audio decoders need not prevent a valid subtitle stream
