@@ -12,7 +12,7 @@ enum FilmMaterialExportFailure:LocalizedError {
   case .localFileRequired:return "请先选择本机影片，或可直接读取原始文件并支持 HTTP Range 的 U 盘影片链接。"
   case .remoteUnavailable:return "远程影片读取失败或未支持 HTTP Range；请确认 U 盘服务在线、原始片源链接有效，并重新选片。无需复制原片到 iPad。"
   case .missingSubtitles:return "未读取到完整字幕。可以先导入 SRT/ASS 字幕，再导出素材。"
-  case .framesUnavailable:return "原片可读取字幕，但独立抽帧失败，未导出只有字幕的假完整素材。请使用可本地解码的影片文件。"
+  case .framesUnavailable:return "原片可读取字幕，但独立抽帧失败，未导出只有字幕的假完整素材。请确认本机文件可解码，或 U 盘 HTTP 片源支持随机读取。"
   case .frameExtractionDiagnostic(let detail):return "原片字幕已读取，但电影画面提取未达标（"+detail+"）。不会导出缺少画面的假完整素材；原片未改变。请将此诊断文字反馈以继续排查。"
   case .missingDuration:return "无法确定影片时长，请确认原片完整。"
   case .sourceChanged:return "提取期间原片发生变化，本次素材已取消，请重新提取。"
@@ -457,7 +457,7 @@ enum FilmMaterialExporter {
    let finalAttributes=try url.resourceValues(forKeys:[.fileSizeKey,.contentModificationDateKey])
    guard attributes.fileSize==finalAttributes.fileSize,attributes.contentModificationDate==finalAttributes.contentModificationDate else{throw FilmMaterialExportFailure.sourceChanged}
   } else {
-   guard fingerprint==FilmMaterialFingerprint.remote(url) else{throw FilmMaterialExportFailure.sourceChanged}
+   guard fingerprint == (try FilmMaterialFingerprint.remote(url)) else{throw FilmMaterialExportFailure.sourceChanged}
   }
   try FileManager.default.moveItem(at:staging,to:bundle);installed=true
   progress(1)
@@ -499,7 +499,7 @@ struct FilmFrameRecord:Codable {
    Task {@MainActor [weak self] in self?.stopForMemoryPressure()}
   }
  }
- func selectMovie(_ url:URL?) {if source != url {cancel();source=url;file=nil;individualFiles=[];previewSubtitle="";status="点击提取后，仅在本机扫描完整字幕和画面"}}
+ func selectMovie(_ url:URL?) {if source != url {cancel();source=url;file=nil;individualFiles=[];previewSubtitle="";status=url.isFileURL ? "点击提取后在本机扫描原片字幕和画面" : "点击提取后通过 U 盘 HTTP 读取字幕和关键帧，不复制原片到 iPad"}}
  func invalidateSubtitleSelection() {
   guard !working else{return}
   generation+=1;worker?.cancel();worker=nil
