@@ -105,6 +105,15 @@ enum FilmBankCodec {
    }
   }
  }
+ // Existing saved v1 banks remain readable so past rounds and answers are not
+ // lost. Newly imported banks, however, must contain genuine full-film
+ // analysis; accepting a review-less bank silently made the finale look broken.
+ static func requireCompleteReviewForImport(_ bank:FilmQuestionBank)throws {
+  try validate(bank)
+  guard bank.filmReview != nil else {
+   throw FilmBankValidation.detail("当前题库缺少 filmReview 全片复盘。请用完整字幕、分镜和原题库让 ChatGPT 补齐剧情节点、人物关系、主题解读与观后讨论，再导入；原有题库不会被覆盖。")
+  }
+ }
  static func fingerprintValid(_ text:String?)->Bool {
   guard let text,text.count==64 else{return false}
   return text.allSatisfy{"0123456789abcdefABCDEF".contains($0)}
