@@ -81,6 +81,9 @@ import AVFoundation
   var bank=sample(String(repeating:"b",count:64))
   let legacy=try FilmBankCodec.decode(JSONEncoder().encode(bank))
   XCTAssertNil(legacy.filmReview)
+  XCTAssertThrowsError(try FilmBankCodec.requireCompleteReviewForImport(legacy)) {error in
+   XCTAssertTrue(error.localizedDescription.contains("filmReview"),error.localizedDescription)
+  }
   bank.filmReview=FilmReview(
    plotBeats:[FilmReviewBeat(title:"事件起因",detail:"主角发现失踪的线索"),FilmReviewBeat(title:"最终真相",detail:"调查结束后确认了真正的事件顺序")],
    characters:[FilmReviewCharacter(name:"调查者",role:"希望用实物证据澄清动机")],
@@ -90,6 +93,8 @@ import AVFoundation
   let json=try JSONEncoder().encode(bank)
   let decoded=try FilmBankCodec.decode(json)
   XCTAssertEqual(decoded.filmReview,bank.filmReview)
+  XCTAssertNoThrow(try FilmBankCodec.requireCompleteReviewForImport(decoded),
+                   "A complete review should pass import validation")
   var shape=try XCTUnwrap(try JSONSerialization.jsonObject(with:json) as? [String:Any])
   var review=try XCTUnwrap(shape["filmReview"] as? [String:Any])
   review["unexpected"]="forbidden";shape["filmReview"]=review
