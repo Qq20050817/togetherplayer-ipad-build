@@ -93,17 +93,17 @@ enum FilmMaterialFingerprint {
         let size=Int64(lengthText),size>0 else{throw FilmMaterialExportFailure.remoteUnavailable}
   progress(0.3)
   let chunk:Int64=min(65_536,size)
-  let firstRange="bytes=0-\\(chunk-1)"
+  let firstRange="bytes=0-\(chunk-1)"
   guard let (first,firstResponse)=load(request("GET",range:firstRange),expected:206,limit:Int(chunk)),
         first.count==Int(chunk),
-        firstResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\\(size)")==true else {
+        firstResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\(size)")==true else {
    throw FilmMaterialExportFailure.remoteUnavailable
   }
   progress(0.65)
-  let lastRange="bytes=\\(size-chunk)-\\(size-1)"
+  let lastRange="bytes=\(size-chunk)-\(size-1)"
   guard let (last,lastResponse)=load(request("GET",range:lastRange),expected:206,limit:Int(chunk)),
         last.count==Int(chunk),
-        lastResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\\(size)")==true else {
+        lastResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\(size)")==true else {
    throw FilmMaterialExportFailure.remoteUnavailable
   }
   var identity=URLComponents(url:url,resolvingAgainstBaseURL:false)
@@ -111,7 +111,7 @@ enum FilmMaterialFingerprint {
   var hash=SHA256()
   hash.update(data:Data("togetherplayer-http-range-v1\n".utf8))
   hash.update(data:Data((identity?.string ?? url.path).utf8))
-  hash.update(data:Data("\n\\(size)\n".utf8))
+  hash.update(data:Data("\n\(size)\n".utf8))
   hash.update(data:Data((head.value(forHTTPHeaderField:"ETag") ?? "").utf8))
   hash.update(data:Data((head.value(forHTTPHeaderField:"Last-Modified") ?? "").utf8))
   hash.update(data:first);hash.update(data:last)
