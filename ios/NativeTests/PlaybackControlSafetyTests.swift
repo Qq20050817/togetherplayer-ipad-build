@@ -26,6 +26,18 @@ private final class DeferredSeekPlayer:AVPlayer {
   try await drainCompletion()
   XCTAssertEqual(refreshes,2,"coalescing must not stop future refreshes")
  }
+ func testPlaybackRecoveryWakesThenRebuildsStalledHTTPPlayback() {
+  var recovery=PlaybackRecovery()
+  XCTAssertEqual(recovery.observe(now:0,position:18_000,shouldPlay:true),.none)
+  XCTAssertEqual(recovery.observe(now:4_900,position:18_000,shouldPlay:true),.none)
+  XCTAssertEqual(recovery.observe(now:5_000,position:18_000,shouldPlay:true),.wake)
+  XCTAssertEqual(recovery.observe(now:13_900,position:18_000,shouldPlay:true),.none)
+  XCTAssertEqual(recovery.observe(now:14_000,position:18_000,shouldPlay:true),.rebuild)
+  XCTAssertEqual(recovery.observe(now:20_000,position:18_200,shouldPlay:true),.none)
+  XCTAssertEqual(recovery.observe(now:24_000,position:18_200,shouldPlay:false),.none)
+  XCTAssertEqual(recovery.observe(now:24_100,position:18_200,shouldPlay:true),.none)
+  XCTAssertEqual(recovery.observe(now:28_900,position:18_200,shouldPlay:true),.none)
+ }
  func testRecoveryPrerollRejectsPlayingWaitingAndControlTransitions() {
   XCTAssertFalse(RecoveryBufferPolicy.canPreroll(prepared:true,pausedIntent:false,nativePaused:true,controlPending:false),"scheduled play is not a safe preroll window")
   XCTAssertFalse(RecoveryBufferPolicy.canPreroll(prepared:true,pausedIntent:true,nativePaused:false,controlPending:false),"buffering or playing must not enter preroll")
