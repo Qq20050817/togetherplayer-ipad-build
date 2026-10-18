@@ -722,7 +722,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     return
    }
    aiOnlySubtitle=(film:key,document:document)
-   aiOnlySubtitleOrigin="iPad 文件字幕（素材专用）"
+   aiOnlySubtitleOrigin="素材专用备用字幕"
    filmMaterials.invalidateSubtitleSelection()
    aiOnlySubtitleImportStatus="已选用 \(document.cues.count) 条完整备用字幕作为 AI 素材来源；播放字幕保持不变，不自动调用 AI。"
    // V2 import is data-only. Legacy analysis requires its explicit Continue action.
