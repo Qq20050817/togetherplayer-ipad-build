@@ -145,7 +145,7 @@ import UniformTypeIdentifiers
    PlotPollPanel(model:model,onClose:{plotPollOpen=false})
   }
  }
- private var headerActions: some View {
+ @ViewBuilder private var headerActions: some View {
   if UIDevice.current.userInterfaceIdiom == .phone {
    HStack(spacing:8) {
     if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.font(.caption).buttonStyle(.borderedProminent)}
