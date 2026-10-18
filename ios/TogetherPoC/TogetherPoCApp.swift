@@ -490,8 +490,9 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var screenBrightness=Double(UIScreen.main.brightness)
  var body: some View {
   GeometryReader {geometry in
+  let compactPhone=UIDevice.current.userInterfaceIdiom == .phone
   let railWidth=min(340,geometry.size.width*0.30)
-  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+10 : 0)
+  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) && !compactPhone ? railWidth+10 : 0)
   HStack(spacing:questionOpen || plotPollOpen || recapOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
@@ -539,6 +540,7 @@ struct FullscreenToolStyle:ButtonStyle {
     HStack {
      Text(model.playbackTitle).lineLimit(1).accessibilityIdentifier("fullscreen-movie-title")
      Spacer()
+     if !compactPhone {
      Image(systemName:"sun.max.fill").accessibilityHidden(true)
      Slider(value:Binding(get:{screenBrightness},set:{level in
       UIScreen.main.brightness=CGFloat(level)
@@ -551,10 +553,17 @@ struct FullscreenToolStyle:ButtonStyle {
       .font(.caption.monospacedDigit())
       .accessibilityIdentifier("fullscreen-brightness-readback")
      FullscreenDeviceStatus()
+     }
      if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.buttonStyle(.borderedProminent)}
-     Button {plotPollOpen=true} label:{Label("AI 推理",systemImage:"sparkles").font(.caption.bold())}
-      .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("fullscreen-plot-ai-button")
-     Button("退出全屏") {dismiss()}
+     if compactPhone {
+      Button {plotPollOpen=true} label:{Image(systemName:"sparkles").font(.headline)}
+       .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 推理").accessibilityIdentifier("fullscreen-plot-ai-button")
+      Button {dismiss()} label:{Image(systemName:"xmark.circle.fill").font(.headline)}.accessibilityLabel("退出全屏")
+     } else {
+      Button {plotPollOpen=true} label:{Label("AI 推理",systemImage:"sparkles").font(.caption.bold())}
+       .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("fullscreen-plot-ai-button")
+      Button("退出全屏") {dismiss()}
+     }
     }
      .padding(12)
      .background(Color.black.opacity(0.65))
@@ -623,6 +632,7 @@ struct FullscreenToolStyle:ButtonStyle {
      questionOpen=false;plotHintVisible=false
     }
    }
+   if !compactPhone {
    PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen || recapOpen) {
     PlotPollPanel(model:model,onClose:{plotPollOpen=false}).padding(.vertical,10)
    } question:{
@@ -632,8 +642,30 @@ struct FullscreenToolStyle:ButtonStyle {
      PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).padding(.vertical,10)
     }
    }
+   }
+  }
+  .overlay {
+   if compactPhone && (plotPollOpen || questionOpen || recapOpen) {
+    ZStack {
+     Color.black.opacity(0.8).ignoresSafeArea()
+     phonePanel
+      .frame(maxWidth:min(510,geometry.size.width-24),maxHeight:max(170,geometry.size.height-24))
+      .background(Color(red:0.065,green:0.075,blue:0.10))
+      .clipShape(RoundedRectangle(cornerRadius:18))
+      .padding(12)
+    }.accessibilityIdentifier("iphone-fullscreen-plot-overlay")
+   }
   }
 
+  }
+ }
+ @ViewBuilder private var phonePanel: some View {
+  if recapOpen {
+   FilmBankFinalDrawer(report:model.questionBankRuntime.finalReport,onClose:{recapOpen=false},fullscreen:true)
+  } else if questionOpen {
+   PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{questionOpen=false;plotPollOpen=true},fullscreen:true)
+  } else if plotPollOpen {
+   PlotPollPanel(model:model,onClose:{plotPollOpen=false})
   }
  }
  private var tools:some View {
