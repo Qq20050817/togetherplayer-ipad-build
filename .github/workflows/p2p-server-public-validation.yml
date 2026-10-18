@@ -1,0 +1,37 @@
+name: Verify authenticated P2P signaling (public isolated branch)
+on:
+  push:
+    branches:
+      - experiment/p2p-server-validation-20261018
+    paths:
+      - 'server/internal/backend/server.go'
+      - 'server/internal/backend/p2p_signal.go'
+      - 'server/internal/backend/p2p_signal_test.go'
+      - '.github/workflows/p2p-server-public-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p2p-server-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Run Go tests and build
+        working-directory: server
+        run: |
+          set -o pipefail
+          go test ./internal/backend -count=1 -timeout=3m 2>&1 | tee ../p2p-server-test.log
+          go build ./cmd/server
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2p-server-test-log
+          path: p2p-server-test.log
+          retention-days: 7
+          if-no-files-found: warn
