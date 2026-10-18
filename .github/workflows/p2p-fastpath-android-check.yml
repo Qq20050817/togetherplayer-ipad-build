@@ -8,6 +8,7 @@ on:
       - 'android/app/src/test/java/dev/together/poc/P2PFastPathGateTest.kt'
       - 'android/app/src/main/java/dev/together/poc/P2PDiagnosticsDialog.kt'
       - 'android/app/src/main/java/dev/together/poc/P2PWebRTCTransport.kt'
+      - 'android/app/build.gradle.kts'
       - 'android/app/src/main/assets/p2p-transport.html'
       - 'android/app/src/main/java/dev/together/poc/MainActivity.kt'
       - '.github/workflows/p2p-fastpath-android-check.yml'
