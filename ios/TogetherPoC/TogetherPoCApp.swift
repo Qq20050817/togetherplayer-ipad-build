@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
   TabView {
    WatchScreen(model:model,chat:chat).tabItem {Label("观影",systemImage:"play.rectangle")}.badge(chat.unread)
    RoomScreen(model:model).tabItem {Label("房间与片源",systemImage:"person.2")}
-  }.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
+  }.background {P2PWebRTCSurface(transport:model.p2pTransport).frame(width:1,height:1).allowsHitTesting(false)}.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_PLOT_UI_TEST"]=="1" {
@@ -182,7 +182,7 @@ import UniformTypeIdentifiers
  @ObservedObject var model: TestClient
  @ObservedObject var playback: PlaybackMonitor
  var body: some View {
-  HStack(spacing:8) {Circle().fill(model.isConnected ? (playback.buffering ? .orange : .green) : .gray).frame(width:9,height:9);Text(model.isConnected ? "\(playback.buffering ? "等待缓冲" : playback.playing ? "播放中" : "已暂停") · \(model.members.count)人" : "未连接房间").font(.caption);Image(systemName:"waveform").foregroundColor(.blue)}.padding(.horizontal,14).padding(.vertical,10).background(Color.white.opacity(0.07)).clipShape(Capsule())
+  HStack(spacing:8) {Circle().fill(model.isConnected ? (playback.buffering ? .orange : .green) : .gray).frame(width:9,height:9);Text(model.isConnected ? "\(playback.buffering ? "等待缓冲" : playback.playing ? "播放中" : "已暂停") · \(model.members.count)人 · \(model.p2pStatus)" : "未连接房间").font(.caption);Image(systemName:"waveform").foregroundColor(.blue)}.padding(.horizontal,14).padding(.vertical,10).background(Color.white.opacity(0.07)).clipShape(Capsule())
  }
 }
 @MainActor struct MediaLibraryPanel: View {
