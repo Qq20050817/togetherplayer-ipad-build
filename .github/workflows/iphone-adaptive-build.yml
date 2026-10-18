@@ -1,0 +1,60 @@
+name: iPhone adaptive TogetherPlayer 0.6.51 build and UI checks
+on:
+  push:
+    branches:
+      - feat/iphone-adaptive-ui-20261018
+    paths:
+      - 'ios/**'
+      - '.github/workflows/iphone-adaptive-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iphone-adaptive-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  iphone:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select available Xcode 26
+        run: |
+          set -euo pipefail
+          for v in 26.3 26.2 26.1.1 26.0.1; do
+            d="/Applications/Xcode_${v}.app/Contents/Developer"
+            if [ -d "$d" ]; then sudo xcode-select -s "$d"; break; fi
+          done
+          xcodebuild -version
+      - name: Generate project and resolve fixed dependencies
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath iphone-derived
+          python3 tools/patch_prism_swift61.py iphone-derived/SourcePackages/checkouts/PrismCore
+      - name: Compile unsigned universal iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath iphone-derived CODE_SIGNING_ALLOWED=NO build
+      - name: Verify phone portrait, landscape and film questions
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/iphone-devices.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/iphone-devices.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if x["name"].startswith("iPhone")))') 
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath iphone-derived CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/IPhoneLayoutTests test
+      - name: Package direct unsigned IPA without ZIP
+        run: |
+          set -euo pipefail
+          mkdir -p iphone-delivery
+          python3 tools/package_unsigned_ipa.py iphone-derived/Build/Products/Release-iphoneos/TogetherPoC.app iphone-delivery/TogetherPlayer-iPhone-iPad-0.6.51-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          (cd iphone-delivery && shasum -a 256 TogetherPlayer-iPhone-iPad-0.6.51-unsigned.ipa > SHA256SUMS.txt)
+          printf 'Source branch: %s\nSource commit: %s\nDevices: iPhone and iPad\nVersion: 0.6.51 (111)\nSigned: no; user signing required\nP2P: experimental, not certified for production playback\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > iphone-delivery/BUILD.txt
+      - name: Upload unsigned IPA and build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-iPhone-iPad-0.6.51
+          path: iphone-delivery/
+          retention-days: 7
