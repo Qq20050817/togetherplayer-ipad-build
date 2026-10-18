@@ -5,6 +5,9 @@ on:
       - experiment/p2p-fastpath-ipad-20261018
     paths:
       - 'ios/TogetherPoC/P2PDiagnosticsWebView.swift'
+      - 'ios/TogetherPoC/P2PWebRTCTransport.swift'
+      - 'ios/TogetherPoC/P2PTransport.html'
+      - 'ios/TogetherPoC/TestClient.swift'
       - 'ios/TogetherPoC/P2PFastPathGate.swift'
       - 'ios/TogetherPoC/TogetherPoCApp.swift'
       - 'ios/NativeTests/P2PFastPathGateTests.swift'
