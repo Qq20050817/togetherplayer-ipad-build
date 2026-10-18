@@ -183,6 +183,7 @@ class MainActivity: Activity() {
   renderChat()
   label(settingsBody,"房间与片源").apply {textSize=26f;setTypeface(typeface,android.graphics.Typeface.BOLD)};label(settingsBody,"连接房间，选择影片，就可以开始观影。");val connectionCard=settingsCard(settingsBody,"房间连接");val connectionOptions=settingsFold(connectionCard,"连接设置");server=field(connectionOptions,"服务端 HTTPS 地址",getPreferences(0).getString("server","https://together.xiaokai123.de5.net")!!);roomInput=field(connectionCard,"房间编号")
   val rooms=row(connectionCard);button(rooms,"创建") {register(false)};button(rooms,"加入 / 重连") {register(true)};button(rooms,"离开") {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
+   button(connectionCard,"🔗 P2P 直连测试（实验，不操作播放器）") {P2PDiagnosticsDialog.show(this)}
   // Keep REST feedback visible next to the buttons as well as on the watch page.
   val feedback=label(connectionCard);requestStatus.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){feedback.text=s};override fun afterTextChanged(s: Editable?) {}})
   waitToggle=Switch(this).apply {text="等待对方缓冲或重连";connectionOptions.addView(this);setOnCheckedChangeListener {_,enabled->if(!settingWait && connected && isHost)enqueue(JSONObject().put("type","ROOM_SETTINGS").put("data",JSONObject().put("waitForPeer",enabled)))}}
