@@ -51,7 +51,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag=v0.6.52-usb-subtitles-android-preview
+          tag=v0.6.52-usb-subtitles-stability-android-preview
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release tag exists; refusing overwrite" >&2
             exit 1
@@ -60,5 +60,5 @@ jobs:
             delivery/TogetherPlayer-Android-0.6.52-USB-Subtitles.apk \
             delivery/SHA256SUMS.txt delivery/BUILD.txt \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "TogetherPlayer Android 0.6.52 · U盘字幕自动识别" \
+            --title "TogetherPlayer Android 0.6.52 · U盘字幕与会话稳定性" \
             --notes "Direct APK, no ZIP. Reads a signed subtitle manifest from the existing router USB movie URL, shows matching SRT/VTT/ASS/SSA files in the Android subtitle menu and downloads the selected subtitle on demand. Original movie streaming, Muse, P2P, and other services are untouched. Router media endpoint must support subtitles=1, valid signed links, and same-film sidecar filtering. Debug signing may differ from current installation, so do not uninstall the working app solely for testing."
