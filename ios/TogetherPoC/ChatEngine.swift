@@ -36,13 +36,22 @@ struct ReactionBubble: Identifiable {
  private var room=""
  private var typingUntil=0.0
  private var seen=Set<Int64>()
+ // Server IDs are monotonic. A watermark rejects evicted history without
+ // retaining every ID for the lifetime of a room.
+ private var discardedThrough:Int64?
  func reset(_ id: String) {
-  guard id != room else {return};room=id;messages=[];seen=[];reactions=[];unread=0;typingName="";danmakuQueue.reset();danmaku=[]
+  guard id != room else {return};room=id;messages=[];seen=[];discardedThrough=nil;reactions=[];unread=0;typingName="";danmakuQueue.reset();danmaku=[]
  }
  func accept(_ message: ChatMessage,mine: Bool,live: Bool=false,now: Double=0) {
+  if let discardedThrough,message.id<=discardedThrough {return}
   guard seen.insert(message.id).inserted else {return}
-  messages.append(message);messages.sort {$0.id<$1.id}
-  if messages.count>500 {messages.removeFirst(messages.count-500)}
+  let outOfOrder=messages.last.map {$0.id>message.id} ?? false
+  messages.append(message);if outOfOrder {messages.sort {$0.id<$1.id}}
+  while messages.count>500 {
+   let removed=messages.removeFirst();seen.remove(removed.id)
+   discardedThrough=max(discardedThrough ?? removed.id,removed.id)
+  }
+  guard seen.contains(message.id) else {return}
   if !visible && !mine {unread += 1}
   if live && !message.clientMessageId.hasPrefix("bank:") {
    let voice=message.clientMessageId.hasPrefix("voice:")

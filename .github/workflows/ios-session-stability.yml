@@ -38,7 +38,7 @@ jobs:
           DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/stability-devices.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath stability-build -resultBundlePath stability-tests.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/RoomConnectionTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/RoomMovieSelectionTests test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath stability-build -resultBundlePath stability-tests.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/ChatRetentionTests -only-testing:TogetherPoCCoreTests/RoomConnectionTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/RoomMovieSelectionTests test
       - name: Package tested candidate
         run: |
           set -euo pipefail
