@@ -30,6 +30,7 @@ import UniformTypeIdentifiers
  @State private var authOpen=false
  @State private var advancedOpen=false
  @State private var aiOnlySubtitlePickerOpen=false
+ @State private var routerSubtitlePickerOpen=false
  @State private var bankPickerOpen=false
  @State private var bankSelectionFeedback=""
  @State private var bankSelectionContext:(key:String?,source:URL?,duration:Double)?
@@ -82,6 +83,13 @@ import UniformTypeIdentifiers
       guard bankSelectionToken==token else{return}
       bankSelectionFeedback="已选中 \(name)，正在读取…"
      })
+    }
+    .sheet(isPresented:$routerSubtitlePickerOpen) {
+     RouterUSBSubtitlePicker(movie:model.bankMovieURL,onPick:{option in
+      guard let movie=model.bankMovieURL else{return}
+      routerSubtitlePickerOpen=false
+      Task {await model.importRouterFullFilmSubtitleForAI(option,movie:movie)}
+     },onClose:{routerSubtitlePickerOpen=false})
     }
     .sheet(isPresented:$aiOnlySubtitlePickerOpen) {
      SubtitleDocumentPicker(onPick:{url in
@@ -149,6 +157,14 @@ import UniformTypeIdentifiers
    if materials.working {ProgressView(value:materials.progress).accessibilityIdentifier("plot-film-export-progress");Button("取消提取",role:.cancel){materials.cancel()}.accessibilityIdentifier("plot-cancel-film-materials")}
    Button("补充完整外置字幕（仅制作素材）") {aiOnlySubtitlePickerOpen=true}
     .buttonStyle(.bordered).disabled(materials.working || model.bankMovieURL == nil).accessibilityIdentifier("plot-import-material-subtitle")
+   Button("从当前路由器 U 盘电影查找外挂字幕") {routerSubtitlePickerOpen=true}
+    .buttonStyle(.bordered)
+    .disabled(materials.working || RouterUSBSubtitleCatalog.catalogURL(for:model.bankMovieURL)==nil)
+    .accessibilityIdentifier("plot-import-router-subtitle")
+   if model.bankMovieURL != nil && RouterUSBSubtitleCatalog.catalogURL(for:model.bankMovieURL)==nil {
+    Text("需要先加载路由器 U 盘签名 HTTP 影片，才能自动查找同目录字幕。")
+     .font(.caption2).foregroundStyle(.secondary)
+   }
    Text("本次 AI 素材字幕：\(model.bankSubtitleSourceLabel)").font(.caption.weight(.semibold)).foregroundStyle(.white)
     .accessibilityIdentifier("plot-film-material-subtitle-source")
    if model.hasMaterialOnlySubtitle {

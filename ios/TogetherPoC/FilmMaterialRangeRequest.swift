@@ -5,13 +5,17 @@ import Foundation
 final class FilmMaterialRangeRequest:NSObject,URLSessionDataDelegate {
  private let limit:Int
  private let expectedStatus:Int
+ private let followRedirects:Bool
  private var received=Data()
  private var http:HTTPURLResponse?
  private var failed=false
  private let finished=DispatchSemaphore(value:0)
 
- init(limit:Int,expectedStatus:Int) {
-  self.limit=limit;self.expectedStatus=expectedStatus;super.init()
+ init(limit:Int,expectedStatus:Int,followRedirects:Bool=true) {
+  self.limit=limit;self.expectedStatus=expectedStatus;self.followRedirects=followRedirects;super.init()
+ }
+ func urlSession(_ session:URLSession,task:URLSessionTask,willPerformHTTPRedirection response:HTTPURLResponse,newRequest:URLRequest,completionHandler:@escaping(URLRequest?)->Void) {
+  completionHandler(followRedirects ? newRequest : nil)
  }
  func urlSession(_ session:URLSession,dataTask:URLSessionDataTask,didReceive response:URLResponse,completionHandler:@escaping (URLSession.ResponseDisposition)->Void) {
   guard let response=response as? HTTPURLResponse,response.statusCode==expectedStatus else {

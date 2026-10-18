@@ -46,7 +46,7 @@ import CoreMedia
  }
  var hasMaterialOnlySubtitle:Bool {aiOnlySubtitle?.film==plotDisplayPosition()?.key}
  var bankSubtitleSourceLabel:String {
-  if let ai=aiOnlySubtitle,ai.film==plotDisplayPosition()?.key,!ai.document.cues.isEmpty {return "素材专用备用字幕"}
+  if let ai=aiOnlySubtitle,ai.film==plotDisplayPosition()?.key,!ai.document.cues.isEmpty {return aiOnlySubtitleOrigin}
   if externalSubtitles.enabled && externalSubtitles.completeExternalForAI != nil {return "当前播放的外挂字幕"}
   return "原片内置字幕（未选备用字幕）"
  }
@@ -188,6 +188,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private let compatibilityPreparation: ((URL,[String:String]) async throws -> URL)?
  private var currentOriginalURL: URL?
  private var aiOnlySubtitle:(film:String,document:SubtitleDocument)?
+ private var aiOnlySubtitleOrigin="素材专用备用字幕"
  @Published private(set) var aiOnlySubtitleImportStatus=""
  private var activeLocalSource=""
  private var localSourceRoomURL=""
@@ -721,6 +722,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     return
    }
    aiOnlySubtitle=(film:key,document:document)
+   aiOnlySubtitleOrigin="iPad 文件字幕（素材专用）"
    filmMaterials.invalidateSubtitleSelection()
    aiOnlySubtitleImportStatus="已选用 \(document.cues.count) 条完整备用字幕作为 AI 素材来源；播放字幕保持不变，不自动调用 AI。"
    // V2 import is data-only. Legacy analysis requires its explicit Continue action.
@@ -728,9 +730,29 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    aiOnlySubtitleImportStatus=(error as? SubtitleParseError)==(.size) ? "字幕超过 5MB，请换用较小的完整字幕文件。" : "完整字幕读取失败；请确认文件格式、编码及文件访问权限。"
   }
  }
+ /// Read a signed subtitle sibling of the current router USB movie for AI materials only.
+ func importRouterFullFilmSubtitleForAI(_ option:RouterUSBSubtitleOption,movie:URL) async {
+  guard let key=plotDisplayPosition()?.key,bankMovieURL==movie else {
+   aiOnlySubtitleImportStatus="影片已切换，请重新选择当前 U 盘电影的字幕。";return
+  }
+  aiOnlySubtitleImportStatus="正在从路由器 U 盘读取 \(option.name)…"
+  do {
+   let document=try await RouterUSBSubtitleCatalog.read(option,for:movie)
+   guard plotDisplayPosition()?.key==key,bankMovieURL==movie else {
+    aiOnlySubtitleImportStatus="读取期间影片已切换，已忽略旧字幕。";return
+   }
+   aiOnlySubtitle=(film:key,document:document)
+   aiOnlySubtitleOrigin="路由器 U 盘外挂字幕（素材专用）"
+   filmMaterials.invalidateSubtitleSelection()
+   aiOnlySubtitleImportStatus="已从 U 盘选用 \(option.name)，共 \(document.cues.count) 条；播放字幕不变。"
+  } catch {
+   aiOnlySubtitleImportStatus="U 盘完整字幕读取失败："+error.localizedDescription
+  }
+ }
  func clearFullFilmSubtitleForAI() {
   guard hasMaterialOnlySubtitle else{return}
   aiOnlySubtitle=nil
+  aiOnlySubtitleOrigin="素材专用备用字幕"
   filmMaterials.invalidateSubtitleSelection()
   aiOnlySubtitleImportStatus="已取消素材专用备用字幕，下次导出按当前播放字幕选择读取。"
  }
