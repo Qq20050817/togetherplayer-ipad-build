@@ -648,7 +648,7 @@ class MainActivity: Activity() {
  }
  private fun removeDanmaku(){for(i in videoBox.childCount-1 downTo 0){val v=videoBox.getChildAt(i);if(v.tag=="danmaku"){v.animate().cancel();videoBox.removeView(v)}};danmakuLanes.fill(false)}
  private fun errorText(code: String)=when(code){"PLOT_ANSWER_REQUIRED"->"请双方先回答剧情问题，再继续播放";"STALE_VERSION"->"房间状态变化，请重试";"HOST_REQUIRED"->"只有房主可以操作";"HOST_OFFLINE"->"房主离线";"SEEK_AFTER_END"->"超出影片时长";"SOURCE_NOT_READY"->"等待两端匹配同一百度影片并准备好";"INVALID_SOURCE"->"片源无效或含凭据";"RATE_LIMIT"->"操作过于频繁";else->code}
- private fun applyMembers(list: org.json.JSONArray){val labels=ArrayList<String>();val durations=ArrayList<Double>();repeat(list.length()){val p=list.getJSONObject(it);labels.add("${if(p.optBoolean("online"))"🟢" else "⚪"} ${p.optString("name")} ${if(p.optBoolean("buffering"))"缓冲中" else ""}");if(p.optString("userId")==credentials?.optString("userId"))engine.timelineOffset=p.optDouble("timelineOffset",0.0);if(p.optDouble("duration",0.0)>0)durations.add(p.optDouble("duration")-p.optDouble("timelineOffset",0.0))};memberSummary=labels.joinToString("\n");onlineMembers=(0 until list.length()).count {list.getJSONObject(it).optBoolean("online")};presence.text="${onlineMembers}人一起看";presence.setTextColor(0xff44d68b.toInt());if(durations.size==2 && abs(durations[0]-durations[1])>5000)notice.text="影片时长不同，请确认剪辑一致"}
+ private fun applyMembers(list: org.json.JSONArray){p2pOnlineMembers.clear();val labels=ArrayList<String>();val durations=ArrayList<Double>();repeat(list.length()){val p=list.getJSONObject(it);if(p.optBoolean("online"))p2pOnlineMembers.add(p.optString("userId"));labels.add("${if(p.optBoolean("online"))"🟢" else "⚪"} ${p.optString("name")} ${if(p.optBoolean("buffering"))"缓冲中" else ""}");if(p.optString("userId")==credentials?.optString("userId"))engine.timelineOffset=p.optDouble("timelineOffset",0.0);if(p.optDouble("duration",0.0)>0)durations.add(p.optDouble("duration")-p.optDouble("timelineOffset",0.0))};memberSummary=labels.joinToString("\n");onlineMembers=(0 until list.length()).count {list.getJSONObject(it).optBoolean("online")};presence.text="${onlineMembers}人一起看";presence.setTextColor(0xff44d68b.toInt());if(durations.size==2 && abs(durations[0]-durations[1])>5000)notice.text="影片时长不同，请确认剪辑一致";refreshP2P()}
  private fun usingVariant()=variantRoomID.isNotBlank() && variantRoomID==engine.room?.optString("roomId") && variantMediaURL==engine.room?.optString("mediaUrl")
  private fun variantCheck():MovieVariantPolicy.DurationCheck {
   if(!usingVariant())return MovieVariantPolicy.DurationCheck.COMPATIBLE
@@ -945,7 +945,103 @@ class MainActivity: Activity() {
    }
   }
  }
- private val tick=object: Runnable {override fun run(){if(stopped)return;updatePlaybackUI();notice.visibility=if(notice.text.isBlank())View.GONE else View.VISIBLE;requestStatus.visibility=if(requestStatus.text.isBlank())View.GONE else View.VISIBLE;presence.visibility=if(presence.text.isBlank())View.GONE else View.VISIBLE;chat.tick(clock.localNow());val typingLabel=if(chat.typingName.isBlank())"" else "${chat.typingName} 正在输入…";if(typing.text.toString()!=typingLabel)typing.text=typingLabel;if(foreground && connected){val variantState=variantCheck();val locallyPending=instantControls && clock.localNow()<optimisticUntil && (inFlight!=null || queued.isNotEmpty());val p2pEarly=clock.localNow()<p2pFastUntil&&engine.version==p2pFastVersion&&plotPoll?.optBoolean("waitingForAnswers")!=true;val error=if(locallyPending||p2pEarly)null else if(variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE)engine.tick() else {playback.pause();null};if(speedHoldID!=null && engine.target()?.second=="paused")setSpeedHold(false);checkPlaybackRecovery();if(usingVariant())notice.text=when(variantState){MovieVariantPolicy.DurationCheck.WAITING->"等待原版与转码版的影片时长；暂不进入同步。";MovieVariantPolicy.DurationCheck.DIFFERENT->"影片时长不一致，请确认剪辑版本或校准时间差。";else->"同一剪辑的另一画质已确认，影片时长核对通过。"};ticks++;flush();if(ticks%10==0){send(JSONObject().put("type","SYNC"));val ready=variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE && (BaiduMediaReference.parse(engine.room?.optString("mediaUrl") ?: "")==null || hasBaiduMatch()) && RecoveryBufferPolicy.ready(playback.playbackState==Player.STATE_READY || playback.playbackState==Player.STATE_ENDED,(playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0),playback.currentPosition,playback.duration,engine.room?.optBoolean("autoResume")==true && localFileUri.isBlank());send(JSONObject().put("type","PLAYER_STATUS").put("data",JSONObject().put("sourceId",if(hasBaiduMatch())baiduSourceID else "").put("ready",ready).put("buffering",playback.playbackState==Player.STATE_BUFFERING).put("position",(playback.currentPosition-engine.timelineOffset).coerceAtLeast(0.0)).put("duration",if(usingVariant() && isHost)if(variantDuration>0)variantDuration+engine.timelineOffset else 0.0 else playback.duration.coerceAtLeast(0).toDouble())));val target=engine.target();send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("clientVersion",clientVersion).put("serverTimeMs",if(clock.ready)clock.serverNow() else JSONObject.NULL).put("ready",ready).put("timelineOffsetMs",engine.timelineOffset).put("executeAtMs",engine.room?.optDouble("executeAt",0.0) ?: 0.0).put("resyncCount",engine.resyncCount).put("positionMs",playback.currentPosition).put("expectedMs",target?.first).put("errorMs",if(error!=null)target!!.first-playback.currentPosition else JSONObject.NULL).put("rttMs",clock.rtt).put("version",engine.version).put("playing",playback.isPlaying).put("buffering",!ready).put("playbackRate",playback.playbackParameters.speed)));val bufferedSeconds=((playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0)/1000);status.text="$clientVersion ${if(isHost)"HOST" else "GUEST"} room=${credentials?.optString("roomId")} v=${engine.version}\n位置 ${playback.currentPosition/1000}s 误差 ${error?.toInt()}ms RTT ${clock.rtt.toInt()}ms\n视频 ${playback.videoFormat?.sampleMimeType ?: "等待"} 音频 ${playback.audioFormat?.sampleMimeType ?: "等待"}\n已缓存 ${bufferedSeconds}s"};if(ticks%150==0)pingBurst()};main.postDelayed(this,100)}}
+ private val tick=object: Runnable {override fun run(){if(stopped)return;updatePlaybackUI();notice.visibility=if(notice.text.isBlank())View.GONE else View.VISIBLE;requestStatus.visibility=if(requestStatus.text.isBlank())View.GONE else View.VISIBLE;presence.visibility=if(presence.text.isBlank())View.GONE else View.VISIBLE;chat.tick(clock.localNow());val typingLabel=if(chat.typingName.isBlank())"" else "${chat.typingName} 正在输入…";if(typing.text.toString()!=typingLabel)typing.text=typingLabel;if(foreground && connected){val variantState=variantCheck();val locallyPending=instantControls && clock.localNow()<optimisticUntil && (inFlight!=null || queued.isNotEmpty());val p2pEarly=clock.localNow()<p2pFastUntil&&engine.version==p2pFastVersion&&plotPoll?.optBoolean("waitingForAnswers")!=true;val error=if(locallyPending||p2pEarly)null else if(variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE)engine.tick() else {playback.pause();null};if(speedHoldID!=null && engine.target()?.second=="paused")setSpeedHold(false);checkPlaybackRecovery();if(usingVariant())notice.text=when(variantState){MovieVariantPolicy.DurationCheck.WAITING->"等待原版与转码版的影片时长；暂不进入同步。";MovieVariantPolicy.DurationCheck.DIFFERENT->"影片时长不一致，请确认剪辑版本或校准时间差。";else->"同一剪辑的另一画质已确认，影片时长核对通过。"};ticks++;flush();if(ticks%10==0){send(JSONObject().put("type","SYNC"));val ready=variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE && (BaiduMediaReference.parse(engine.room?.optString("mediaUrl") ?: "")==null || hasBaiduMatch()) && RecoveryBufferPolicy.ready(playback.playbackState==Player.STATE_READY || playback.playbackState==Player.STATE_ENDED,(playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0),playback.currentPosition,playback.duration,engine.room?.optBoolean("autoResume")==true && localFileUri.isBlank());send(JSONObject().put("type","PLAYER_STATUS").put("data",JSONObject().put("sourceId",if(hasBaiduMatch())baiduSourceID else "").put("ready",ready).put("buffering",playback.playbackState==Player.STATE_BUFFERING).put("position",(playback.currentPosition-engine.timelineOffset).coerceAtLeast(0.0)).put("duration",if(usingVariant() && isHost)if(variantDuration>0)variantDuration+engine.timelineOffset else 0.0 else playback.duration.coerceAtLeast(0).toDouble())));val target=engine.target();send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("clientVersion",clientVersion).put("serverTimeMs",if(clock.ready)clock.serverNow() else JSONObject.NULL).put("ready",ready).put("timelineOffsetMs",engine.timelineOffset).put("executeAtMs",engine.room?.optDouble("executeAt",0.0) ?: 0.0).put("resyncCount",engine.resyncCount).put("positionMs",playback.currentPosition).put("expectedMs",target?.first).put("errorMs",if(error!=null)target!!.first-playback.currentPosition else JSONObject.NULL).put("rttMs",clock.rtt).put("version",engine.version).put("playing",playback.isPlaying).put("buffering",!ready).put("playbackRate",playback.playbackParameters.speed)));val bufferedSeconds=((playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0)/1000);status.text="$clientVersion ${if(isHost)"HOST" else "GUEST"} room=${credentials?.optString("roomId")} v=${engine.version}\n位置 ${playback.currentPosition/1000}s 误差 ${error?.toInt()}ms RTT ${clock.rtt.toInt()}ms\n视频 ${playback.videoFormat?.sampleMimeType ?: "等待"} 音频 ${playback.audioFormat?.sampleMimeType ?: "等待"}\n已缓存 ${bufferedSeconds}s · $p2pStatus"};if(ticks%75==0)refreshP2P();if(ticks%150==0)pingBurst()};main.postDelayed(this,100)}}
  private fun disconnectForTest(){generation++;val g=generation;ws?.cancel();connected=false;engine.resetSession();main.postDelayed({if(!stopped && foreground && generation==g)connect()},3000)}
  override fun onDestroy(){stopP2P();p2pTransport.dispose();plotDrawer?.dismiss();voice.close();stopped=true;fullscreenDialog?.dismiss();generation++;main.removeCallbacksAndMessages(null);ws?.cancel();playback.release();baidu.close();http.dispatcher.executorService.shutdown();super.onDestroy()}
+
+ private fun p2pKnownPeerOnline():Boolean =
+  p2pPeerUserID.isNotBlank() && p2pOnlineMembers.contains(p2pPeerUserID) &&
+  p2pRoomID==engine.room?.optString("roomId")
+ private fun stopP2P(){
+  p2pTransport.close()
+  p2pGate.reset();p2pSupported=false;p2pPeerUserID="";p2pRoomID=""
+  p2pEstablished=false;p2pFastUntil=0.0;p2pFastVersion=0
+  p2pLastOfferAt=0.0;p2pOnlineMembers.clear();p2pStatus="Muse 房间同步"
+ }
+ private fun refreshP2P(){
+  if(!connected || !foreground || !p2pSupported)return
+  val room=engine.room?:return
+  val me=credentials?.optString("userId").orEmpty()
+  if(me.isBlank())return
+  val others=p2pOnlineMembers.filter{it!=me}
+  if(others.size!=1 || p2pOnlineMembers.size!=2){
+   if(p2pPeerUserID.isNotBlank()){
+    p2pTransport.close();p2pGate.reset();p2pPeerUserID=""
+    p2pEstablished=false;p2pStatus="Muse 备用"
+   }
+   return
+  }
+  val remote=others.single()
+  val roomID=room.optString("roomId")
+  if(p2pPeerUserID!=remote || p2pRoomID!=roomID){
+   p2pPeerUserID=remote;p2pRoomID=roomID;p2pEstablished=false
+   p2pGate.attach(roomID,room.optString("hostId"),me,room.optLong("version"))
+   p2pLastOfferAt=clock.localNow()
+   p2pTransport.start(room.optString("hostId")==me,remote)
+  }else{
+   p2pGate.serverState(room.optLong("version"))
+   if(room.optString("hostId")==me && !p2pEstablished && clock.localNow()-p2pLastOfferAt>15000){
+    p2pLastOfferAt=clock.localNow()
+    p2pTransport.start(true,remote)
+   }
+  }
+ }
+ private fun receiveP2PSignal(frame:JSONObject){
+  if(!connected || !p2pSupported)return
+  val source=frame.optString("fromUserId")
+  val data=frame.optJSONObject("data")?:return
+  val kind=data.optString("kind")
+  val payload=data.optJSONObject("payload")?:return
+  refreshP2P()
+  if(source!=p2pPeerUserID || !p2pKnownPeerOnline())return
+  p2pTransport.receiveSignal(kind,payload)
+ }
+ private fun sendP2PHint(command:JSONObject){
+  if(!p2pEstablished || !p2pKnownPeerOnline() || !isHost ||
+     variantCheck()!=MovieVariantPolicy.DurationCheck.COMPATIBLE ||
+     plotPoll?.optBoolean("waitingForAnswers")==true)return
+  val room=engine.room?:return
+  val op=if(command.optString("type")=="INSTANT_CONTROL")command.optJSONObject("data")?:return else command
+  val action=op.optString("type")
+  if(action !in listOf("PLAY","PAUSE","SEEK"))return
+  val position=op.optDouble("position",0.0)
+  val hint=JSONObject().put("type","CONTROL_HINT")
+   .put("roomID",room.optString("roomId"))
+   .put("senderUserID",room.optString("hostId"))
+   .put("roomVersion",room.optLong("version"))
+   .put("sequence",command.optLong("sequence"))
+   .put("action",action).put("positionMs",position)
+   .put("issuedAtMs",System.currentTimeMillis().toDouble())
+   .put("mediaURL",room.optString("mediaUrl"))
+  p2pTransport.sendControl(hint)
+ }
+ private fun receiveP2PControl(frame:JSONObject){
+  if(!connected || !p2pEstablished || isHost)return
+  val room=engine.room?:return
+  if(room.optString("roomId")!=p2pRoomID || frame.optString("mediaURL")!=room.optString("mediaUrl"))return
+  if(plotPoll?.optBoolean("waitingForAnswers")==true ||
+     variantCheck()!=MovieVariantPolicy.DurationCheck.COMPATIBLE ||
+     playback.currentMediaItem==null ||
+     playback.playbackState!=Player.STATE_READY)return
+  if(room.optBoolean("waitForPeer") && onlineMembers!=2)return
+  val action=when(frame.optString("action")){
+   "PLAY"->P2PPlaybackAction.PLAY
+   "PAUSE"->P2PPlaybackAction.PAUSE
+   "SEEK"->P2PPlaybackAction.SEEK
+   else->return
+  }
+  val hint=P2PControlHint(
+   roomID=frame.optString("roomID"),senderUserID=frame.optString("senderUserID"),
+   roomVersion=frame.optLong("roomVersion"),sequence=frame.optLong("sequence"),
+   action=action,positionMs=frame.optDouble("positionMs",Double.NaN),
+   issuedAtMs=frame.optDouble("issuedAtMs",Double.NaN))
+  if(p2pGate.admit(hint,System.currentTimeMillis().toDouble())!=P2PAdmission.ACCEPTED)return
+  p2pFastVersion=hint.roomVersion;p2pFastUntil=clock.localNow()+1200
+  when(action){
+   P2PPlaybackAction.PLAY->playback.play()
+   P2PPlaybackAction.PAUSE->playback.pause()
+   P2PPlaybackAction.SEEK->playback.seekTo((hint.positionMs+engine.timelineOffset).toLong())
+  }
+ }
+
 }
