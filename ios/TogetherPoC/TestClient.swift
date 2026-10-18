@@ -1762,3 +1762,93 @@ extension TestClient {
   return "双方影片时长不同，请确认剪辑一致；时间偏移只能校准片头差异。"
  }
 }
+
+
+extension TestClient {
+ private func p2pKnownPeerOnline() -> Bool {
+  guard !p2pPeerID.isEmpty,let room=engine.room,room.roomId==p2pRoomID else{return false}
+  return members.contains {$0.userId == p2pPeerID && $0.online}
+ }
+ private func stopP2P() {
+  p2pTransport.close()
+  p2pGate.reset();p2pSupported=false;p2pPeerID="";p2pRoomID=""
+  p2pEstablished=false;p2pFastUntil=0;p2pFastVersion=0
+  p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
+ }
+ private func refreshP2P() {
+  guard connected,foreground,p2pSupported,
+        let room=engine.room,let me=credentials?["userId"] as? String,!me.isEmpty else{return}
+  let peers=members.filter {$0.userId != me && $0.online}
+  guard peers.count==1,members.count==2 else {
+   if !p2pPeerID.isEmpty {
+    p2pTransport.close();p2pGate.reset();p2pPeerID=""
+    p2pEstablished=false;p2pStatus="Muse 备用"
+   }
+   return
+  }
+  let remote=peers[0].userId
+  if p2pPeerID != remote || p2pRoomID != room.roomId {
+   p2pPeerID=remote;p2pRoomID=room.roomId;p2pEstablished=false
+   p2pGate.attach(roomID:room.roomId,hostUserID:room.hostId,localUserID:me,serverVersion:room.version)
+   p2pLastOfferAt=clock.localNow()
+   p2pTransport.start(host:room.hostId==me,peerUserID:remote)
+  } else {
+   p2pGate.serverState(version:room.version)
+   if room.hostId==me && !p2pEstablished && clock.localNow()-p2pLastOfferAt>15_000 {
+    p2pLastOfferAt=clock.localNow()
+    p2pTransport.start(host:true,peerUserID:remote)
+   }
+  }
+ }
+ private func receiveP2PSignal(_ message:[String:Any]) {
+  guard connected,p2pSupported,let source=message["fromUserId"] as? String,
+        let data=message["data"] as? [String:Any],
+        let kind=data["kind"] as? String,
+        let payload=data["payload"] as? [String:Any] else{return}
+  refreshP2P()
+  guard source==p2pPeerID,p2pKnownPeerOnline() else{return}
+  p2pTransport.receiveSignal(kind:kind,payload:payload)
+ }
+ private func sendP2PHint(_ command:[String:Any]) {
+  guard p2pEstablished,p2pKnownPeerOnline(),let room=engine.room,
+        room.hostId == credentials?["userId"] as? String,
+        !plotPollWaiting,variantDurationCheck == .compatible else{return}
+  let outer=command["type"] as? String ?? ""
+  let details=outer=="INSTANT_CONTROL" ? command["data"] as? [String:Any] : command
+  guard let fields=details,let name=fields["type"] as? String,
+        ["PLAY","PAUSE","SEEK"].contains(name),
+        let seq=(command["sequence"] as? NSNumber)?.int64Value else{return}
+  let position=(fields["position"] as? NSNumber)?.doubleValue ?? 0
+  let payload:[String:Any]=[
+   "type":"CONTROL_HINT","roomID":room.roomId,
+   "senderUserID":room.hostId,"roomVersion":room.version,
+   "sequence":seq,"action":name,"positionMs":position,
+   "issuedAtMs":Date().timeIntervalSince1970*1000,"mediaURL":room.mediaUrl
+  ]
+  p2pTransport.sendControl(payload)
+ }
+ private func receiveP2PControl(_ frame:[String:Any]) {
+  guard connected,p2pEstablished,!isHost,let room=engine.room,
+        room.roomId==p2pRoomID,
+        let actionText=frame["action"] as? String,
+        let action=P2PPlaybackAction(rawValue:actionText),
+        let roomID=frame["roomID"] as? String,
+        let sender=frame["senderUserID"] as? String,
+        let version=(frame["roomVersion"] as? NSNumber)?.int64Value,
+        let seq=(frame["sequence"] as? NSNumber)?.int64Value,
+        let position=(frame["positionMs"] as? NSNumber)?.doubleValue,
+        let sentAt=(frame["issuedAtMs"] as? NSNumber)?.doubleValue,
+        frame["mediaURL"] as? String == room.mediaUrl,
+        variantDurationCheck == .compatible,!plotPollWaiting,adapter.ready,
+        (room.waitForPeer != true || members.allSatisfy({$0.ready && !$0.buffering})) else{return}
+  let hint=P2PControlHint(roomID:roomID,senderUserID:sender,roomVersion:version,
+                          sequence:seq,action:action,positionMs:position,issuedAtMs:sentAt)
+  guard p2pGate.admit(hint,nowMs:Date().timeIntervalSince1970*1000) == .accepted else{return}
+  p2pFastVersion=version;p2pFastUntil=clock.localNow()+1200
+  switch action {
+  case .pause:adapter.pause()
+  case .seek:adapter.seekTo(position+engine.timelineOffset)
+  case .play:adapter.play()
+  }
+ }
+}
