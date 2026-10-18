@@ -36,6 +36,9 @@ import UniformTypeIdentifiers
  @State private var bankSelectionToken=UUID()
  @State private var materialsPreviewOpen=false
  @State private var restartBankRound=false
+ @State private var confirmFinaleRecovery=false
+ @State private var storyEndInput=""
+ @State private var storyEndFeedback=""
  init(model:TestClient,onClose:(()->Void)?=nil) {
   self.model=model;intelligence=model.plotIntelligence;auth=model.plotIntelligence.auth
   materials=model.filmMaterials;bank=model.questionBankRuntime
@@ -60,6 +63,9 @@ import UniformTypeIdentifiers
     .toolbar {ToolbarItem(placement:.topBarTrailing) {Button("完成") {if let onClose {onClose()} else {dismiss()}}.accessibilityIdentifier("plot-settings-close")}}
     .sheet(isPresented:$materialsPreviewOpen) {FilmMaterialsPreview(session:materials)}
     .confirmationDialog("开始新一轮题库？已发布记录会重置，原题库保留。",isPresented:$restartBankRound,titleVisibility:.visible) {Button("开始新一轮",role:.destructive){bank.startNewRound()}}
+    .confirmationDialog("确认已经看完剧情？仅本机补生成结算，待好友观看进度到达结尾后才发送答案。",isPresented:$confirmFinaleRecovery,titleVisibility:.visible) {
+     Button("我已看完，补生成结算") {model.recoverFilmBankFinale()}
+    }
     .sheet(isPresented:$authOpen) {PlotAuthorizationView(intelligence:intelligence,auth:auth)}
     .fullScreenCover(isPresented:$bankPickerOpen) {
      let token=bankSelectionToken
@@ -189,20 +195,36 @@ import UniformTypeIdentifiers
       .font(.caption).foregroundStyle(.orange).accessibilityIdentifier("plot-film-review-missing")
     }
     if let ending=bank.storyEndAtMs {
-     Text("剧情结束点：\(ending/60000):\(String(format:"%02d",(ending/1000)%60)) · 自动跳过后续演职员表")
+     Text("剧情结束点：\(FilmStoryEndTime.display(ending)) · 使用当前片源校准，题库推荐时间仅供参考")
       .font(.caption).accessibilityIdentifier("plot-story-end-marker")
     } else {
      Text("尚无可靠剧情结束点，暂按真实影片播放完毕结算。").font(.caption2).foregroundStyle(.secondary)
     }
-    Button("把当前播放位置设为剧情结束点") {bank.setStoryEnd(at:model.bankPlaybackPositionMs)}
+    Button("把当前播放位置设为剧情结束点") {bank.setStoryEnd(at:model.bankPlaybackPositionMs);storyEndFeedback=bank.status}
      .font(.caption).buttonStyle(.bordered).accessibilityIdentifier("plot-set-story-end")
+    HStack(spacing:8) {
+     TextField("精确设置，如 01:42:35",text:$storyEndInput)
+      .textFieldStyle(.roundedBorder).keyboardType(.numbersAndPunctuation)
+      .accessibilityIdentifier("plot-story-end-input")
+     Button("应用") {
+      if let ms=FilmStoryEndTime.parse(storyEndInput) {bank.setStoryEnd(at:ms);storyEndFeedback=bank.status}
+      else {storyEndFeedback="时间格式应为 分:秒 或 时:分:秒，例如 01:42:35"}
+     }.buttonStyle(.bordered).accessibilityIdentifier("plot-apply-story-end")
+    }
+    if !storyEndFeedback.isEmpty {Text(storyEndFeedback).font(.caption2).foregroundStyle(.secondary)}
     if bank.storyEndAtMs != nil {
      Button("恢复题库推荐结束点") {bank.restoreStoryEndSuggestion()}
       .font(.caption).buttonStyle(.bordered)
     }
+    if bank.finalReport.isEmpty {
+     Button("已看完却没弹窗？补生成结算") {confirmFinaleRecovery=true}
+      .font(.caption).buttonStyle(.bordered).accessibilityIdentifier("plot-recover-film-finale")
+    }
     Button("开始新一轮题库") {restartBankRound=true}.disabled(bank.importing).accessibilityIdentifier("plot-restart-bank-round")
    }
    if !bank.finalReport.isEmpty {
+    Button("重新打开全片剧情分析弹窗") {bank.reopenFinalReport()}
+     .buttonStyle(.borderedProminent).accessibilityIdentifier("plot-reopen-film-recap")
     DisclosureGroup("🎬 上一轮观影结算与全部解析") {
      Text(bank.finalReport).font(.callout).textSelection(.enabled)
       .accessibilityIdentifier("plot-film-final-report")
