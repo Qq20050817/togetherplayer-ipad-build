@@ -8,6 +8,7 @@ import Combine
  @Published private(set) var status="当前影片未导入题库"
  @Published private(set) var revealedAnswer=""
  @Published private(set) var finalReport=""
+ @Published private(set) var recapReopenToken=UUID()
  @Published private(set) var publishedCount=0
  @Published private(set) var completedCount=0
  @Published private(set) var importing=false
@@ -36,10 +37,12 @@ import Combine
  private var narrativeEndArmed=false
  private var nativeEndArmed=false
  private var narrativePauseRequested=false
+ private var continuousPlaybackProven=false
  var storyEndAtMs:Int? {progress.storyEndOverrideMs ?? active?.storyEndMs}
- func playbackJumped() {continuousPlaybackSince=nil;narrativeEndArmed=false;nativeEndArmed=false;if progress.finalText==nil {narrativePauseRequested=false}}
+ func playbackJumped() {continuousPlaybackSince=nil;continuousPlaybackProven=false;narrativeEndArmed=false;nativeEndArmed=false;if progress.finalText==nil {narrativePauseRequested=false}}
+ func reopenFinalReport() {if !finalReport.isEmpty {recapReopenToken=UUID()}}
  func setStoryEnd(at positionMs:Double) {
-  guard let bank=active,progress.finalText==nil,positionMs.isFinite else{return}
+  guard let bank=active,positionMs.isFinite else{return}
   let value=Int(positionMs.rounded())
   let lastReveal=bank.questions.map{max($0.triggerAtMs,$0.revealAtMs ?? 0)}.max() ?? 0
   guard value>=max(60_000,lastReveal),value<=bank.durationMs else {
@@ -48,10 +51,25 @@ import Combine
   progress.storyEndOverrideMs=value
   playbackJumped();narrativePauseRequested=false
   let write=persist();Task {try? await write.value}
-  status="剧情结束点已记住：\(value/60000):\(String(format:"%02d",(value/1000)%60))。正常播放至此自动结算。"
+  status="当前片源剧情结束点：\(FilmStoryEndTime.display(value))。\(progress.finalText == nil ? "正常播放至此自动结算。" : "下轮观影将使用此时间。")"
+ }
+ // Explicit recovery for someone who has already watched the ending. This is
+ // strictly local; answers still wait for a verified guest-safe timeline.
+ func finishAlreadyViewed(filmKey:String?,positionMs:Double,durationMs:Double,participantNames:[String:String]=[:]) {
+  guard let bank=active,key==filmKey,FilmBankCodec.matches(bank,playbackDuration:durationMs),
+   positionMs.isFinite else {status="当前片源与题库尚未完成核对，无法补结算";return}
+  let threshold=Double(storyEndAtMs ?? bank.durationMs)-2500
+  guard positionMs>=threshold else {status="请先播放至剧情结尾点，再手动补结算";return}
+  guard !progress.published.isEmpty || bank.filmReview != nil else {status="本题库缺少已发布题目及全片复盘，无法生成结算";return}
+  if progress.finalText==nil {
+   let text=completedReport(bank,names:participantNames)
+   progress.finalText=text;finalReport=text
+   let write=persist();Task {try? await write.value}
+   status="已在本机补生成片尾分析；等双方进度同步后再向好友公布答案"
+  } else {reopenFinalReport()}
  }
  func restoreStoryEndSuggestion() {
-  guard active != nil,progress.finalText==nil else{return}
+  guard active != nil else{return}
   progress.storyEndOverrideMs=nil;playbackJumped();narrativePauseRequested=false
   let write=persist();Task {try? await write.value}
   status=storyEndAtMs == nil ? "已使用影片实际播放结束点" : "已恢复题库剧情结束点"
@@ -280,11 +298,19 @@ import Combine
   // sustained natural playback to prevent a SEEK to the finale from leaking
   // spoiler answers. A real native playback end remains the legacy fallback.
   let uptime=uptimeNow()
-  let nativeHadContinuousPlayback=continuousPlaybackSince.map{uptime-$0>=8} == true
   let continuity=lastPositionMs.map{positionMs>=$0 && positionMs-$0<=3500} ?? false
+  // A time jump invalidates proof of naturally watching the ending. Ordinary
+  // socket/VM reconnects must not erase proof already earned while playing.
+  if lastPositionMs != nil && !continuity &&
+      (positionMs < (lastPositionMs ?? 0) || positionMs - (lastPositionMs ?? 0) > 3500) {
+   continuousPlaybackSince=nil;continuousPlaybackProven=false
+   narrativeEndArmed=false;nativeEndArmed=false
+  }
+  let nativeHadContinuousPlayback=continuousPlaybackProven || continuousPlaybackSince.map{uptime-$0>=8} == true
   if naturalEnd && nativeHadContinuousPlayback {nativeEndArmed=true}
   if canFinish && continuity {
    if continuousPlaybackSince==nil {continuousPlaybackSince=uptime}
+   if uptime-(continuousPlaybackSince ?? uptime)>=8 {continuousPlaybackProven=true}
   } else {continuousPlaybackSince=nil}
   if let end=storyEndAtMs,
      canFinish,continuity,let previous=lastPositionMs,
@@ -294,13 +320,19 @@ import Combine
   }
   let endMs=Double(storyEndAtMs ?? bank.durationMs)
   let nearEnding=min(positionMs,revealPositionMs ?? 0)>=endMs-2500
-  let narrativeFinished=narrativeEndArmed && storyEndAtMs != nil && nearEnding
+  // A confirmed native end is local evidence even when a restarted server
+  // still reports an old room anchor. Keep guest answers hidden until the
+  // canonical room/peer timeline catches up.
+  let naturalLocalFinish=(nativeEndArmed ||
+    (continuousPlaybackProven && canFinish && continuity && positionMs>=Double(bank.durationMs)-500)) &&
+    positionMs>=Double(bank.durationMs)-2500
+  let narrativeLocalFinish=narrativeEndArmed && storyEndAtMs != nil && positionMs>=endMs-2500
+  let narrativeFinished=narrativeLocalFinish && nearEnding
   if narrativeFinished && !narrativePauseRequested && canReveal {
    narrativePauseRequested=true
    pauseAtStoryEnd()
   }
-  if (nativeEndArmed || narrativeFinished) && canReveal && nearEnding &&
-     !progress.published.isEmpty {
+  if (naturalLocalFinish || narrativeLocalFinish) && (!progress.published.isEmpty || bank.filmReview != nil) {
    if progress.finalText==nil {
     let text=completedReport(bank,names:participantNames)
     progress.finalText=text
@@ -312,7 +344,7 @@ import Combine
   // Delivery retries are independent from playback. If the app was killed or
   // the socket dropped after the finale, restore and send missing segments
   // without forcing viewers to watch the final scene again.
-  if canReveal,let text=progress.finalText,!progress.finalDelivered {
+  if canReveal,nearEnding,let text=progress.finalText,!progress.finalDelivered {
    // Keep the socket outbox small for full-length explanations. Each ack
    // frees a slot for more sections on the next playback/connection tick.
    for message in finalParts(text) where !progress.delivered.contains(message.id) && !sendingParts.contains(message.id) {
@@ -348,4 +380,24 @@ import Combine
  func waitForProgress() async {await publishing?.value;try? await progressWrite?.value}
  #endif
  deinit {restoring?.cancel();fingerprinting?.cancel();importWorker?.cancel()}
+}
+
+// Bank-provided storyEndMs is only a suggestion. A film-specific user correction
+// is stored with the verified bank identity and can be entered as HH:MM:SS.
+enum FilmStoryEndTime {
+ static func parse(_ input:String)->Double? {
+  let fields=input.trimmingCharacters(in:.whitespacesAndNewlines).split(separator:":",omittingEmptySubsequences:false)
+  let parts=fields.compactMap{Int($0)}
+  guard fields.count==2 || fields.count==3,
+   fields.allSatisfy({!$0.isEmpty && $0.allSatisfy({$0 >= "0" && $0 <= "9"})}),
+   parts.count==fields.count,
+   let seconds=parts.last,seconds<60 else{return nil}
+  if fields.count==3 && parts[1]>=60 {return nil}
+  let total=fields.count==3 ? (Double(parts[0])*3600+Double(parts[1])*60+Double(seconds)) : (Double(parts[0])*60+Double(seconds))
+  return total.isFinite && total>0 && total<=43200 ? total*1000 : nil
+ }
+ static func display(_ value:Int)->String {
+  let sec=value/1000
+  return String(format:"%02d:%02d:%02d",sec/3600,(sec/60)%60,sec%60)
+ }
 }

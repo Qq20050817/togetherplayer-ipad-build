@@ -87,6 +87,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
      self.outbox[message.id]=payload;self.send(payload)
     })
  }
+ func recoverFilmBankFinale() {
+  questionBankRuntime.finishAlreadyViewed(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
+   durationMs:adapter.duration,participantNames:Dictionary(uniqueKeysWithValues:members.map{($0.userId,$0.name)}))
+ }
  func beginFilmMaterialsExport() {
   let title=playbackTitle.isEmpty ? bankMovieURL?.deletingPathExtension().lastPathComponent ?? "电影" : playbackTitle
   let chosen=requestedSubtitleIndex ?? -1
