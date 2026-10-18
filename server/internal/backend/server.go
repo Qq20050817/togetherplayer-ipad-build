@@ -28,6 +28,8 @@ type Member struct {
 type peer struct {
 	ws  *websocket.Conn
 	out chan []byte
+	p2pWindowStarted float64
+	p2pWindowCount int
 }
 type Server struct {
 	mu          sync.Mutex
@@ -403,6 +405,8 @@ func (s *Server) handle(m *Member, p *peer, c Command) {
 		return
 	}
 	switch c.Type {
+	case "P2P_SIGNAL":
+		s.handleP2PSignal(m,p,c,t2)
 	case "PING":
 		s.send(p, map[string]any{"type": "PONG", "t1": c.T1, "t2": t2, "t3": now()})
 	case "SYNC":
