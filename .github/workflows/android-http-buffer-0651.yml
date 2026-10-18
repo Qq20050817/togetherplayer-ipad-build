@@ -1,0 +1,47 @@
+name: Verify Android HTTP playback health 0.6.51
+on:
+  push:
+    branches:
+      - feat/android-http-buffer-health-20261018
+    paths:
+      - 'android/app/src/main/java/dev/together/poc/HttpPlaybackHealth.kt'
+      - 'android/app/src/main/java/dev/together/poc/MainActivity.kt'
+      - 'android/app/src/test/java/dev/together/poc/HttpPlaybackHealthTest.kt'
+      - 'android/app/build.gradle.kts'
+      - '.github/workflows/android-http-buffer-0651.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-http-buffer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android HTTP buffer policy and regression tests
+        working-directory: android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify output and generate checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p delivery
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.51-HTTP-Buffer.apk
+          (cd delivery && sha256sum TogetherPlayer-Android-0.6.51-HTTP-Buffer.apk > SHA256SUMS.txt)
+          printf 'Version: Android 0.6.51\nSource SHA: %s\nBase: Android 0.6.50 P2P fast-path d454197f2201c09a7487dbf03b01f041e2767195\nValidation: Gradle JVM tests and debug APK assembly. Real two-device HTTP playback still requires acceptance.\n' "$GITHUB_SHA" > delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-Android-0.6.51-HTTP-Buffer
+          path: delivery/
+          retention-days: 7
