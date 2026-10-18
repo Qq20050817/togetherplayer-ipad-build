@@ -61,6 +61,7 @@ import UniformTypeIdentifiers
  @State private var plotPollOpen=false
  @State private var questionOpen=false
  @State private var settings=false
+  @State private var p2pDiagnosticsOpen=false
  @State private var sidebar=0
  var body: some View {
   GeometryReader {geometry in
@@ -97,6 +98,7 @@ import UniformTypeIdentifiers
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
    .sheet(isPresented:$settings) {NavigationStack {RoomScreen(model:model).navigationTitle("房间与片源").toolbar {Button("完成") {settings=false}}}.preferredColorScheme(.dark)}
+    .sheet(isPresented:$p2pDiagnosticsOpen) {P2PDiagnosticsView()}
    .fullScreenCover(isPresented:$fullscreen) {FullscreenWatch(model:model,chat:chat)}
    .onReceive(model.questionBankRuntime.$finalReport) {text in
     if !recapInitialized {recapInitialized=true;return}
@@ -171,7 +173,7 @@ import UniformTypeIdentifiers
  private var actions: some View {
   VStack(alignment:.leading,spacing:12) {
    Text("一起做什么").font(.headline)
-   HStack {Button {sidebar=0} label:{Label("聊天交流",systemImage:"text.bubble.fill")};Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("发表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
+   HStack {Button("P2P 直连测试") {p2pDiagnosticsOpen=true}.accessibilityIdentifier("watch-p2p-diagnostics");Button {sidebar=0} label:{Label("聊天交流",systemImage:"text.bubble.fill")};Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("发表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
    HStack {ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Label("分享房间",systemImage:"link")}.disabled(!model.isConnected);Button {settings=true} label:{Label("房间设置",systemImage:"gearshape")}}
   }.font(.caption).buttonStyle(AnimatedAppButtonStyle(.bordered)).padding(14).frame(maxWidth:.infinity,alignment:.leading).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20))
  }
