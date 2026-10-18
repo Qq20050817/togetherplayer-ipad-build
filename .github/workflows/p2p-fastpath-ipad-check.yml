@@ -1,0 +1,24 @@
+name: P2P fast path Swift isolated check
+on:
+  push:
+    branches:
+      - experiment/p2p-fastpath-ipad-20261018
+    paths:
+      - 'ios/TogetherPoC/P2PFastPathGate.swift'
+      - 'ios/tests/P2PFastPathStandalone.swift'
+      - 'ios/NativeTests/P2PFastPathGateTests.swift'
+      - '.github/workflows/p2p-fastpath-ipad-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  swift-fastpath:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile P2P fast-path gate and run standalone assertions
+        run: |
+          set -euo pipefail
+          xcrun swiftc ios/TogetherPoC/P2PFastPathGate.swift ios/tests/P2PFastPathStandalone.swift -o /tmp/together-p2p-fastpath
+          /tmp/together-p2p-fastpath
