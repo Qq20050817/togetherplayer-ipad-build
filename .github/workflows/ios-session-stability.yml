@@ -1,0 +1,56 @@
+name: iOS session stability regression
+on:
+  push:
+    branches: [fix/ios-session-stability-20261018]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-session-stability-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          for v in 26.3 26.2 26.1.1 26.0.1; do
+            d="/Applications/Xcode_${v}.app/Contents/Developer"
+            if [ -d "$d" ]; then sudo xcode-select -s "$d"; break; fi
+          done
+          xcodebuild -version
+      - name: Generate project and resolve fixed dependencies
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath stability-build
+          python3 tools/patch_prism_swift61.py stability-build/SourcePackages/checkouts/PrismCore
+      - name: Compile unsigned universal iOS app
+        run: xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath stability-build CODE_SIGNING_ALLOWED=NO build
+      - name: Native session, playback and seek regression tests
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/stability-devices.json
+          DEVICE_ID=$(python3 -c 'import json; d=json.load(open("/tmp/stability-devices.json"))["devices"]; print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath stability-build -resultBundlePath stability-tests.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/ChatRetentionTests -only-testing:TogetherPoCCoreTests/RoomConnectionTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/RoomMovieSelectionTests test
+      - name: Package tested candidate
+        run: |
+          set -euo pipefail
+          mkdir -p stability-delivery
+          python3 tools/package_unsigned_ipa.py stability-build/Build/Products/Release-iphoneos/TogetherPoC.app stability-delivery/TogetherPlayer-iOS-0.6.51-stability-candidate.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          (cd stability-delivery && shasum -a 256 *.ipa > SHA256SUMS.txt)
+          printf 'Base: 8b63e0b69bc940cce180fd08731cc17c70cd6b1d\nSource SHA: %s\nValidation: native session, playback, seek and movie selection tests\nNot installed or field-tested. Unsigned; user signing required.\n' "$GITHUB_SHA" > stability-delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iOS-session-stability
+          path: |
+            stability-delivery/
+            stability-tests.xcresult/
+          retention-days: 7

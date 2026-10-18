@@ -954,9 +954,16 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  func receive(_ obj: [String:Any],t4: Double) {
   lastMessageAt=clock.localNow()
   let type=obj["type"] as? String ?? ""
+  let incomingRoom:Room? = (obj["room"] as? [String:Any]).flatMap { raw in
+   guard let data=try? JSONSerialization.data(withJSONObject:raw) else {return nil}
+   return try? JSONDecoder().decode(Room.self,from:data)
+  }
+  // A stale snapshot can still acknowledge an operation. Ignore its state,
+  // not the whole envelope, so the command queue can continue draining.
+  let acceptsSnapshot=incomingRoom.map {engine.accepts($0)} ?? true
   if type=="PONG",let t1=obj["t1"] as? Double,let t2=obj["t2"] as? Double,let t3=obj["t3"] as? Double {clock.add(t1,t2,t3,t4);return}
   if type=="WELCOME" {p2pSupported=(obj["p2pSignalingVersion"] as? Int ?? 0)>=1;supportsInstantControls=(obj["instantControlVersion"] as? Int ?? 0)>=1;connected=true;attempt=0;sequence=(obj["lastSequence"] as? NSNumber)?.int64Value ?? 0;lastStepTarget=nil;clearOptimisticPlayback();pingBurst()}
-  if let raw=obj["room"] as? [String:Any],let data=try? JSONSerialization.data(withJSONObject:raw),let room=try? JSONDecoder().decode(Room.self,from:data) {
+  if let room=incomingRoom,acceptsSnapshot {
    if outboxRoom != room.roomId {outbox=[:];outboxRoom=room.roomId}
    if !optimisticRoomID.isEmpty && optimisticRoomID != room.roomId {clearOptimisticPlayback()}
    if (room.roomId != engine.room?.roomId || room.version >= (engine.room?.version ?? 0)),
@@ -1007,7 +1014,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if let file=pendingLocalFile {pendingLocalFile=nil;useLocalFile(file)}
   }
   if type=="WELCOME" {supportsBlockingPolls=(obj["plotPollCapabilities"] as? [String:Any])?["blocking"] as? Bool == true}
-  if type=="PLOT_POLL_STATE" || obj.keys.contains("poll") {
+  if acceptsSnapshot && (type=="PLOT_POLL_STATE" || obj.keys.contains("poll")) {
    let incoming=obj["poll"] as? [String:Any]
    // A blocking question must always release the active 2x lease, even if
    // the user is still pressing the fullscreen gesture surface.
