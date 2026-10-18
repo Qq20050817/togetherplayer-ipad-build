@@ -11,7 +11,7 @@ on:
       - '.github/workflows/android-http-buffer-0651.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: android-http-buffer-${{ github.ref }}
   cancel-in-progress: true
@@ -45,3 +45,22 @@ jobs:
           name: TogetherPlayer-Android-0.6.51-HTTP-Buffer
           path: delivery/
           retention-days: 7
+      - name: Publish verified direct APK (no ZIP)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=v0.6.51-http-buffer-android-preview
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release tag already exists; refusing to overwrite." >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            delivery/TogetherPlayer-Android-0.6.51-HTTP-Buffer.apk \
+            delivery/SHA256SUMS.txt delivery/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "TogetherPlayer Android 0.6.51 · HTTP 网速与自适应缓冲" \
+            --notes "Direct APK preview based on validated Android 0.6.50 P2P source. Displays measured HTTP throughput, current buffer seconds and rebuffer count. Raises HTTP playback recovery reserve after repeated stalls. Muse room state and P2P logic unchanged. Android debug-signed: may not upgrade over a differently signed installation; back up local settings first and do not uninstall the working app just to test. Gradle unit and assembly checks pass; real dual-device high-bitrate streaming awaits field verification."
