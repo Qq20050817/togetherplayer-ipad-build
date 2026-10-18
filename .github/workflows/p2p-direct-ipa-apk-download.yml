@@ -1,0 +1,64 @@
+name: Publish direct TogetherPlayer 0.6.50 P2P download links
+on:
+  push:
+    branches:
+      - experiment/p2p-fastpath-ipad-20261018
+    paths:
+      - '.github/workflows/p2p-direct-ipa-apk-download.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  direct-download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified unsigned iPad IPA from successful build
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 39119651221
+          name: TogetherPlayer-iPad-P2P-Diagnostics-unsigned
+          path: delivery/ipad
+      - name: Download verified Android APK from successful build
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 39119665318
+          name: TogetherPlayer-Android-P2P-Diagnostics-Experimental
+          path: delivery/android
+      - name: Verify matching binaries before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p publish
+          cp delivery/ipad/TogetherPlayer-iPad-P2P-Diagnostics-unsigned.ipa publish/TogetherPlayer-iPad-P2P-0.6.50-unsigned.ipa
+          cp delivery/android/app-debug.apk publish/TogetherPlayer-Android-P2P-0.6.50.apk
+          echo "10b8af9ab2d8527ff8a3ac1d5f5de69827a447d71cab0c743af8f738323303ff  publish/TogetherPlayer-iPad-P2P-0.6.50-unsigned.ipa" | sha256sum --check -
+          echo "a9b8bfcfdd525d3138247e7c208780fc4fbfd13bffcd170d0fb59131961cb3af  publish/TogetherPlayer-Android-P2P-0.6.50.apk" | sha256sum --check -
+          sha256sum publish/*.ipa publish/*.apk > publish/SHA256SUMS.txt
+      - name: Publish direct IPA and APK as prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/release-notes.md <<'NOTES'
+          ### TogetherPlayer 0.6.50 P2P native delivery
+          These are *direct* IPA and APK downloads, without ZIP packaging.
+          - The IPA is **unsigned**; users must sign it with their own iOS certificate.
+          - The Android APK is debug-signed. It may not install over a differently signed existing version. Do not uninstall existing app without backing up its local settings/data.
+          - These binaries build successfully and the Muse P2P signaling endpoint passed authenticated live WSS handshake tests. **Real two-device P2P playback is not yet certified stable.**
+          - If the device still routes via Muse, playback remains on the existing authoritative room.
+          NOTES
+          gh release create v0.6.50-p2p-downloads-20261018 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --prerelease \
+            --title "TogetherPlayer 0.6.50 P2P · IPA / APK 直接下载" \
+            --notes-file /tmp/release-notes.md \
+            publish/TogetherPlayer-iPad-P2P-0.6.50-unsigned.ipa \
+            publish/TogetherPlayer-Android-P2P-0.6.50.apk \
+            publish/SHA256SUMS.txt
