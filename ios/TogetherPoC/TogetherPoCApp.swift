@@ -65,8 +65,9 @@ import UniformTypeIdentifiers
  @State private var sidebar=0
  var body: some View {
   GeometryReader {geometry in
+   let compactPhone=UIDevice.current.userInterfaceIdiom == .phone
    let railWidth=min(340,geometry.size.width*0.32)
-   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+12 : 0)
+   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) && !compactPhone ? railWidth+12 : 0)
    let wide=availableWidth>=900 && availableWidth>geometry.size.height
    let sideWidth=wide ? min(320,availableWidth*0.26) : 0
    let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
@@ -84,6 +85,7 @@ import UniformTypeIdentifiers
      }
     }
    }.transaction {$0.animation=nil}
+   if !compactPhone {
    PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen || recapOpen) {
     PlotPollPanel(model:model,onClose:{plotPollOpen=false})
    } question:{
@@ -93,7 +95,20 @@ import UniformTypeIdentifiers
      PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true})
     }
    }
-   }.padding(16)
+   }
+   }.padding(compactPhone ? 10 : 16)
+   .overlay {
+    if compactPhone && (plotPollOpen || questionOpen || recapOpen) {
+     ZStack {
+      Color.black.opacity(0.76).ignoresSafeArea()
+      phonePanel
+       .frame(maxWidth:min(480,geometry.size.width-24),maxHeight:max(180,geometry.size.height-24))
+       .background(Color(red:0.065,green:0.075,blue:0.10))
+       .clipShape(RoundedRectangle(cornerRadius:18))
+       .padding(12)
+     }.accessibilityIdentifier("iphone-plot-overlay")
+    }
+   }
 
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
@@ -121,7 +136,28 @@ import UniformTypeIdentifiers
   }
  }
  private var brand: some View {Button {settings=true} label:{Label("一起看",systemImage:"person.2.fill").font(.title3.bold()).foregroundColor(.white)}.accessibilityLabel("打开房间与片源")}
+ @ViewBuilder private var phonePanel: some View {
+  if recapOpen {
+   FilmBankFinalDrawer(report:model.questionBankRuntime.finalReport,onClose:{recapOpen=false})
+  } else if questionOpen {
+   PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{questionOpen=false;plotPollOpen=true})
+  } else if plotPollOpen {
+   PlotPollPanel(model:model,onClose:{plotPollOpen=false})
+  }
+ }
  private var headerActions: some View {
+  if UIDevice.current.userInterfaceIdiom == .phone {
+   HStack(spacing:8) {
+    if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.font(.caption).buttonStyle(.borderedProminent)}
+    Button {plotPollOpen=true} label:{Label("AI",systemImage:"sparkles").font(.caption.bold()).frame(minWidth:36,minHeight:36)}
+     .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 剧情推理").accessibilityIdentifier("watch-header-plot-ai-button")
+    Menu {
+     ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Label("分享房间",systemImage:"link")}.disabled(!model.isConnected)
+     Button {settings=true} label:{Label("房间设置",systemImage:"gearshape")}
+     Button(role:.destructive) {model.leaveRoom()} label:{Label("离开房间",systemImage:"rectangle.portrait.and.arrow.right")}.disabled(!model.isConnected)
+    } label:{Image(systemName:"ellipsis.circle").font(.title3).frame(width:38,height:36)}.accessibilityLabel("更多房间操作")
+   }.foregroundColor(.white)
+  } else {
   HStack(spacing:12) {
    if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.buttonStyle(.borderedProminent)}
    ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Image(systemName:"link").frame(width:36,height:36)}.disabled(!model.isConnected)
@@ -130,6 +166,7 @@ import UniformTypeIdentifiers
     .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 剧情推理").accessibilityIdentifier("watch-header-plot-ai-button")
    Button {model.leaveRoom()} label:{Label("离开房间",systemImage:"rectangle.portrait.and.arrow.right").font(.caption.bold()).padding(10)}.background(Color(red:0.95,green:0.17,blue:0.34)).clipShape(RoundedRectangle(cornerRadius:12)).disabled(!model.isConnected)
   }.foregroundColor(.white)
+  }
  }
  private func watchCard(height: CGFloat) -> some View {
   VStack(alignment:.leading,spacing:12) {
