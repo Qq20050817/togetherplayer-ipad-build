@@ -118,7 +118,6 @@ class MainActivity: Activity() {
    override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime,bufferSize: Int,bufferSizeMs: Long,elapsedSinceLastFeedMs: Long){diagnostic("audioUnderrun")}
   })
   player.addListener(object: Player.Listener {
-   override fun onPlaybackStateChanged(state:Int){httpHealth.onPlaybackState(state,playback.playWhenReady,android.os.SystemClock.elapsedRealtime())}
    override fun onPlayerError(error: androidx.media3.common.PlaybackException){
     if(playback.compatibleActive)return
     val exo=error as? androidx.media3.exoplayer.ExoPlaybackException
@@ -137,7 +136,7 @@ class MainActivity: Activity() {
     if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
-   override fun onPlaybackStateChanged(playbackState: Int){diagnostic("playbackStateChanged")}
+   override fun onPlaybackStateChanged(playbackState: Int){httpHealth.onPlaybackState(playbackState,playback.playWhenReady,android.os.SystemClock.elapsedRealtime());diagnostic("playbackStateChanged")}
    override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters){diagnostic("speedChanged")}
    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo,newPosition: Player.PositionInfo,reason: Int){diagnostic("positionDiscontinuity",JSONObject().put("reason",reason))}
   })
