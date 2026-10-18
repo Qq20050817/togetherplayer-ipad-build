@@ -6,6 +6,8 @@ on:
     paths:
       - 'android/app/src/main/java/dev/together/poc/P2PFastPathGate.kt'
       - 'android/app/src/test/java/dev/together/poc/P2PFastPathGateTest.kt'
+      - 'android/app/src/main/java/dev/together/poc/P2PDiagnosticsDialog.kt'
+      - 'android/app/src/main/java/dev/together/poc/MainActivity.kt'
       - '.github/workflows/p2p-fastpath-android-check.yml'
   workflow_dispatch:
 permissions:
@@ -25,4 +27,10 @@ jobs:
           gradle-version: '8.9'
       - name: Android debug P2P gate unit tests
         working-directory: android
-        run: gradle --no-daemon :app:testDebugUnitTest --tests dev.together.poc.P2PFastPathGateTest
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Upload isolated experimental APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-Android-P2P-Diagnostics-Experimental
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
