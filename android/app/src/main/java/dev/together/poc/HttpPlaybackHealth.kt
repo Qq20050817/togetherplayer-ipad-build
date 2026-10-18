@@ -13,11 +13,16 @@ import java.util.Locale
  * State is written by the main thread and read by ExoPlayer's playback thread.
  */
 class HttpPlaybackHealth {
- @Volatile var isHttp=false; private set
- @Volatile var speedMbps: Double?=null; private set
- @Volatile var stalls=0; private set
- @Volatile var lastStallElapsedMs=0L; private set
- @Volatile var remainingMs=Long.MAX_VALUE; private set
+ @Volatile var isHttp=false
+  private set
+ @Volatile var speedMbps: Double?=null
+  private set
+ @Volatile var stalls=0
+  private set
+ @Volatile var lastStallElapsedMs=0L
+  private set
+ @Volatile var remainingMs=Long.MAX_VALUE
+  private set
  private var seenReady=false
  private var lastState=Player.STATE_IDLE
 
