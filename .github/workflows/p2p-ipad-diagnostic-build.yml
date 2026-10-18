@@ -1,0 +1,56 @@
+name: iPad P2P diagnostic experimental build
+on:
+  push:
+    branches:
+      - experiment/p2p-fastpath-ipad-20261018
+    paths:
+      - 'ios/TogetherPoC/P2PDiagnosticsWebView.swift'
+      - 'ios/TogetherPoC/P2PFastPathGate.swift'
+      - 'ios/TogetherPoC/TogetherPoCApp.swift'
+      - 'ios/NativeTests/P2PFastPathGateTests.swift'
+      - 'ios/project.yml'
+      - '.github/workflows/p2p-ipad-diagnostic-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  experimental-ipad:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate native iPad Xcode project
+        run: xcodegen generate --spec ios/project.yml
+      - name: Check Swift admission gate
+        run: |
+          set -euo pipefail
+          xcrun swiftc ios/TogetherPoC/P2PFastPathGate.swift ios/tests/P2PFastPathStandalone.swift -o /tmp/p2p-check
+          /tmp/p2p-check
+      - name: Build physical iPad app without signing
+        run: |
+          set -o pipefail
+          xcodebuild -resolvePackageDependencies -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath apple-p2p-derived
+          python3 tools/patch_prism_swift61.py apple-p2p-derived/SourcePackages/checkouts/PrismCore
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath apple-p2p-derived CODE_SIGNING_ALLOWED=NO build | tee ipad-p2p-build.log
+      - name: Package unsigned experimental IPA
+        run: |
+          python3 tools/package_unsigned_ipa.py apple-p2p-derived/Build/Products/Release-iphoneos/TogetherPoC.app TogetherPlayer-iPad-P2P-Diagnostics-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          shasum -a 256 TogetherPlayer-iPad-P2P-Diagnostics-unsigned.ipa > P2P-Diagnostics-SHA256SUMS.txt
+      - name: Upload IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-iPad-P2P-Diagnostics-unsigned
+          path: |
+            TogetherPlayer-iPad-P2P-Diagnostics-unsigned.ipa
+            P2P-Diagnostics-SHA256SUMS.txt
+          retention-days: 7
+      - name: Upload diagnostics if failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPad-P2P-build-diagnostics
+          path: ipad-p2p-build.log
+          if-no-files-found: ignore
