@@ -301,14 +301,30 @@ class MainActivity: Activity() {
    override fun onClosed(webSocket: WebSocket,code: Int,reason: String){main.post {if(g==generation)reconnect(g)}}
   })}catch(e: Exception){requestStatus.text="连接地址无效"}
  }
- private fun reconnect(g: Int){if(g!=generation)return;stopP2P();setSpeedHold(false);voice.cancel("连接中断，录音已取消，未发送");connected=false;engine.resetSession();attempt++;status.text="自动重连中…";main.postDelayed({if(!stopped && foreground && generation==g)connect()},(500L shl attempt.coerceAtMost(5)).coerceAtMost(15000))}
- private fun send(obj: JSONObject){if(connected)ws?.send(obj.toString())}
+ private fun reconnect(g: Int){
+  if(g!=generation || stopped || !foreground || credentials==null)return
+  // Invalidate queued callbacks immediately, before the backoff starts.
+  generation++;val next=generation;connected=false
+  ws?.cancel();ws=null
+  stopP2P();setSpeedHold(false);voice.cancel("连接中断，录音已取消，未发送")
+  engine.resetSession();queued.clear();inFlight=null;optimisticPlaying=null;optimisticUntil=0.0
+  attempt++;status.text="自动重连中…"
+  main.postDelayed({if(!stopped && foreground && generation==next)connect()},(500L shl attempt.coerceAtMost(5)).coerceAtMost(15000))
+ }
+ private fun send(obj: JSONObject){
+  if(!connected)return
+  val g=generation
+  if(ws?.send(obj.toString())!=true)reconnect(g)
+ }
  private fun pingBurst(){repeat(5){i->val g=generation;main.postDelayed({if(g==generation)send(JSONObject().put("type","PING").put("t1",clock.localNow()))},i*200L)}}
  private fun receive(obj: JSONObject,t4: Double) {
-  if(obj.has("poll") && obj.optString("type")!="PLOT_POLL_STATE"){plotPoll=obj.optJSONObject("poll");if(plotPoll==null)plotDrawer?.dismiss()}
+  val snapshot=obj.optJSONObject("room")
+  val acceptsSnapshot=snapshot?.let {engine.accepts(it)} ?: true
+  // Keep processing ACKs even when the associated room snapshot is stale.
+  if(acceptsSnapshot && obj.has("poll") && obj.optString("type")!="PLOT_POLL_STATE"){plotPoll=obj.optJSONObject("poll");if(plotPoll==null)plotDrawer?.dismiss()}
   val type=obj.optString("type");if(type=="PONG"){clock.add(obj.getDouble("t1"),obj.getDouble("t2"),obj.getDouble("t3"),t4);return}
   if(type=="WELCOME"){p2pSupported=obj.optInt("p2pSignalingVersion")>=1;instantControls=obj.optInt("instantControlVersion")>=1;optimisticPlaying=null;optimisticUntil=0.0;sequence=obj.optLong("lastSequence");connected=true;attempt=0;pingBurst()}
-  obj.optJSONObject("room")?.let {r->
+  snapshot?.takeIf {acceptsSnapshot}?.let {r->
    engine.receive(r);isHost=r.getString("hostId")==credentials?.optString("userId");if(p2pFastUntil>0&&(r.optString("roomId")!=p2pRoomID||r.optLong("version")>p2pFastVersion))p2pFastUntil=0.0;p2pGate.serverState(r.optLong("version"));val id=r.getString("roomId");if(chatRoom!=id){chatRoom=id;filmRecap.clear();outbox.clear();chat.reset(id);renderChat()}
    roomTitle.text=r.optString("title").ifBlank {"一起看电影"};settingWait=true;waitToggle.isChecked=r.optBoolean("waitForPeer");waitToggle.isEnabled=isHost;settingWait=false
    notice.text=when(r.optString("pauseReason")){"buffering"->"等待对方缓冲";"disconnected"->"等待对方重连";"ended"->"播放完毕，点播放重播";else->""}
@@ -328,8 +344,8 @@ class MainActivity: Activity() {
   }
   if(type=="P2P_SIGNAL"){receiveP2PSignal(obj);return}
   if(type=="PRESENCE")obj.optJSONArray("members")?.let {applyMembers(it)}
-  if(type=="PLOT_POLL_STATE" && obj.optJSONObject("poll")?.optBoolean("waitingForAnswers")==true){setSpeedHold(false);optimisticPlaying=false;optimisticUntil=0.0;queued.removeAll{it.optString("type")=="INSTANT_CONTROL"};playback.pause()}
-  when(type){
+  if(acceptsSnapshot && type=="PLOT_POLL_STATE" && obj.optJSONObject("poll")?.optBoolean("waitingForAnswers")==true){setSpeedHold(false);optimisticPlaying=false;optimisticUntil=0.0;queued.removeAll{it.optString("type")=="INSTANT_CONTROL"};playback.pause()}
+  when(if(!acceptsSnapshot && type=="PLOT_POLL_STATE") "" else type){
    "WELCOME"->{plotPoll=obj.optJSONObject("poll");obj.optJSONArray("messages")?.let {list->repeat(list.length()){acceptChat(list.getJSONObject(it))}};sendProfile();outbox.values.forEach {send(it)};applyPendingLocalMovie()}
    "PLOT_POLL_STATE"->{
     val previous=plotPoll?.optString("id") ?: ""
