@@ -65,7 +65,7 @@ enum RouterUSBSubtitleCatalog {
     results.append(RouterUSBSubtitleOption(name:record.name,url:file))
    }
   }
-  return results.sorted{$0.name.localizedStandardCompare($1.name)== .orderedAscending}
+  return results.sorted{$0.name.localizedStandardCompare($1.name) == .orderedAscending}
  }
  static func list(for movie:URL) async throws->[RouterUSBSubtitleOption] {
   guard let url=catalogURL(for:movie) else {throw RouterUSBSubtitleError.unsupported}
