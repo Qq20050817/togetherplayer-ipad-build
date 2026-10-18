@@ -1,0 +1,39 @@
+name: P2P fast path Android isolated check
+on:
+  push:
+    branches:
+      - experiment/p2p-fastpath-android-20261018
+    paths:
+      - 'android/app/src/main/java/dev/together/poc/P2PFastPathGate.kt'
+      - 'android/app/src/test/java/dev/together/poc/P2PFastPathGateTest.kt'
+      - 'android/app/src/main/java/dev/together/poc/P2PDiagnosticsDialog.kt'
+      - 'android/app/src/main/java/dev/together/poc/P2PWebRTCTransport.kt'
+      - 'android/app/build.gradle.kts'
+      - 'android/app/src/main/assets/p2p-transport.html'
+      - 'android/app/src/main/java/dev/together/poc/MainActivity.kt'
+      - '.github/workflows/p2p-fastpath-android-check.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kotlin-fastpath:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android debug P2P gate unit tests
+        working-directory: android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Upload isolated experimental APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-Android-P2P-Diagnostics-Experimental
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
