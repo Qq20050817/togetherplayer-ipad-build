@@ -78,6 +78,7 @@ class MainActivity: Activity() {
  private var cleanupRequestedSource:String?=null
  private var cleanupRunning=false
  private lateinit var captions: TextView;private var external: ExternalSubtitle?=null;private var subtitleName="";private var subtitleDelay=0L;private var subtitleEnabled=false;private var subtitleGeneration=0;private var subtitlePickerOpen=false
+ private var usbCatalogVideo="";private var usbCatalogRoom="";private var usbCatalogGeneration=0;private var usbSubtitles=emptyList<UsbSubtitleOption>()
  private var fullscreenDialog: android.app.Dialog?=null;private var fullscreenControls: LinearLayout?=null;private var fullscreenTime: TextView?=null;private var fullscreenAction:TextView?=null;private var actionFeedbackGeneration=0;private var draggingProgress=false;private var screenRoot: LinearLayout?=null
  private val danmakuPending=ArrayDeque<Triple<String,Double,Long>>();private val danmakuLanes=BooleanArray(3);private var danmakuSize=24f;private var danmakuSpeed=1f
  private var fullscreenTouching=false;private var fullscreenFocused=true
@@ -248,7 +249,95 @@ class MainActivity: Activity() {
  private fun shareRoom(){val id=credentials?.optString("roomId");if(id.isNullOrBlank()){requestStatus.text="请先加入房间";return};startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,"TogetherPlayer 房间：$id\n服务器：${server.text}"),"分享房间"))}
  private fun readSubtitleBytes(input: java.io.InputStream): ByteArray {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192);while(out.size()<=ExternalSubtitle.MAX_BYTES){val count=input.read(buffer,0,minOf(buffer.size,ExternalSubtitle.MAX_BYTES+1-out.size()));if(count<0)break;out.write(buffer,0,count)};return out.toByteArray()}
  private fun clearSubtitle(){importedSubtitleUri=null;subtitleGeneration++;external=null;subtitleName="";subtitleDelay=0;subtitleEnabled=false;if(::captions.isInitialized)captions.visibility=View.GONE}
- private fun subtitleMenu(){main.removeCallbacks(hideControls);val items=mutableListOf("内置字幕 / 关闭","导入外挂字幕（SRT / VTT / ASS）");if(external!=null){items.add("使用外挂：$subtitleName");items.add("调整外挂字幕延迟");items.add("移除外挂字幕")};android.app.AlertDialog.Builder(this).setTitle("字幕").setItems(items.toTypedArray()){_,i->when(i){0->selectTrack(androidx.media3.common.C.TRACK_TYPE_TEXT);1->importSubtitle();2->{subtitleEnabled=true;playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build()};3->subtitleTiming();4->clearSubtitle()}}.create().apply {setOnDismissListener {revealControls()};show()}}
+
+ private fun discoverUsbSubtitles(videoUrl:String, force:Boolean=false) {
+  val roomID=engine.room?.optString("roomId") ?: ""
+  if(!force && usbCatalogVideo==videoUrl && usbCatalogRoom==roomID)return
+  val generation=++usbCatalogGeneration
+  usbCatalogVideo=videoUrl;usbCatalogRoom=roomID;usbSubtitles=emptyList()
+  val manifest=UsbSubtitleCatalog.manifestUrl(videoUrl) ?: return
+  val request=Request.Builder().url(manifest).header("Accept","application/json").get().build()
+  http.newCall(request).enqueue(object: Callback {
+   override fun onFailure(call:Call,e:IOException) {
+    if(force)main.post {if(generation==usbCatalogGeneration)requestStatus.text="U盘字幕列表读取失败：请检查网络"}
+   }
+   override fun onResponse(call:Call,response:Response) {
+    val result=runCatching {
+     response.use {
+      if(!it.isSuccessful || !it.header("Content-Type","").orEmpty().startsWith("application/json",ignoreCase=true))
+       throw IOException("媒体服务尚未提供字幕列表（HTTP ${it.code}）")
+      val input=it.body?.byteStream() ?: throw IOException("没有字幕列表")
+      val bytes=ByteArray(UsbSubtitleCatalog.MAX_MANIFEST_BYTES+1)
+      var count=0
+      while(count<bytes.size) {
+       val n=input.read(bytes,count,bytes.size-count)
+       if(n<0)break
+       count+=n
+      }
+      if(count>UsbSubtitleCatalog.MAX_MANIFEST_BYTES)throw IOException("字幕列表超过限制")
+      UsbSubtitleCatalog.parse(videoUrl,bytes.copyOf(count).toString(Charsets.UTF_8))
+     }
+    }
+    main.post {
+     if(generation!=usbCatalogGeneration || engine.room?.optString("roomId")!=roomID ||
+         engine.room?.optString("mediaUrl")!=videoUrl)return@post
+     result.onSuccess {usbSubtitles=it;if(force)requestStatus.text=if(it.isEmpty())"未找到与影片同名的U盘字幕" else "找到 ${it.size} 份U盘字幕，请打开字幕菜单选择"}
+      .onFailure {if(force)requestStatus.text="字幕列表不可用：${it.localizedMessage}"}
+    }
+   }
+  })
+ }
+ private fun useUsbSubtitle(option:UsbSubtitleOption) {
+  val roomID=engine.room?.optString("roomId") ?: return
+  val video=engine.room?.optString("mediaUrl") ?: return
+  if(option !in usbSubtitles)return
+  val generation=++subtitleGeneration
+  requestStatus.text="正在读取U盘字幕：${option.name}"
+  http.newCall(Request.Builder().url(option.url).get().build()).enqueue(object:Callback {
+   override fun onFailure(call:Call,e:IOException) {main.post {
+    if(generation==subtitleGeneration)requestStatus.text="U盘字幕下载失败：${e.localizedMessage}"
+   }}
+   override fun onResponse(call:Call,response:Response) {
+    val result=runCatching {response.use {
+     if(!it.isSuccessful)throw IOException("HTTP ${it.code}，字幕链接可能已过期")
+     val stream=it.body?.byteStream() ?: throw IOException("字幕内容为空")
+     ExternalSubtitle.parse(readSubtitleBytes(stream))
+    }}
+    main.post {
+     if(generation!=subtitleGeneration || engine.room?.optString("roomId")!=roomID ||
+        engine.room?.optString("mediaUrl")!=video)return@post
+     result.onSuccess {parsed->
+      playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon()
+       .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build()
+      external=parsed;importedSubtitleUri=null;subtitleName=option.name;subtitleDelay=0;subtitleEnabled=true
+      requestStatus.text="已启用U盘字幕：${option.name}"
+     }.onFailure {requestStatus.text="字幕读取失败：${it.localizedMessage}"}
+    }
+   }
+  })
+ }
+ private fun subtitleMenu(){
+  main.removeCallbacks(hideControls)
+  val items=mutableListOf<String>();val actions=mutableListOf<()->Unit>()
+  fun option(text:String,action:()->Unit){items.add(text);actions.add(action)}
+  option("内置字幕 / 关闭"){selectTrack(androidx.media3.common.C.TRACK_TYPE_TEXT)}
+  usbSubtitles.forEach {track->option("U盘字幕：${track.name}"){useUsbSubtitle(track)}}
+  if(UsbSubtitleCatalog.manifestUrl(engine.room?.optString("mediaUrl") ?: "")!=null)
+   option("刷新U盘字幕列表"){discoverUsbSubtitles(engine.room?.optString("mediaUrl") ?: "",true)}
+  option("导入外挂字幕（SRT / VTT / ASS）"){importSubtitle()}
+  if(external!=null) {
+   option("使用外挂：$subtitleName"){
+    subtitleEnabled=true
+    playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon()
+     .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build()
+   }
+   option("调整外挂字幕延迟"){subtitleTiming()}
+   option("移除外挂字幕"){clearSubtitle()}
+  }
+  android.app.AlertDialog.Builder(this).setTitle("字幕").setItems(items.toTypedArray()){_,index->
+   actions[index]()
+  }.create().apply {setOnDismissListener {revealControls()};show()}
+ }
  private fun importSubtitle(){
   main.removeCallbacks(hideControls);subtitlePickerOpen=true
   try {startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(android.content.Intent.CATEGORY_OPENABLE).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),701)}
@@ -312,7 +401,7 @@ class MainActivity: Activity() {
    engine.receive(r);isHost=r.getString("hostId")==credentials?.optString("userId");if(p2pFastUntil>0&&(r.optString("roomId")!=p2pRoomID||r.optLong("version")>p2pFastVersion))p2pFastUntil=0.0;p2pGate.serverState(r.optLong("version"));val id=r.getString("roomId");if(chatRoom!=id){chatRoom=id;filmRecap.clear();outbox.clear();chat.reset(id);renderChat()}
    roomTitle.text=r.optString("title").ifBlank {"一起看电影"};settingWait=true;waitToggle.isChecked=r.optBoolean("waitForPeer");waitToggle.isEnabled=isHost;settingWait=false
    notice.text=when(r.optString("pauseReason")){"buffering"->"等待对方缓冲";"disconnected"->"等待对方重连";"ended"->"播放完毕，点播放重播";else->""}
-   val url=r.getString("mediaUrl");obj.optJSONArray("members")?.let {applyMembers(it)}
+   val url=r.getString("mediaUrl");discoverUsbSubtitles(url);obj.optJSONArray("members")?.let {applyMembers(it)}
    if(BaiduMediaReference.parse(url)!=null) {
     if(url!=loadedURL || (type=="WELCOME" && hasBaiduMatch() && playback.playerError==null && playback.playbackState==Player.STATE_IDLE)) {
      loadedURL=url;titleField.setText(r.optString("title"))
@@ -926,7 +1015,7 @@ class MainActivity: Activity() {
  }
 
  private fun showReaction(emoji: String){if(emoji !in listOf("😂","😱","😭","🤯","❤️","👀"))return;val v=TextView(this).apply {text=emoji;textSize=34f};videoBox.addView(v,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL));v.animate().translationY(-dp(80).toFloat()).alpha(0f).setDuration(3000).withEndAction {videoBox.removeView(v)}.start()}
- private fun clearRoom(){stopP2P();httpHealth.reset("");plotDrawer?.dismiss();filmRecap.clear();instantControls=false;optimisticPlaying=null;optimisticUntil=0.0;plotPoll=null;variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
+ private fun clearRoom(){stopP2P();httpHealth.reset("");plotDrawer?.dismiss();filmRecap.clear();instantControls=false;optimisticPlaying=null;optimisticUntil=0.0;plotPoll=null;variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();usbCatalogGeneration++;usbCatalogVideo="";usbCatalogRoom="";usbSubtitles=emptyList();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
  private fun diagnostic(event: String,details: JSONObject=JSONObject()){if(!connected)return;send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("diagnostic",true).put("event",event).put("details",details).put("clientVersion",clientVersion).put("positionMs",playback.currentPosition).put("version",engine.version).put("playbackRate",playback.playbackParameters.speed).put("bufferedPositionMs",playback.bufferedPosition).put("playbackState",playback.playbackState)))}
  private fun checkPlaybackRecovery() {
   val room=engine.room
