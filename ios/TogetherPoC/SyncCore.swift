@@ -230,8 +230,12 @@ final class SyncEngine {
  func resetSession() {
   player.pause();player.setPlaybackSpeed(1);clock.reset();room=nil;lastAutoSeekAt=nil;wasUnready=false;settleUntil=0;resetCorrection()
  }
+ // The controller must use the same gate before applying media/UI side effects.
+ func accepts(_ next: Room) -> Bool {
+  next.roomId != room?.roomId || next.version >= (room?.version ?? 0)
+ }
  func receive(_ next: Room) {
-  if next.roomId != room?.roomId || next.version >= (room?.version ?? 0) {
+  if accepts(next) {
    let previous=room
    if next.roomId != previous?.roomId || next.version != previous?.version {lastAutoSeekAt=nil;resetCorrection()}
    // Give a newly scheduled PLAY time to render its first frames before

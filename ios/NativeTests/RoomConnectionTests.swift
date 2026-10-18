@@ -2,6 +2,34 @@ import XCTest
 @testable import TogetherPoC
 
 final class RoomConnectionTests: XCTestCase {
+ @MainActor func testStaleSnapshotCannotReloadPreviousFilmOrPollButStillAcknowledgesCommand() throws {
+  var sent:[[String:Any]]=[]
+  let model=try client(sender:{sent.append($0)})
+  model.receive(welcome(),t4:0)
+  model.mediaURL="https://example.org/current.mp4";model.movieTitle="当前影片"
+  model.setRoomMedia()
+  let sequence=try XCTUnwrap(sent.first { $0["type"] as? String == "ROOM_MEDIA" }?["sequence"] as? Int64)
+  let current=room(url:model.mediaURL,title:model.movieTitle,version:3)
+  model.receive(["type":"STATE","room":current,"poll":["id":"current-poll","question":"当前题目"]],t4:0)
+  XCTAssertTrue(model.isSettingRoomMedia)
+  model.receive(["type":"STATE","room":room(version:2),"poll":NSNull(),
+   "ackUserId":"host","ackSequence":sequence],t4:0)
+  XCTAssertEqual(model.engine.room?.version,3)
+  XCTAssertEqual(model.mediaURL,"https://example.org/current.mp4")
+  XCTAssertEqual(model.roomTitle,"当前影片")
+  XCTAssertEqual(model.plotPoll?["id"] as? String,"current-poll")
+  XCTAssertFalse(model.isSettingRoomMedia,"An old snapshot must not block a valid command ACK")
+ }
+ @MainActor func testSameVersionRefreshAndNewRoomWithLowerVersionRemainAccepted() throws {
+  let model=try client()
+  model.receive(["type":"WELCOME","room":room(version:5)],t4:0)
+  model.receive(["type":"STATE","room":room(title:"刷新标题",version:5)],t4:0)
+  XCTAssertEqual(model.roomTitle,"刷新标题")
+  var next=room(title:"新房间",version:1);next["roomId"]="another-room"
+  model.receive(["type":"WELCOME","room":next],t4:0)
+  XCTAssertEqual(model.engine.room?.roomId,"another-room")
+  XCTAssertEqual(model.roomTitle,"新房间")
+ }
  override func tearDown() {UserDefaults.standard.removeObject(forKey:"credentials");super.tearDown()}
  func testConnectionHealthSeparatesHandshakeSilenceAndMissingAcknowledgement() {
   XCTAssertNil(RoomConnectionHealth.timeout(now:19000,connected:false,startedAt:0,lastMessageAt:0,inFlightAt:nil))
