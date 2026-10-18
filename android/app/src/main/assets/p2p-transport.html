@@ -1,0 +1,103 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><script>
+"use strict";
+// Fully packaged WebRTC transport. No remote scripts, cookies, media or room tokens.
+(() => {
+  let pc = null, channel = null, role = "guest", peer = "", run = 0, ice = [];
+  let connected = false;
+  const emit = v => {
+    try {
+      if (window.webkit?.messageHandlers?.togetherP2P) window.webkit.messageHandlers.togetherP2P.postMessage(v);
+      else if (window.TogetherP2PAndroid) window.TogetherP2PAndroid.postMessage(JSON.stringify(v));
+    } catch {}
+  };
+  const status = (state) => emit({event:"status",state});
+  const signal = (kind,payload) => emit({event:"signal",kind,payload});
+  const clean = () => {
+    run++;
+    if (channel) {channel.onopen=null;channel.onmessage=null;channel.onclose=null;try{channel.close();}catch{} }
+    if (pc) {pc.onconnectionstatechange=null;pc.onicecandidate=null;try{pc.close();}catch{} }
+    channel=null;pc=null;ice=[];connected=false;
+  };
+  const bind = (ch,n) => {
+    channel=ch;
+    ch.onopen=()=>{if(n!==run)return;connected=true;status("open");};
+    ch.onclose=()=>{if(n!==run)return;connected=false;status("closed");};
+    ch.onerror=()=>{if(n!==run)return;status("error");};
+    ch.onmessage=e=>{
+      if(n!==run || !connected || typeof e.data!=="string" || e.data.length>2048)return;
+      try { const value=JSON.parse(e.data); if(value?.type==="CONTROL_HINT")emit({event:"hint",data:value}); }catch{}
+    };
+  };
+  const make = () => {
+    if(pc)return pc;
+    const n=run;
+    const p=new RTCPeerConnection({iceServers:[
+      {urls:"stun:stun.cloudflare.com:3478"},
+      {urls:"stun:stun.l.google.com:19302"}
+    ]});
+    pc=p;
+    p.onicecandidate=e=>{if(n===run && e.candidate)signal("candidate",e.candidate.toJSON());};
+    p.ondatachannel=e=>{if(n===run)bind(e.channel,n);};
+    p.onconnectionstatechange=()=>{
+      if(n!==run)return;
+      status(p.connectionState);
+    };
+    return p;
+  };
+  const flush = async () => {
+    if(!pc?.remoteDescription)return;
+    while(ice.length) {try{await pc.addIceCandidate(ice.shift());}catch{}}
+  };
+  const offer=async()=>{
+    if(role!=="host")return;
+    const p=make(),n=run;
+    bind(p.createDataChannel("together-controls",{ordered:true}),n);
+    await p.setLocalDescription(await p.createOffer());
+    if(n===run)signal("offer",{type:p.localDescription.type,sdp:p.localDescription.sdp});
+  };
+  window.TogetherRTC = {
+    start:async (opts)=>{
+      if(!opts || !["host","guest"].includes(opts.role) || typeof opts.peerId!=="string")return;
+      clean();role=opts.role;peer=opts.peerId;status("connecting");
+      if(role==="host") {try{await offer();}catch{status("failed");}}
+    },
+    signal:async(kind,payload)=>{
+      if(!["offer","answer","candidate","reset"].includes(kind))return;
+      try{
+        if(kind==="reset"){clean();status("reset");return;}
+        if(kind==="candidate"){
+          if(!payload || typeof payload.candidate!=="string" || payload.candidate.length>1500)return;
+          if(pc?.remoteDescription)await pc.addIceCandidate(payload);
+          else if(ice.length<64)ice.push(payload);
+          return;
+        }
+        if(!payload || typeof payload.sdp!=="string" || payload.sdp.length>5000)return;
+        if(kind==="offer"){
+          if(role!=="guest")return;
+          if(pc){clean();status("restarting");}
+          const p=make(),n=run;
+          await p.setRemoteDescription(new RTCSessionDescription({type:"offer",sdp:payload.sdp}));
+          await flush();
+          await p.setLocalDescription(await p.createAnswer());
+          if(n===run)signal("answer",{type:p.localDescription.type,sdp:p.localDescription.sdp});
+        } else if(kind==="answer"){
+          if(role!=="host" || !pc)return;
+          await pc.setRemoteDescription(new RTCSessionDescription({type:"answer",sdp:payload.sdp}));
+          await flush();
+        }
+      }catch(e){status("failed");emit({event:"error",reason:String(e?.name||"webrtc")});}
+    },
+    send:obj=>{
+      try {
+        if(!connected || channel?.readyState!=="open")return false;
+        const frame=JSON.stringify(obj);
+        if(frame.length>1900)return false;
+        channel.send(frame);
+        return true;
+      }catch{return false;}
+    },
+    close:()=>{clean();status("closed");}
+  };
+  emit({event:"ready"});
+})();
+</script></body></html>
