@@ -48,8 +48,11 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   player.pause(); player.setPlaybackSpeed(1f)
   room=null; clock.reset();resetCorrection();lastAutoSeekAt=null;wasUnready=false;settleUntil=0.0
  }
+ // Share this gate with the controller before applying media/UI side effects.
+ fun accepts(next: JSONObject): Boolean =
+  room?.optString("roomId") != next.optString("roomId") || next.getLong("version") >= version
  fun receive(next: JSONObject) {
-  if (room?.optString("roomId") != next.optString("roomId") || next.getLong("version") >= version) {
+  if (accepts(next)) {
    val previous=room
    if(previous?.optString("roomId") != next.optString("roomId") || next.getLong("version") != version) {resetCorrection();lastAutoSeekAt=null}
    if (previous?.optString("roomId") == next.optString("roomId") && next.optString("state") == "playing") {
