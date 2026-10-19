@@ -1107,7 +1107,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  #if DEBUG
  func installTrackPlaybackFixture() throws {
-  localVideoTest=true;loadMedia(try TrackUITestFixture.url())
+  // Start the local MKV stream when installed. Otherwise the HLS producer
+  // can remain idle indefinitely and the simulated progress slider stays
+  // disabled despite a valid embedded test movie.
+  localVideoTest=true;localPlayIntent=true;loadMedia(try TrackUITestFixture.url())
   Task {
    for _ in 0..<100 {
     if !subtitleLabels.isEmpty {
