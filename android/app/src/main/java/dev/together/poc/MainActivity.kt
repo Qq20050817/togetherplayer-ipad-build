@@ -75,6 +75,7 @@ class MainActivity: Activity() {
  private lateinit var watchBody: LinearLayout;private lateinit var videoColumn: LinearLayout;private lateinit var chatColumn: LinearLayout;private lateinit var progress: SeekBar;private lateinit var timeLabel: TextView;private lateinit var pauseButton: ImageButton
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private lateinit var networkHealthLabel:TextView;private var memberSummary="";private var onlineMembers=0
  private var importedSubtitleUri:android.net.Uri?=null
+ private var loadedSubtitleBytes:ByteArray?=null
  private var cleanupRequestedSource:String?=null
  private var cleanupRunning=false
  private lateinit var captions: TextView;private var external: ExternalSubtitle?=null;private var subtitleName="";private var subtitleDelay=0L;private var subtitleEnabled=false;private var subtitleGeneration=0;private var subtitlePickerOpen=false
@@ -248,7 +249,7 @@ class MainActivity: Activity() {
  private fun formatTime(ms: Long): String {val s=ms/1000;return if(s>=3600)"%d:%02d:%02d".format(s/3600,s/60%60,s%60) else "%02d:%02d".format(s/60,s%60)}
  private fun shareRoom(){val id=credentials?.optString("roomId");if(id.isNullOrBlank()){requestStatus.text="请先加入房间";return};startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,"TogetherPlayer 房间：$id\n服务器：${server.text}"),"分享房间"))}
  private fun readSubtitleBytes(input: java.io.InputStream): ByteArray {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192);while(out.size()<=ExternalSubtitle.MAX_BYTES){val count=input.read(buffer,0,minOf(buffer.size,ExternalSubtitle.MAX_BYTES+1-out.size()));if(count<0)break;out.write(buffer,0,count)};return out.toByteArray()}
- private fun clearSubtitle(){importedSubtitleUri=null;subtitleGeneration++;external=null;subtitleName="";subtitleDelay=0;subtitleEnabled=false;if(::captions.isInitialized)captions.visibility=View.GONE}
+ private fun clearSubtitle(){importedSubtitleUri=null;loadedSubtitleBytes=null;subtitleGeneration++;external=null;subtitleName="";subtitleDelay=0;subtitleEnabled=false;if(::captions.isInitialized)captions.visibility=View.GONE}
 
  private fun discoverUsbSubtitles(videoUrl:String, force:Boolean=false) {
   val roomID=engine.room?.optString("roomId") ?: ""
@@ -301,15 +302,16 @@ class MainActivity: Activity() {
     val result=runCatching {response.use {
      if(!it.isSuccessful)throw IOException("HTTP ${it.code}，字幕链接可能已过期")
      val stream=it.body?.byteStream() ?: throw IOException("字幕内容为空")
-     ExternalSubtitle.parse(readSubtitleBytes(stream))
+     val bytes=readSubtitleBytes(stream)
+      Pair(ExternalSubtitle.parse(bytes),bytes)
     }}
     main.post {
      if(generation!=subtitleGeneration || engine.room?.optString("roomId")!=roomID ||
         engine.room?.optString("mediaUrl")!=video)return@post
-     result.onSuccess {parsed->
+     result.onSuccess {(parsed,bytes)->
       playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon()
        .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build()
-      external=parsed;importedSubtitleUri=null;subtitleName=option.name;subtitleDelay=0;subtitleEnabled=true
+      external=parsed;loadedSubtitleBytes=bytes;importedSubtitleUri=null;subtitleName=option.name;subtitleDelay=0;subtitleEnabled=true
       requestStatus.text="已启用U盘字幕：${option.name}"
      }.onFailure {requestStatus.text="字幕读取失败：${it.localizedMessage}"}
     }
@@ -325,6 +327,7 @@ class MainActivity: Activity() {
   if(UsbSubtitleCatalog.manifestUrl(engine.room?.optString("mediaUrl") ?: "")!=null)
    option("刷新U盘字幕列表"){discoverUsbSubtitles(engine.room?.optString("mediaUrl") ?: "",true)}
   option("导入外挂字幕（SRT / VTT / ASS）"){importSubtitle()}
+   if(loadedSubtitleBytes!=null) option("字幕乱码？选择文字编码"){subtitleEncodingMenu()}
   if(external!=null) {
    option("使用外挂：$subtitleName"){
     subtitleEnabled=true
@@ -338,7 +341,28 @@ class MainActivity: Activity() {
    actions[index]()
   }.create().apply {setOnDismissListener {revealControls()};show()}
  }
- private fun importSubtitle(){
+ private fun subtitleEncodingMenu() {
+   val bytes=loadedSubtitleBytes ?: return
+   val names=listOf("自动识别（UTF-8 / UTF-16 / GB18030）")+ExternalSubtitle.TEXT_ENCODINGS
+   android.app.AlertDialog.Builder(this).setTitle("外挂字幕乱码修复").setItems(names.toTypedArray()){_,index->
+    val forced=if(index==0)null else ExternalSubtitle.TEXT_ENCODINGS[index-1]
+    val generation=++subtitleGeneration
+    requestStatus.text="正在以 ${forced ?: "自动编码"} 读取字幕…"
+    Thread {
+     val result=runCatching {ExternalSubtitle.parse(bytes,forced)}
+     main.post {
+      if(stopped || generation!=subtitleGeneration || loadedSubtitleBytes !== bytes)return@post
+      result.onSuccess {
+       playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon()
+        .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build()
+       external=it;subtitleEnabled=true
+       requestStatus.text="外挂字幕已按 ${forced ?: "自动编码"} 重新读取，影片未重新加载"
+      }.onFailure {requestStatus.text="字幕编码解析失败：${it.localizedMessage}"}
+     }
+    }.start()
+   }.show()
+  }
+  private fun importSubtitle(){
   main.removeCallbacks(hideControls);subtitlePickerOpen=true
   try {startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(android.content.Intent.CATEGORY_OPENABLE).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),701)}
   catch(e:Exception){subtitlePickerOpen=false;requestStatus.text="无法打开字幕文件选择器：${e.localizedMessage}"}
@@ -355,7 +379,7 @@ class MainActivity: Activity() {
   super.onActivityResult(requestCode,resultCode,data);if(requestCode==704){receiveCleanupFolder(resultCode,data);return};if(requestCode !in listOf(701,702))return;if(requestCode==701)subtitlePickerOpen=false;revealControls();if(resultCode!=RESULT_OK)return;val uri=data?.data ?: return
   if(requestCode==702){pendingLocalMovie=uri to data.flags;localFileLabel.text="本地影片已选择，等待房间连接…";applyPendingLocalMovie();return}
   val g=++subtitleGeneration
-  Thread {val result=runCatching {val name=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else "外挂字幕"} ?: "外挂字幕";val bytes=contentResolver.openInputStream(uri)?.use {readSubtitleBytes(it)} ?: throw IOException("文件无法读取");Pair(name,ExternalSubtitle.parse(bytes))};main.post {if(g!=subtitleGeneration || stopped)return@post;result.onSuccess {(name,parsed)->runCatching {playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build();external=parsed;importedSubtitleUri=uri;subtitleName=name;subtitleDelay=0;subtitleEnabled=true;requestStatus.text="已加载外挂字幕：$name"}.onFailure {requestStatus.text="字幕应用失败：${it.localizedMessage ?: "请重试"}"}}.onFailure {requestStatus.text=it.message ?: "字幕读取失败"}}}.start()
+  Thread {val result=runCatching {val name=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else "外挂字幕"} ?: "外挂字幕";val bytes=contentResolver.openInputStream(uri)?.use {readSubtitleBytes(it)} ?: throw IOException("文件无法读取");Triple(name,ExternalSubtitle.parse(bytes),bytes)};main.post {if(g!=subtitleGeneration || stopped)return@post;result.onSuccess {(name,parsed,bytes)->runCatching {playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build();external=parsed;loadedSubtitleBytes=bytes;importedSubtitleUri=uri;subtitleName=name;subtitleDelay=0;subtitleEnabled=true;requestStatus.text="已加载外挂字幕：$name"}.onFailure {requestStatus.text="字幕应用失败：${it.localizedMessage ?: "请重试"}"}}.onFailure {requestStatus.text=it.message ?: "字幕读取失败"}}}.start()
  }
  private fun subtitleTiming(){val input=EditText(this).apply {setText((subtitleDelay/1000.0).toString());inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED};android.app.AlertDialog.Builder(this).setTitle("字幕延迟（秒，正值更晚，±120秒）").setView(input).setNegativeButton("取消",null).setPositiveButton("保存"){_,_->val value=input.text.toString().toDoubleOrNull();if(value!=null && value.isFinite() && kotlin.math.abs(value)<=120)subtitleDelay=(value*1000).toLong() else requestStatus.text="字幕延迟必须在正负120秒内"}.show()}
  private fun library()=runCatching {org.json.JSONArray(getPreferences(0).getString("mediaLibrary","[]"))}.getOrElse {org.json.JSONArray()}
