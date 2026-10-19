@@ -72,6 +72,8 @@ class MainActivity: Activity() {
  private val httpHealth=HttpPlaybackHealth()
  private var playbackNeedsRecovery=false
  private var playerRebuildCount=0
+ private var networkRecoveryGeneration=0
+ private var networkRecoveryScheduled=false
  private lateinit var watchBody: LinearLayout;private lateinit var videoColumn: LinearLayout;private lateinit var chatColumn: LinearLayout;private lateinit var progress: SeekBar;private lateinit var timeLabel: TextView;private lateinit var pauseButton: ImageButton
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private lateinit var networkHealthLabel:TextView;private var memberSummary="";private var onlineMembers=0
  private var importedSubtitleUri:android.net.Uri?=null
@@ -134,7 +136,8 @@ class MainActivity: Activity() {
     details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
     format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
     diagnostic("playerError",details)
-    if(tryRecoverMalformedLocalContainer(error.errorCode))return
+    if(scheduleHttpErrorRecovery(error.errorCode))return
+     if(tryRecoverMalformedLocalContainer(error.errorCode))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
@@ -866,12 +869,38 @@ class MainActivity: Activity() {
   }
   return true
  }
- private fun retryPlayback(){
+ private fun scheduleHttpErrorRecovery(code:Int):Boolean {
+   if(code != androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT &&
+      code != androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)return false
+   val room=engine.room ?: return false
+   if(!httpHealth.isHttp || playback.compatibleActive || playerRebuildCount >= 2)return false
+   if(networkRecoveryScheduled)return true
+   val mediaUri=playback.currentMediaItem?.localConfiguration?.uri?.toString() ?: return false
+   val expectedRoom=room.optString("roomId")
+   val generation=networkRecoveryGeneration
+   val delay=if(playerRebuildCount==0)1500L else 4000L
+   networkRecoveryScheduled=true
+   playerRebuildCount++
+   requestStatus.text="HTTP 连接超时，正在自动恢复（${playerRebuildCount}/2）…"
+   main.postDelayed({
+    if(generation!=networkRecoveryGeneration)return@postDelayed
+    networkRecoveryScheduled=false
+    if(stopped || !foreground || engine.room?.optString("roomId")!=expectedRoom ||
+       playback.currentMediaItem?.localConfiguration?.uri?.toString()!=mediaUri)return@postDelayed
+    val position=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0)
+    loadMedia(mediaUri,position,preserveSubtitles=true)
+    if(engine.target()?.second=="playing" && plotPoll?.optBoolean("waitingForAnswers")!=true)
+     playback.play()
+   },delay)
+   return true
+  }
+  private fun retryPlayback(){
   val r=engine.room ?: return
   val url=if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){if(!hasBaiduMatch()){requestStatus.text="请先选择同一影片";return};if(localFileUri.isNotBlank())localFileUri else baiduURL}else playbackSource(r.optString("mediaUrl"))
-  requestStatus.text="正在重试播放…";loadMedia(url,r.optDouble("position")+engine.timelineOffset)
+  requestStatus.text="正在重试播放…";playerRebuildCount=0;loadMedia(url,r.optDouble("position")+engine.timelineOffset,preserveSubtitles=true)
+   if(engine.target()?.second=="playing" && plotPoll?.optBoolean("waitingForAnswers")!=true)playback.play()
  }
- private fun loadMedia(url: String,position: Double,preserveSubtitles:Boolean=false){playbackRecovery.reset();playbackNeedsRecovery=false;if(!preserveSubtitles)playerRebuildCount=0;val resolved=resolvedMediaUri(url);decoderRecovery.beginSource(resolved);httpHealth.reset(resolved);videoDecoderName="";if(!preserveSubtitles && playback.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved){clearSubtitle()};playback.pause();val item=MediaItem.fromUri(android.net.Uri.parse(resolved));if(url==baiduURL){val network=androidx.media3.datasource.DefaultHttpDataSource.Factory().setUserAgent("pan.baidu.com");val factory=androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,network));playback.setMediaSource(factory.createMediaSource(item),position.coerceAtLeast(0.0).toLong())}else playback.setMediaItem(item,position.coerceAtLeast(0.0).toLong());playback.prepare()}
+ private fun loadMedia(url: String,position: Double,preserveSubtitles:Boolean=false){networkRecoveryGeneration++;networkRecoveryScheduled=false;playbackRecovery.reset();playbackNeedsRecovery=false;if(!preserveSubtitles)playerRebuildCount=0;val resolved=resolvedMediaUri(url);decoderRecovery.beginSource(resolved);httpHealth.reset(resolved);videoDecoderName="";if(!preserveSubtitles && playback.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved){clearSubtitle()};playback.pause();val item=MediaItem.fromUri(android.net.Uri.parse(resolved));if(url==baiduURL){val network=androidx.media3.datasource.DefaultHttpDataSource.Factory().setUserAgent("pan.baidu.com");val factory=androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,network));playback.setMediaSource(factory.createMediaSource(item),position.coerceAtLeast(0.0).toLong())}else playback.setMediaItem(item,position.coerceAtLeast(0.0).toLong());playback.prepare()}
  private fun localDisplayName(uri:android.net.Uri)=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else null} ?: "本地影片"
  private fun localFileIdentity(uri:android.net.Uri):Pair<Long,String> {
   val queried=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.SIZE),null,null,null)?.use {if(it.moveToFirst() && !it.isNull(0))it.getLong(0) else -1L} ?: -1L
