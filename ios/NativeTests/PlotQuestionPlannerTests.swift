@@ -49,9 +49,12 @@ final class PlotQuestionPlannerTests:XCTestCase {
    "Do not accept clues from a later, unplayed scene")
   XCTAssertFalse(PlotQuestionPlanner.hasWatchedEvidence(played,at:400),
    "Old dialogue must not provoke an unrelated interruption")
-  let visual=(0..<4).map {index in
-   PlotEvidence.cue(start:Double(8+index*18),end:Double(9+index*18),
-    text:index.isMultiple(of:2) ? "室内环境" : "户外环境",source:"ondevice-vision")
+  var visual: [PlotEvidence] = []
+  for index in 0..<4 {
+   let start = Double(8 + index * 18)
+   let label = index.isMultiple(of:2) ? "室内环境" : "户外环境"
+   visual.append(PlotEvidence.cue(start:start,end:start+1,
+    text:label,source:"ondevice-vision"))
   }
   XCTAssertTrue(PlotQuestionPlanner.hasWatchedEvidence(visual,at:75))
   XCTAssertFalse(PlotQuestionPlanner.hasWatchedEvidence(visual.map {
