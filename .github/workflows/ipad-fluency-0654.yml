@@ -44,28 +44,48 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO build
-      - name: Boot iPad simulator
+      - name: Select simulator build destination
         run: |
-          set -euo pipefail
           xcrun simctl list devices available -j > /tmp/fluency-devices.json
           DEVICE_ID=$(python3 -c 'import json;d=json.load(open("/tmp/fluency-devices.json"))["devices"];print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
           echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$DEVICE_ID" || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Compile simulator test bundles before booting
+        timeout-minutes: 10
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO build-for-testing
+      - name: Boot clean simulator and verify test host launch
+        timeout-minutes: 6
+        run: |
+          python3 - <<'PYBOOT'
+          import json,os,subprocess
+          data=json.load(open('/tmp/fluency-devices.json'))['devices']
+          runtime,reference=next((runtime,device) for runtime,devices in data.items() for device in devices if 'iPad' in device['name'])
+          kind=reference.get('deviceTypeIdentifier',reference['name'])
+          name='Together-Fluency-'+os.environ['GITHUB_RUN_ID']
+          device=subprocess.check_output(['xcrun','simctl','create',name,kind,runtime],text=True).strip()
+          print('Fresh simulator:',device,flush=True)
+          subprocess.run(['xcrun','simctl','boot',device],check=True,timeout=60)
+          subprocess.run(['xcrun','simctl','bootstatus',device,'-b'],check=True,timeout=240)
+          subprocess.run(['xcrun','simctl','install',device,'usb-ai-build/Build/Products/Debug-iphonesimulator/TogetherPoC.app'],check=True,timeout=60)
+          env=dict(os.environ,SIMCTL_CHILD_TOGETHER_UI_TEST='1')
+          subprocess.run(['xcrun','simctl','launch','--terminate-running-process',device,'dev.together.poc'],env=env,check=True,timeout=60)
+          subprocess.run(['xcrun','simctl','terminate',device,'dev.together.poc'],check=True,timeout=30)
+          with open(os.environ['GITHUB_ENV'],'a') as output:output.write('SIMULATOR_ID='+device+'\n')
+          PYBOOT
       - name: Verify analysis and persistent selection in isolation
         timeout-minutes: 10
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-isolation.xcresult -only-testing:TogetherPoCCoreTests/WholeFilmCloudBudgetTests -only-testing:TogetherPoCCoreTests/RoomMovieSelectionTests -only-testing:TogetherPoCCoreTests/PlotControllerTests test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-isolation.xcresult -only-testing:TogetherPoCCoreTests/WholeFilmCloudBudgetTests -only-testing:TogetherPoCCoreTests/RoomMovieSelectionTests -only-testing:TogetherPoCCoreTests/PlotControllerTests test-without-building
       - name: Verify real view invalidation and legacy scan isolation
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-focused.xcresult -only-testing:TogetherPoCCoreTests/PlaybackPresentationPerformanceTests -only-testing:TogetherPoCCoreTests/PlotPanelReadTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-focused.xcresult -only-testing:TogetherPoCCoreTests/PlaybackPresentationPerformanceTests -only-testing:TogetherPoCCoreTests/PlotPanelReadTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests test-without-building
       - name: Run full native regression without skipped test classes
         timeout-minutes: 12
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test-without-building
       - name: Exercise playback, gestures, AI panels and source restoration
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-ui.xcresult -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRememberedMovieSurvivesRelaunchAndLeaveKeepsFileButClearsAssociation -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleMKVSystemCopyClosesFilesAndLoadsMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-ui.xcresult -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRememberedMovieSurvivesRelaunchAndLeaveKeepsFileButClearsAssociation -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleMKVSystemCopyClosesFilesAndLoadsMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie test-without-building
       - name: Export test summaries
         if: always()
         run: |
