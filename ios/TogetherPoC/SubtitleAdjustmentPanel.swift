@@ -4,7 +4,7 @@ import AVFoundation
 @MainActor struct SubtitleAdjustmentPanel:View {
  @ObservedObject var subtitles:ExternalSubtitles
  let player:AVPlayer
- @ObservedObject var chat:ChatEngine
+ let chat:ChatEngine
  @Environment(\.dismiss) private var dismiss
  var body:some View {
   NavigationStack {

@@ -137,6 +137,8 @@ struct PlotFrame {
   return PlotDisplayPosition(key:current.key,position:current.position)
  }
  var frame:(()->PlotFrame?)?
+ // Offline banks own automation. No periodic legacy scan/archive is needed.
+ var backgroundCollectionAllowed:(()->Bool)?
  var visualEvidenceEnabled=false
  func visualChanged() {guard visualEvidenceEnabled else{return};subtitleChanged("")}
  /// Indexing future cues is never a prerequisite for understanding watched
@@ -291,15 +293,16 @@ struct PlotFrame {
  }
  func start() {
   guard timer==nil else {return}
-  let next=Timer(timeInterval:20,repeats:true){[weak self] _ in Task{@MainActor in await self?.collect()}}
+  let next=Timer(timeInterval:20,repeats:true){[weak self] _ in Task{@MainActor in await self?.collect(inBackground:true)}}
   timer=next;RunLoop.main.add(next,forMode:.common)
  }
- func collect() async {
+ func collect(inBackground:Bool=false) async {
+  guard !inBackground || backgroundCollectionAllowed?() != false else{return}
   guard let snapshot=frame?(),snapshot.position.isFinite,snapshot.position>=0 else {return}
   if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;autoTriggerStatus="已加载新影片，正在积累字幕";savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;automaticQuestionCount=0;automaticPublishCount=0;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
-  if frame?()?.key==snapshot.key {updateUsage(state.budget);savedSubtitleCount=state.evidence.count}
+  if currentDisplayPosition?.key==snapshot.key {updateUsage(state.budget);savedSubtitleCount=state.evidence.count}
   prepareWatchedStory(state.evidence,key:snapshot.key,position:snapshot.position)
   if publishPendingAutomaticQuestion() {return}
   // AVPlayerItemLegibleOutput does not promise an empty end callback for every
@@ -313,6 +316,7 @@ struct PlotFrame {
  // Snapshot before the transport or player is torn down. The actor keeps
  // the final watched cues even if the normal 20-second sampler has not fired.
  func preserveCurrentFilmEvidence() {
+  guard backgroundCollectionAllowed?() != false else{return}
   guard let snapshot=frame?(),lastKey.isEmpty || snapshot.key==lastKey else{return}
   Task(priority:.utility) {[memory] in
    _ = try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction)
@@ -380,7 +384,7 @@ struct PlotFrame {
  func playbackJumped() {
   momentTask?.cancel();momentTask=nil;clearPendingAutomaticQuestion();autoSuggestion=nil;latestBeat=nil
   cancelStoryPreparation()
-  guard let current=frame?() else {cancel();result=nil;return}
+  guard let current=currentDisplayPosition else {cancel();result=nil;return}
   if current.key != lastKey || (working && current.position<generationCutoff) {cancel()}
   if current.key != lastKey || current.position<previewCutoff {result=nil}
  }

@@ -357,6 +357,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    self.pendingPlotPredictionReview=nil;self.plotPredictionReviewTask?.cancel()
    self.questionBankRuntime.observePoll(self.plotPoll)
   }
+  plotIntelligence.backgroundCollectionAllowed={ [weak self] in
+   guard let self else{return false}
+   return self.foreground && self.questionBankRuntime.active == nil
+  }
   plotIntelligence.start()
   plotIntelligence.visualEvidenceEnabled=visualSampler.enabled
   visualSampler.onEnabledChanged={ [weak self] enabled in

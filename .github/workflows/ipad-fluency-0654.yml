@@ -1,0 +1,96 @@
+name: Verify iPad 0.6.54 UI fluency
+on:
+  push:
+    branches: [perf/ipad-ui-fluency-0654-20261019]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: ipad-fluency-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ipad:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact branch revision
+        run: |
+          set -euo pipefail
+          actual=$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')
+          test "$actual" = "$GITHUB_SHA"
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          for v in 26.3 26.2 26.1.1 26.0.1; do
+            d="/Applications/Xcode_${v}.app/Contents/Developer"
+            if [ -d "$d" ]; then sudo xcode-select -s "$d"; break; fi
+          done
+          xcodebuild -version
+      - name: Generate project and resolve dependencies
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath usb-ai-build
+          python3 tools/patch_prism_swift61.py usb-ai-build/SourcePackages/checkouts/PrismCore
+      - name: Build Release for iPad
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO build
+      - name: Generate actual UHD regression fixture
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=3840x2160:rate=2:duration=16' -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -threads 2 -x265-params 'pools=1:frame-threads=1:wpp=0:keyint=24:min-keyint=24:bframes=0:log-level=error' -an -y ios/NativeTests/Fixtures/bank-uhd10.mkv
+      - name: Boot iPad simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/fluency-devices.json
+          DEVICE_ID=$(python3 -c 'import json;d=json.load(open("/tmp/fluency-devices.json"))["devices"];print(next(x["udid"] for a in d.values() for x in a if "iPad" in x["name"]))')
+          echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Verify real view invalidation and legacy scan isolation
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-focused.xcresult -only-testing:TogetherPoCCoreTests/PlaybackPresentationPerformanceTests -only-testing:TogetherPoCCoreTests/PlotPanelReadTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests test
+      - name: Run full native regression without skipped test classes
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test
+      - name: Exercise playback, gestures, AI panels and source restoration
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-ui.xcresult -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRememberedMovieSurvivesRelaunchAndLeaveKeepsFileButClearsAssociation -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleMKVSystemCopyClosesFilesAndLoadsMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie test
+      - name: Export test summaries
+        if: always()
+        run: |
+          mkdir -p fluency-test-reports
+          for result in fluency-*.xcresult; do
+            [ -d "$result" ] || continue
+            xcrun xcresulttool get test-results summary --path "$result" > "fluency-test-reports/${result}.json" || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iPad-fluency-test-reports
+          path: fluency-test-reports/
+      - name: Package verified IPA and exact tracked source
+        run: |
+          set -euo pipefail
+          mkdir -p fluency-delivery
+          python3 tools/package_unsigned_ipa.py usb-ai-build/Build/Products/Release-iphoneos/TogetherPoC.app fluency-delivery/TogetherPlayer-iPad-0.6.54-Fluency-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          git archive --format=zip HEAD > fluency-delivery/TogetherPlayer-iPad-0.6.54-source.zip
+          (cd fluency-delivery && shasum -a 256 *.ipa *.zip > SHA256SUMS.txt)
+          printf 'Source branch: %s\nSource SHA: %s\nVersion: iPad 0.6.54 / build114\nUnsigned: sign with original certificate and cover-install without uninstalling\nTests: real UI invalidation, full native suite, source/fullscreen/playback UI; no physical-device FPS claim\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > fluency-delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-iPad-0.6.54-Fluency
+          path: fluency-delivery/
+      - name: Publish new preview after all checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=ipad-v0.6.54-fluency-20261019
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$tag" fluency-delivery/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.54 · 流畅度优化预览' --notes 'Keeps 0.6.53 USB subtitles, P2P and finale features. Isolates chat/overlay updates from whole-page layout and avoids legacy background evidence scans with offline banks. Full native and selected UI regressions must pass before packaging. Physical-device performance still requires verification. Sign IPA with original certificate; cover-install, do not uninstall.'

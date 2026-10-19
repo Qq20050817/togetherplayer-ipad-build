@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import Combine
 import UniformTypeIdentifiers
 
 @main @MainActor struct TogetherPoCApp: App {
@@ -15,12 +16,17 @@ import UniformTypeIdentifiers
 }
 @MainActor struct TestView: View {
  let model: TestClient
- @ObservedObject var chat: ChatEngine
+ let chat: ChatEngine
+ @State private var unread=0
  var body: some View {
+  #if DEBUG
+  let _=InterfaceRenderTrace.record("tabs")
+  #endif
   TabView {
-   WatchScreen(model:model,chat:chat).tabItem {Label("观影",systemImage:"play.rectangle")}.badge(chat.unread)
+   WatchScreen(model:model,chat:chat).tabItem {Label("观影",systemImage:"play.rectangle")}.badge(unread)
    RoomScreen(model:model).tabItem {Label("房间与片源",systemImage:"person.2")}
-  }.background {P2PWebRTCSurface(transport:model.p2pTransport).frame(width:1,height:1).allowsHitTesting(false)}.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
+  }.onReceive(chat.$unread.removeDuplicates()) {unread=$0}
+  .background {P2PWebRTCSurface(transport:model.p2pTransport).frame(width:1,height:1).allowsHitTesting(false)}.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
    if ProcessInfo.processInfo.environment["TOGETHER_PLOT_UI_TEST"]=="1" {
@@ -54,7 +60,7 @@ import UniformTypeIdentifiers
 }
 @MainActor struct WatchScreen: View {
  @ObservedObject var model: TestClient
- @ObservedObject var chat: ChatEngine
+ let chat: ChatEngine
  @State private var fullscreen=false
  @State private var recapOpen=false
  @State private var plotPollOpen=false
@@ -63,6 +69,9 @@ import UniformTypeIdentifiers
   @State private var p2pDiagnosticsOpen=false
  @State private var sidebar=0
  var body: some View {
+  #if DEBUG
+  let _=InterfaceRenderTrace.record("watch")
+  #endif
   GeometryReader {geometry in
    let railWidth=min(340,geometry.size.width*0.32)
    let availableWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+12 : 0)
@@ -224,13 +233,16 @@ import UniformTypeIdentifiers
 @MainActor struct PlaybackCanvas: View {
  let player: AVPlayer
  @ObservedObject var subtitles: ExternalSubtitles
- @ObservedObject var chat: ChatEngine
+ let chat: ChatEngine
  var bottomInset: Double=0
  @State private var captionHeight:CGFloat=0
  #if DEBUG
  @State private var canvasIdentity=UUID()
  #endif
  var body: some View {
+  #if DEBUG
+  let _=InterfaceRenderTrace.record("canvas")
+  #endif
   GeometryReader {geometry in
    let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:player.currentItem?.presentationSize ?? .zero)
    ZStack(alignment:.bottom) {
@@ -242,7 +254,7 @@ import UniformTypeIdentifiers
     if !subtitles.text.isEmpty {
      Text(subtitles.text).font(SubtitleTypography.font(subtitles)).tracking(SubtitleAppearance.letterSpacing(subtitles.letterSpacing)).lineSpacing(CGFloat(SubtitleAppearance.lineSpacing(subtitles.lineSpacing))).multilineTextAlignment(.center).foregroundColor(.white).shadow(color:.black,radius:2,x:0,y:1).padding(.horizontal,14).padding(.vertical,6).background(GeometryReader {proxy in Color.clear.preference(key:SubtitleHeightKey.self,value:proxy.size.height)}).frame(maxWidth:max(1,picture.width-48)).padding(.bottom,SubtitlePictureLayout.bottom(container:geometry.size,picture:picture,fraction:subtitles.bottomFraction,textHeight:captionHeight,inset:bottomInset)).allowsHitTesting(false)
     }
-   }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}.padding().allowsHitTesting(false)}
+   }.onPreferenceChange(SubtitleHeightKey.self) {height in if abs(height-captionHeight)>0.5 {captionHeight=height}}.overlay(alignment:.trailing) {ChatReactionOverlay(chat:chat)}
   }
   #if DEBUG
   .overlay(alignment:.topLeading) {
@@ -438,7 +450,7 @@ struct FullscreenToolStyle:ButtonStyle {
 }
 @MainActor struct FullscreenWatch: View {
  @ObservedObject var model: TestClient
- @ObservedObject var chat: ChatEngine
+ let chat: ChatEngine
  @Environment(\.dismiss) private var dismiss
  @StateObject private var controls=FullscreenControlState()
  @State private var composing=false
@@ -452,6 +464,9 @@ struct FullscreenToolStyle:ButtonStyle {
  @State private var recapOpen=false
  @State private var screenBrightness=Double(UIScreen.main.brightness)
  var body: some View {
+  #if DEBUG
+  let _=InterfaceRenderTrace.record("fullscreen")
+  #endif
   GeometryReader {geometry in
   let railWidth=min(340,geometry.size.width*0.30)
   let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+10 : 0)
@@ -992,3 +1007,18 @@ struct StableVideo: View, Equatable {
  static func == (lhs: StableVideo,rhs: StableVideo) -> Bool {lhs.player === rhs.player}
  var body: some View {VideoPlayer(player:player)}
 }
+
+// High-frequency chat changes belong to overlays, not the movie/room layout.
+@MainActor private struct ChatReactionOverlay:View {
+ @ObservedObject var chat:ChatEngine
+ var body:some View {
+  VStack {ForEach(chat.reactions) {reaction in Text(reaction.emoji).font(.largeTitle)}}
+   .padding().allowsHitTesting(false)
+ }
+}
+#if DEBUG
+@MainActor enum InterfaceRenderTrace {
+ static var onRender:((String)->Void)?
+ static func record(_ name:String) {onRender?(name)}
+}
+#endif
