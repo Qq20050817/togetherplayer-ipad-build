@@ -230,14 +230,20 @@ enum WholeFilmPlan {
   task?.cancel();token+=1;let request=token
   busy=true;map=nil;status="完整字幕已读取，正在准备全片分析…"
   // This coordinator resumes on the main actor; user-visible progress must
-  // not wait for maintenance/background scheduling. Heavy pure work remains
-  // explicitly detached at utility priority and file I/O stays in the actor.
+  // not wait for maintenance/background scheduling. Bounded planning stays
+  // off-main at interactive priority; movie demux/OCR stays at utility priority
+  // and archive I/O stays in its actor.
   task=Task(priority:.userInitiated) {[weak self] in
    guard let self else{return}
    defer{if self.token==request {self.busy=false;self.task=nil}}
    do {
     self.traceAnalysis("prepare chunks")
-    let plan=try await Task.detached(priority:.utility){try WholeFilmPlan.chunks(document,source:source)}.value
+    let plan=try await Task.detached(priority:.userInitiated){
+     #if DEBUG
+     if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {print("WHOLE_FILM_CHUNK_WORKER_STARTED")}
+     #endif
+     return try WholeFilmPlan.chunks(document,source:source)
+    }.value
     self.traceAnalysis("chunks ready \(plan.count)")
     guard !Task.isCancelled,self.token==request else{return}
     let signature=WholeFilmPlan.signature(plan,film:film)
@@ -257,7 +263,7 @@ enum WholeFilmPlan {
      guard self.cloudBatching(),!preparedCloud else{return}
      let completed=self.sections
      self.traceAnalysis("estimate cloud batches")
-     let estimate=await Task.detached(priority:.utility){WholeFilmCloudPlan.estimatedRequests(plan:plan,completed:completed)}.value
+     let estimate=await Task.detached(priority:.userInitiated){WholeFilmCloudPlan.estimatedRequests(plan:plan,completed:completed)}.value
      self.traceAnalysis("cloud estimate \(estimate)")
      self.estimatedCloudRequests=estimate
      try await self.cloudPreflight(estimate)
@@ -272,8 +278,8 @@ enum WholeFilmPlan {
      let previous=self.sections.sorted{$0.index<$1.index}.suffix(2).map(\.summary).joined(separator:"\n")
      if self.cloudBatching() {
       let missing=plan.filter{candidate in !self.sections.contains(where:{$0.index==candidate.index})}
-      guard let batch=await Task.detached(priority:.utility,operation:{WholeFilmCloudPlan.batches(missing).first}).value else{throw WholeFilmPlan.Failure.invalidModel}
-      let input=await Task.detached(priority:.utility){WholeFilmCloudPlan.input(batch,previous:previous)}.value
+      guard let batch=await Task.detached(priority:.userInitiated,operation:{WholeFilmCloudPlan.batches(missing).first}).value else{throw WholeFilmPlan.Failure.invalidModel}
+      let input=await Task.detached(priority:.userInitiated){WholeFilmCloudPlan.input(batch,previous:previous)}.value
       try Task.checkCancellation();guard self.token==request else{return}
       let answer=try await self.respond(WholeFilmCloudPlan.instructions,input)
       try Task.checkCancellation();guard self.token==request else{return}
@@ -299,15 +305,15 @@ enum WholeFilmPlan {
     var synthesis=self.sections
     while true {
      let snapshot=synthesis,isCloud=self.cloudBatching()
-     let needsReduction=await Task.detached(priority:.utility){isCloud ? WholeFilmCloudPlan.summaryInput(snapshot).count>WholeFilmCloudPlan.inputLimit : WholeFilmPlan.json(snapshot).count>3000}.value
+     let needsReduction=await Task.detached(priority:.userInitiated){isCloud ? WholeFilmCloudPlan.summaryInput(snapshot).count>WholeFilmCloudPlan.inputLimit : WholeFilmPlan.json(snapshot).count>3000}.value
      try Task.checkCancellation();guard self.token==request else{return}
      if !needsReduction {break}
      var reduced:[WholeFilmSection]=[]
-     let groups=await Task.detached(priority:.utility){isCloud ? WholeFilmCloudPlan.summaryGroups(snapshot) : stride(from:0,to:snapshot.count,by:3).map{Array(snapshot[$0..<min($0+3,snapshot.count)])}}.value
+     let groups=await Task.detached(priority:.userInitiated){isCloud ? WholeFilmCloudPlan.summaryGroups(snapshot) : stride(from:0,to:snapshot.count,by:3).map{Array(snapshot[$0..<min($0+3,snapshot.count)])}}.value
      for group in groups {
       let evidence=group.map{PlotEvidence(id:$0.evidenceIDs[0],start:0,end:1,text:$0.summary,source:"private-full-film-summary")}
       let chunk=WholeFilmChunk(index:reduced.count,evidence:evidence)
-      let input=await Task.detached(priority:.utility){WholeFilmPlan.modelJSON(evidence,ids:evidence.map(\.id))}.value
+      let input=await Task.detached(priority:.userInitiated){WholeFilmPlan.modelJSON(evidence,ids:evidence.map(\.id))}.value
       let answer=try await self.respond(WholeFilmPlan.sectionInstructions,input)
       try Task.checkCancellation();guard self.token==request else{return}
       guard let section=WholeFilmPlan.section(answer,chunk:chunk) else{throw WholeFilmPlan.sectionFailure(answer,chunk:chunk)}
@@ -317,7 +323,7 @@ enum WholeFilmPlan {
     }
     self.status="全部分段已分析，正在串联伏笔与结局…"
     let finalSections=synthesis
-    let input=await Task.detached(priority:.utility){WholeFilmCloudPlan.summaryInput(finalSections)}.value
+    let input=await Task.detached(priority:.userInitiated){WholeFilmCloudPlan.summaryInput(finalSections)}.value
     let answer=try await self.respond(WholeFilmPlan.mapInstructions,input)
     try Task.checkCancellation();guard self.token==request else{return}
     guard let map=WholeFilmPlan.map(answer,sections:synthesis) else{throw WholeFilmPlan.Failure.invalidModel}

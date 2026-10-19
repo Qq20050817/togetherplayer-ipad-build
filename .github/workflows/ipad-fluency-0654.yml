@@ -82,7 +82,15 @@ jobs:
       - name: Run full native regression without skipped test classes
         timeout-minutes: 12
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test-without-building
+          python3 -u tools/collect_fluency_stall.py fluency-native-console.log &
+          FLUENCY_MONITOR_PID=$!
+          set +e
+          set -o pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test-without-building 2>&1 | tee fluency-native-console.log
+          FLUENCY_TEST_STATUS=$?
+          kill "$FLUENCY_MONITOR_PID" 2>/dev/null || true
+          wait "$FLUENCY_MONITOR_PID" 2>/dev/null || true
+          exit "$FLUENCY_TEST_STATUS"
       - name: Exercise playback, gestures, AI panels and source restoration
         run: |
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-ui.xcresult -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRememberedMovieSurvivesRelaunchAndLeaveKeepsFileButClearsAssociation -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleMKVSystemCopyClosesFilesAndLoadsMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie test-without-building
@@ -98,7 +106,9 @@ jobs:
         if: always()
         with:
           name: iPad-fluency-test-reports
-          path: fluency-test-reports/
+          path: |
+            fluency-test-reports/
+            fluency-native-stall.sample.txt
       - name: Package verified IPA and exact tracked source
         run: |
           set -euo pipefail
