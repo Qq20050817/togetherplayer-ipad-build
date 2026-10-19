@@ -79,7 +79,12 @@ final class FakePlayer: PlayerAdapter {
   engine.resetSession();clock.add(0,0,0,0);engine.receive(room());player.position=0;player.buffering=true;engine.tick();player.buffering=false
   let recoverySeeks=player.seekCount;engine.tick();precondition(player.seekCount==recoverySeeks && player.playing && player.rate==1)
   now += 1999;engine.tick();precondition(player.seekCount==recoverySeeks)
-  now += 1;engine.tick();precondition(player.seekCount==recoverySeeks+1)
+  now += 1;engine.tick()
+  precondition(player.seekCount==recoverySeeks && player.playing,"first-frame startup must not be starved by hard seeks")
+  for _ in 0..<10 {now += 3000;engine.tick()}
+  precondition(player.seekCount==recoverySeeks,"no hard-seek storm before first movie frame")
+  player.position=180;now += 100;engine.tick()
+  precondition(player.seekCount==recoverySeeks+1,"sync should seek to room clock after actual playback advances")
   print("iOS SyncEngine regression checks passed")
  }
 }
