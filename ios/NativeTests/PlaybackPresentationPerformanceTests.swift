@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import UIKit
+import AVFoundation
 @testable import TogetherPoC
 
 @MainActor final class PlaybackPresentationPerformanceTests:XCTestCase {
@@ -46,4 +47,26 @@ import UIKit
   await intelligence.collect(inBackground:true)
   XCTAssertEqual(scans,2,"returning to legacy/manual mode resumes collection")
  }
+ func testOfflineBankAndBackgroundReleaseExtraPixelOutputWithoutChangingPreference() {
+  let defaults=UserDefaults(suiteName:UUID().uuidString)!
+  defaults.set(true,forKey:"plot-visual-ondevice-enabled")
+  let player=AVPlayer(),item=AVPlayerItem(url:URL(fileURLWithPath:"/sampling-fixture.mp4"))
+  player.replaceCurrentItem(with:item)
+  let sampler=PlotVisualSampler(player:player,preferences:defaults)
+  sampler.attach(to:item)
+  XCTAssertTrue(item.outputs.contains{$0 is AVPlayerItemVideoOutput})
+  sampler.setContextAllowsSampling(false)
+  XCTAssertFalse(item.outputs.contains{$0 is AVPlayerItemVideoOutput})
+  XCTAssertTrue(sampler.enabled);XCTAssertTrue(defaults.bool(forKey:"plot-visual-ondevice-enabled"))
+  XCTAssertTrue(player.currentItem === item,"sampling must not replace or pause the movie")
+  sampler.setContextAllowsSampling(true)
+  XCTAssertTrue(item.outputs.contains{$0 is AVPlayerItemVideoOutput})
+  sampler.setForeground(false)
+  XCTAssertFalse(item.outputs.contains{$0 is AVPlayerItemVideoOutput})
+  sampler.setForeground(true)
+  XCTAssertTrue(item.outputs.contains{$0 is AVPlayerItemVideoOutput})
+  sampler.enabled=false;sampler.setContextAllowsSampling(false);sampler.setContextAllowsSampling(true)
+  XCTAssertFalse(item.outputs.contains{$0 is AVPlayerItemVideoOutput})
+ }
+
 }

@@ -299,6 +299,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var lastDisconnectReason=""
  private var ignoredFrames=0
  private let messageSender: (([String:Any])->Void)?
+ private var bankSamplingSubscription:AnyCancellable?
  private var generation=0;private var attempt=0;private var sequence: Int64=0
  private var connected=false {didSet {if isConnected != connected {isConnected=connected}}};private var loadedURL="";private var ticks=0
  private var timer: Timer?
@@ -361,6 +362,9 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    guard let self else{return false}
    return self.foreground && self.questionBankRuntime.active == nil
   }
+  bankSamplingSubscription=questionBankRuntime.$active.map{$0 == nil}.removeDuplicates().sink { [weak self] allowed in
+   self?.visualSampler.setContextAllowsSampling(allowed)
+  }
   plotIntelligence.start()
   plotIntelligence.visualEvidenceEnabled=visualSampler.enabled
   visualSampler.onEnabledChanged={ [weak self] enabled in
@@ -369,7 +373,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
   visualSampler.onNewEvidence={ [weak self] in self?.plotIntelligence.visualChanged() }
   externalSubtitles.plotDidSeek={ [weak self] in self?.plotIntelligence.playbackJumped();self?.questionBankRuntime.playbackJumped();self?.bankNativePlaybackEnded=false }
-  externalSubtitles.plotCaptionChanged={ [weak self] text in self?.plotIntelligence.subtitleChanged(text) }
+  externalSubtitles.plotCaptionChanged={ [weak self] text in
+   guard let self,self.questionBankRuntime.active == nil else{return}
+   self.plotIntelligence.subtitleChanged(text)
+  }
   externalSubtitles.plotFullFilmReset={ [weak self] in self?.plotIntelligence.resetFullFilmPreparation() }
   externalSubtitles.onAIOnlyPGSChanged={ [weak self] in
    guard let self,self.mkvRemux.pgsOCRRendition else{return}

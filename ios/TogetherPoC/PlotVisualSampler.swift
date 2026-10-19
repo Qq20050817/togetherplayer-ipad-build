@@ -61,6 +61,7 @@ enum PlotSceneTagger {
  private var generation=0
  private var filmKey=""
  private var foreground=true
+ private var contextAllowsSampling=true
  private var lastTick:Double?
  private var lastSample = -Double.infinity
  private var busy=false
@@ -93,9 +94,14 @@ enum PlotSceneTagger {
   resetAttachment()
  }
  func setForeground(_ value:Bool) {
-  foreground=value
-  if !value {timer?.invalidate();timer=nil;lastTick=nil;generation+=1;busy=false}
-  else {resetAttachment()}
+  guard foreground != value else{return}
+  foreground=value;resetAttachment()
+ }
+ // An imported offline bank does not consume live Vision evidence. Release
+ // the additional pixel-buffer output without changing the user's preference.
+ func setContextAllowsSampling(_ value:Bool) {
+  guard contextAllowsSampling != value else{return}
+  contextAllowsSampling=value;resetAttachment()
  }
  func clear() {
   detach();filmKey="";visual=[];analyzedFrames=0;missingFrameCount=0;outputRestartCount=0
@@ -111,8 +117,8 @@ enum PlotSceneTagger {
   timer?.invalidate();timer=nil
   if let output,let item=attachedItem {item.remove(output)}
   output=nil;generation+=1;busy=false;lastTick=nil
-  guard enabled,foreground,let item=attachedItem else {
-   status=enabled ? "等待影片开始播放" : "画面理解试验未开启"
+  guard enabled,foreground,contextAllowsSampling,let item=attachedItem else {
+   status=enabled ? (contextAllowsSampling ? "等待影片开始播放" : "离线题库播放中，无需实时画面分析") : "画面理解试验未开启"
    return
   }
   // Keep item decoding independent of the subtitle output, and fail closed
