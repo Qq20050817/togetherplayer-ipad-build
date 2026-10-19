@@ -282,6 +282,16 @@ final class SyncEngine {
    // otherwise remain stuck in waiting with no subsequent play attempt.
    player.play();excessiveDriftSince=nil;return nil
   }
+  // A ready HLS item can hold dozens of seconds of buffered media yet still
+  // have rendered no first frame. Hard-seeking every three seconds in that
+  // state cancels decoder startup indefinitely. Let the native player advance
+  // off zero before applying large room-clock corrections.
+  if player.position < 100 && abs(error)>1500 {
+   resetCorrection()
+   player.setPlaybackSpeed(baseRate)
+   player.play()
+   return error
+  }
   if now<settleUntil {resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if abs(error)>=500 {if excessiveDriftSince == nil {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else {excessiveDriftSince=nil}
   var overdue=excessiveDriftSince.map {now-$0>=10_000} ?? false
