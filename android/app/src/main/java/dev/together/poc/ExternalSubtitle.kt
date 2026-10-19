@@ -29,13 +29,46 @@ class ExternalSubtitle(cues: List<SubtitleCue>) {
    if(min>=60 || sec>=60 || h>1000)return null
    return (h*3600+min*60+sec)*1000+(m.groupValues[4].padEnd(3,'0').toLongOrNull() ?: 0)
   }
-  fun parse(bytes: ByteArray): ExternalSubtitle {
-   require(bytes.size<=MAX_BYTES){"字幕超过5MB"}
-   val text=when {
-    bytes.size>=2 && (bytes[0].toInt() and 255)==255 && (bytes[1].toInt() and 255)==254 -> bytes.toString(Charsets.UTF_16LE)
-    bytes.size>=2 && (bytes[0].toInt() and 255)==254 && (bytes[1].toInt() and 255)==255 -> bytes.toString(Charsets.UTF_16BE)
-    else -> {val utf=bytes.toString(Charsets.UTF_8);if('\uFFFD' in utf)bytes.toString(charset("GB18030")) else utf}
-   }.removePrefix("\uFEFF").replace("\r\n","\n").replace('\r','\n')
+  /** Let viewers override old Chinese/Korean subtitle encodings without saving a converted copy. */
+  val TEXT_ENCODINGS = listOf("UTF-8", "GB18030", "Big5", "EUC-KR", "UTF-16LE", "UTF-16BE", "windows-1252")
+
+  private fun textEncoding(bytes: ByteArray, forcedCharset: String?): String {
+   if (forcedCharset != null) {
+    require(forcedCharset in TEXT_ENCODINGS) {"不支持的字幕编码"}
+    return bytes.toString(charset(forcedCharset))
+   }
+   if (bytes.size >= 2) {
+    val first = bytes[0].toInt() and 255
+    val second = bytes[1].toInt() and 255
+    if (first == 255 && second == 254) return bytes.toString(Charsets.UTF_16LE)
+    if (first == 254 && second == 255) return bytes.toString(Charsets.UTF_16BE)
+   }
+   // UTF-16 subtitle files occasionally omit the BOM. Check zero-byte parity.
+   val sampled = minOf(bytes.size, 256)
+   if (sampled >= 24) {
+    var evenZeros = 0
+    var oddZeros = 0
+    for (i in 0 until sampled) {
+     if (bytes[i].toInt() == 0) {
+      if (i % 2 == 0) evenZeros++ else oddZeros++
+     }
+    }
+    if (oddZeros >= sampled / 5 && evenZeros <= sampled / 32) return bytes.toString(Charsets.UTF_16LE)
+    if (evenZeros >= sampled / 5 && oddZeros <= sampled / 32) return bytes.toString(Charsets.UTF_16BE)
+   }
+   val utf8 = runCatching {
+    Charsets.UTF_8.newDecoder()
+     .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+     .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+     .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+   }.getOrNull()
+   return utf8 ?: bytes.toString(charset("GB18030"))
+  }
+
+  fun parse(bytes: ByteArray, forcedCharset: String? = null): ExternalSubtitle {
+   require(bytes.size <= MAX_BYTES) {"字幕超过5MB"}
+   val text = textEncoding(bytes, forcedCharset).removePrefix("\uFEFF")
+    .replace("\r\n","\n").replace('\r','\n')
    val cues=ArrayList<SubtitleCue>()
    if(text.contains("[Events]",true)) {
     var fields=listOf("Layer","Start","End","Style","Name","MarginL","MarginR","MarginV","Effect","Text")
