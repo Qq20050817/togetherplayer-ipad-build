@@ -1421,7 +1421,7 @@ extension TestClient {
   let selection=localSelectionGeneration,documents=movieSelectionStore.documents
   let variant=variantRoomID==context.roomID && variantMediaURL==context.mediaID,duration=variantReferenceDuration
   saveMovieTask?.cancel();rememberedMovie=nil;try? movieSelectionStore.clear();localMoviePersistenceStatus="正在记住本机影片…"
-  let worker=Task.detached(priority:.utility){try RoomMovieSelection.capture(url,context:context,documents:documents,confirmedVariant:variant,referenceDuration:duration)}
+  let worker=Task.detached(priority:.userInitiated){try RoomMovieSelection.capture(url,context:context,documents:documents,confirmedVariant:variant,referenceDuration:duration)}
   saveMovieTask=worker
   Task {[weak self] in
    let result=await worker.result
@@ -1444,7 +1444,7 @@ extension TestClient {
   if restoreMovieTask != nil {return true}
   let selection=localSelectionGeneration,documents=movieSelectionStore.documents
   localMoviePersistenceStatus="正在恢复上次本机影片…";requestStatus=localMoviePersistenceStatus
-  let worker=Task.detached(priority:.utility){try record.resolve(documents:documents)}
+  let worker=Task.detached(priority:.userInitiated){try record.resolve(documents:documents)}
   restoreMovieTask=worker
   Task {[weak self] in
    let result=await worker.result

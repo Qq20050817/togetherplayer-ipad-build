@@ -232,7 +232,7 @@ enum WholeFilmPlan {
   // This coordinator resumes on the main actor; user-visible progress must
   // not wait for maintenance/background scheduling. Heavy pure work remains
   // explicitly detached at utility priority and file I/O stays in the actor.
-  task=Task {[weak self] in
+  task=Task(priority:.userInitiated) {[weak self] in
    guard let self else{return}
    defer{if self.token==request {self.busy=false;self.task=nil}}
    do {

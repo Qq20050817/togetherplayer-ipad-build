@@ -68,6 +68,12 @@ enum LocalMovieCopyStore {
  /// Caller holds the provider security scope for the entire coordinated read/copy.
  static func persistCoordinated(_ selected:URL,documents:URL=LocalMovieCopyStore.documents,progress:(String)->Void={_ in})throws->ImportResult {
   guard selected.isFileURL else{throw Failure.invalidURL}
+  // UIDocumentPicker's system-copy import is already in our container.
+  // Relocate it under the store gate; coordinating an external read while
+  // moving that same local Inbox item can wait on file-provider callbacks.
+  if inside(selected,documents.deletingLastPathComponent()) {
+   return try persistResult(selected,documents:documents,progress:progress)
+  }
   var result:Result<ImportResult,Error>?,coordinationError:NSError?
   NSFileCoordinator().coordinate(readingItemAt:selected,options:.withoutChanges,error:&coordinationError) {readable in
    result=Result{try persistResult(readable,documents:documents,progress:progress)}

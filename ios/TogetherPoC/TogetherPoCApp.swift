@@ -972,6 +972,7 @@ struct RoomActionStyle:ButtonStyle {
  func updateUIViewController(_ controller:UIDocumentPickerViewController,context:Context) {}
  @MainActor final class Coordinator:NSObject,UIDocumentPickerDelegate {
   let asCopy:Bool;let onPick:(URL)->Void;let onCancel:()->Void;let onFailure:(String)->Void;let onProcessing:(String)->Void
+  private static let importQueue=DispatchQueue(label:"dev.together.movie-import",qos:.userInitiated)
   private var completed=false
   private let documents:URL
   init(asCopy:Bool,documents:URL=LocalMovieCopyStore.documents,onPick:@escaping(URL)->Void,onCancel:@escaping()->Void,onFailure:@escaping(String)->Void,onProcessing:@escaping(String)->Void){
@@ -984,7 +985,7 @@ struct RoomActionStyle:ButtonStyle {
    onProcessing("已收到影片：\(url.lastPathComponent)\n正在读取系统导入副本…")
    // Keep a provider grant alive until the imported copy is durable.
    let scoped=url.startAccessingSecurityScopedResource(),destination=documents
-   DispatchQueue.global(qos:.utility).async { [self] in
+   Self.importQueue.async { [self] in
     let result=Result {try LocalMovieCopyStore.persistCoordinated(url,documents:destination){message in DispatchQueue.main.async{[self] in onProcessing(message)}}}
     if scoped {url.stopAccessingSecurityScopedResource()}
     DispatchQueue.main.async { [self] in

@@ -72,6 +72,17 @@ extension LocalMovieCopyStoreTests {
   XCTAssertFalse(first.reused);XCTAssertTrue(second.reused);XCTAssertEqual(first.url,second.url)
   XCTAssertTrue(FileManager.default.fileExists(atPath:source.path))
  }
+ func testCoordinatedSystemInboxImportRelocatesOwnedCopyWithoutChangingBytes()throws {
+  let root=try sandbox();defer{try? FileManager.default.removeItem(at:root)}
+  let documents=root.appendingPathComponent("App/Documents"),inbox=documents.appendingPathComponent("Inbox")
+  try FileManager.default.createDirectory(at:inbox,withIntermediateDirectories:true)
+  let source=inbox.appendingPathComponent("system-copy.mkv"),bytes=Data(repeating:7,count:2_097_157)
+  try bytes.write(to:source)
+  let result=try LocalMovieCopyStore.persistCoordinated(source,documents:documents)
+  XCTAssertFalse(result.reused);XCTAssertFalse(FileManager.default.fileExists(atPath:source.path))
+  XCTAssertEqual(try Data(contentsOf:result.url),bytes)
+  XCTAssertEqual(try LocalMovieCopyStore.entries(documents:documents).count,1)
+ }
  func testRepeatedAndRenamedContentReusesOneCopyAndKeepsExternalOriginals()throws {
   let root=try sandbox();defer{try? FileManager.default.removeItem(at:root)}
   let documents=root.appendingPathComponent("App/Documents"),external=root.appendingPathComponent("original.mkv")

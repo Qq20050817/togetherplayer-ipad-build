@@ -33,7 +33,8 @@ import UIKit
   coordinator.documentPickerWasCancelled(view)
   await fulfillment(of:[done],timeout:8)
   XCTAssertEqual(picked.count,1);XCTAssertEqual(cancelled,0)
-  XCTAssertTrue(picked[0].path.contains("/ImportedMovies/"))
+  let saved=try XCTUnwrap(picked.first,"the accepted system copy must reach onPick")
+  XCTAssertTrue(saved.path.contains("/ImportedMovies/"))
   XCTAssertFalse(FileManager.default.fileExists(atPath:file.path))
   XCTAssertEqual(try LocalMovieCopyStore.entries(documents:documents).count,1)
   XCTAssertTrue(status.last?.contains("影片副本已保存")==true)
@@ -58,7 +59,7 @@ import UIKit
   let coordinator=LocalMovieDocumentPicker.Coordinator(asCopy:true,documents:folder.appendingPathComponent("Documents"),onPick:{_ in selected+=1},onCancel:{XCTFail("Unexpected cancel")},onFailure:{failed.append($0);done.fulfill()},onProcessing:{_ in})
   coordinator.documentPicker(view,didPickDocumentsAt:[folder.appendingPathComponent("missing.mkv")])
   await fulfillment(of:[done],timeout:8)
-  XCTAssertEqual(failed.count,1);XCTAssertTrue(failed[0].contains("兼容导入失败"));XCTAssertEqual(selected,0)
+  XCTAssertEqual(failed.count,1);XCTAssertTrue(try XCTUnwrap(failed.first).contains("兼容导入失败"));XCTAssertEqual(selected,0)
  }
  func testExplicitCancelBeforeSelectionBlocksLateURL()throws {
   let folder=try root();defer{try? FileManager.default.removeItem(at:folder)}

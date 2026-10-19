@@ -399,7 +399,9 @@ struct PlotFrame {
   lastKey=snapshot.key;generationCutoff=snapshot.position;let token=generation
   operationIsAutomatic=autoMoment
   working=true;result=nil;reason="正在分析已观看的剧情…"
-  operation=Task(priority:.utility) {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment,plannedMoment:plannedMoment)}
+  // The main-actor coordinator handles a user-visible action; expensive work
+  // remains in the memory/model workers rather than being performed here.
+  operation=Task {[weak self] in await self?.run(snapshot,token:token,manualDeep:manualDeep,regenerate:regenerate,autoMoment:autoMoment,plannedMoment:plannedMoment)}
   deadline=Task {[weak self] in
    try? await Task.sleep(nanoseconds:120_000_000_000)
    guard !Task.isCancelled,let self,self.generation==token,self.working else {return}
