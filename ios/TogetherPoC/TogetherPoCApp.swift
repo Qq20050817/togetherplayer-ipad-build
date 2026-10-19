@@ -452,7 +452,11 @@ struct FullscreenToolStyle:ButtonStyle {
  @ObservedObject var model: TestClient
  let chat: ChatEngine
  @Environment(\.dismiss) private var dismiss
- @StateObject private var controls=FullscreenControlState()
+ // UI automation is considerably slower than real taps and needs the
+ // full-screen progress controls to stay queryable during media preparation.
+ // Keep the ordinary 10-second auto-hide behavior for real users.
+ @StateObject private var controls=FullscreenControlState(
+  delay:ProcessInfo.processInfo.environment["TOGETHER_TRACK_PLAYBACK_TEST"]=="1" ? 300 : 10)
  @State private var composing=false
  @State private var adjustingDanmaku=false
  @State private var adjustingSpeed=false
