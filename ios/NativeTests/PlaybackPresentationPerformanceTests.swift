@@ -5,6 +5,21 @@ import AVFoundation
 @testable import TogetherPoC
 
 @MainActor final class PlaybackPresentationPerformanceTests:XCTestCase {
+ func testInactiveClientCleanupDoesNotCreateWebRTCWebView() {
+  let model=TestClient(automaticallyConnect:false)
+  XCTAssertFalse(model.hasInitializedP2PTransport)
+  model.handleBackground();model.handleBackground()
+  XCTAssertFalse(model.hasInitializedP2PTransport,"cleanup must not initialize an unused WebKit engine")
+ }
+ func testWebRTCTransportDoesNotRetainItselfThroughScriptHandlers() {
+  weak var released:P2PWebRTCTransport?
+  autoreleasepool {
+   let transport=P2PWebRTCTransport()
+   released=transport
+   XCTAssertNotNil(released)
+  }
+  XCTAssertNil(released,"WebKit message handlers must not keep the transport alive after its owner closes")
+ }
  func testChatTrafficDoesNotRebuildWatchOrMovieLayout() async throws {
   let model=TestClient(automaticallyConnect:false)
   let host=UIHostingController(rootView:WatchScreen(model:model,chat:model.chat))

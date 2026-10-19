@@ -2,6 +2,16 @@ import Foundation
 import WebKit
 import SwiftUI
 
+// WKUserContentController retains its handlers. Forward through a weak owner
+// so a closed player/window can release the transport and WebKit resources.
+@MainActor private final class WeakP2PScriptHandler:NSObject,WKScriptMessageHandler {
+ weak var owner:P2PWebRTCTransport?
+ init(_ owner:P2PWebRTCTransport){self.owner=owner;super.init()}
+ func userContentController(_ userContentController:WKUserContentController,didReceive message:WKScriptMessage) {
+  owner?.userContentController(userContentController,didReceive:message)
+ }
+}
+
 /// Embedded transport engine for authenticated Muse P2P signaling.
 /// The HTML is included in the signed app bundle. No remote script,
 /// film, room token or user-supplied URL is evaluated here.
@@ -11,7 +21,6 @@ import SwiftUI
  var onControl: (([String:Any])->Void)?
  private(set) var ready=false
  private var pending:[String]=[]
- private let controller=WKUserContentController()
  let webView:WKWebView
 
  override init() {
@@ -21,10 +30,9 @@ import SwiftUI
   config.defaultWebpagePreferences.allowsContentJavaScript=true
   webView=WKWebView(frame:.zero,configuration:config)
   super.init()
-  controller.add(self,name:"togetherP2P")
   // WebKit's configuration is immutable for replacement after creation,
   // register the handler on its existing controller.
-  webView.configuration.userContentController.add(self,name:"togetherP2P")
+  webView.configuration.userContentController.add(WeakP2PScriptHandler(self),name:"togetherP2P")
   webView.isOpaque=false
   webView.backgroundColor = .clear
   if let url=Bundle.main.url(forResource:"P2PTransport",withExtension:"html"),

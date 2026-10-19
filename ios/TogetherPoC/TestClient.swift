@@ -275,7 +275,9 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var p2pFastUntil=0.0
  private var p2pFastVersion: Int64=0
  private var p2pGate=P2PFastPathGate()
- lazy var p2pTransport: P2PWebRTCTransport = {
+ private var initializedP2PTransport:P2PWebRTCTransport?
+ var p2pTransport:P2PWebRTCTransport {
+  if let transport=initializedP2PTransport {return transport}
   let transport=P2PWebRTCTransport()
   transport.onSignal={ [weak self] kind,payload in
    guard let self,self.connected,self.p2pSupported,!self.p2pPeerID.isEmpty else{return}
@@ -289,8 +291,12 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    self.p2pStatus=state == "open" ? "P2P 直连" : "Muse 备用（P2P \(state)）"
   }
   transport.onControl={ [weak self] frame in self?.receiveP2PControl(frame) }
+  initializedP2PTransport=transport
   return transport
- }()
+ }
+ #if DEBUG
+ var hasInitializedP2PTransport:Bool {initializedP2PTransport != nil}
+ #endif
  private var connectionStartedAt=0.0
  private var lastMessageAt=0.0
  let voice=VoiceDanmakuController()
@@ -439,7 +445,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   self.timer=timer;RunLoop.main.add(timer,forMode:.common)
   if automaticallyConnect,credentials != nil {connect()}
  }
- deinit {timer?.invalidate();restoreMovieTask?.cancel();saveMovieTask?.cancel();if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()};for observer in observers {NotificationCenter.default.removeObserver(observer)}}
+ deinit {if let transport=initializedP2PTransport {Task {@MainActor in transport.dispose()}};timer?.invalidate();restoreMovieTask?.cancel();saveMovieTask?.cancel();if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()};for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func plotDisplayPosition()->PlotDisplayPosition? {
   guard adapter.player.currentItem != nil else{return nil}
   let identity=engine.room?.mediaUrl ?? currentOriginalURL?.absoluteString ?? loadedURL
@@ -1807,7 +1813,7 @@ extension TestClient {
   return members.contains {$0.userId == p2pPeerID && $0.online}
  }
  private func stopP2P() {
-  p2pTransport.close()
+  initializedP2PTransport?.close()
   p2pGate.reset();p2pSupported=false;p2pPeerID="";p2pRoomID=""
   p2pEstablished=false;p2pFastUntil=0;p2pFastVersion=0
   p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
