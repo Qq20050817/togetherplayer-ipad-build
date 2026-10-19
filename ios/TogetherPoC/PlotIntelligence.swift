@@ -302,7 +302,9 @@ struct PlotFrame {
   if lastKey != snapshot.key {cancel();result=nil;autoSuggestion=nil;latestBeat=nil;autoTriggerStatus="已加载新影片，正在积累字幕";savedSubtitleCount=0;mostRecentAutoKey="";mostRecentAutoPosition = -.infinity;mostRecentPublishedPosition = -.infinity;automaticQuestionCount=0;automaticPublishCount=0;lastKey=snapshot.key}
   else if snapshot.position<previewCutoff {result=nil}
   guard let state=try? await memory.ingest(snapshot.evidence,cutoff:snapshot.position,key:snapshot.key,prediction:snapshot.prediction) else {return}
-  if currentDisplayPosition?.key==snapshot.key {updateUsage(state.budget);savedSubtitleCount=state.evidence.count}
+  guard currentDisplayPosition?.key==snapshot.key,
+        !inBackground || backgroundCollectionAllowed?() != false else{return}
+  updateUsage(state.budget);savedSubtitleCount=state.evidence.count
   prepareWatchedStory(state.evidence,key:snapshot.key,position:snapshot.position)
   if publishPendingAutomaticQuestion() {return}
   // AVPlayerItemLegibleOutput does not promise an empty end callback for every

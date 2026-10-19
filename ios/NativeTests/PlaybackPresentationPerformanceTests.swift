@@ -8,11 +8,14 @@ import UIKit
   let model=TestClient(automaticallyConnect:false)
   let host=UIHostingController(rootView:WatchScreen(model:model,chat:model.chat))
   let window=UIWindow(frame:CGRect(x:0,y:0,width:1024,height:768))
+  var renders:[String:Int]=[:]
+  InterfaceRenderTrace.onRender={renders[$0,default:0]+=1}
   window.rootViewController=host;window.makeKeyAndVisible();host.view.layoutIfNeeded()
   defer {InterfaceRenderTrace.onRender=nil;window.isHidden=true;window.rootViewController=nil}
   try await Task.sleep(nanoseconds:300_000_000)
-  var renders:[String:Int]=[:]
-  InterfaceRenderTrace.onRender={renders[$0,default:0]+=1}
+  XCTAssertGreaterThan(renders["watch",default:0],0,"the test must mount a real watch page")
+  XCTAssertGreaterThan(renders["canvas",default:0],0,"the movie canvas must be rendered before measuring invalidation")
+  renders.removeAll()
   for n in 1...30 {
    model.chat.accept(ChatMessage(id:Int64(n),userId:"peer",name:"好友",text:"一起看电影 \(n)",clientMessageId:"message-\(n)",timestamp:Double(n)),mine:false,live:true,now:Double(n)*100)
    model.chat.reaction("👀",now:Double(n)*100)
