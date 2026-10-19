@@ -461,6 +461,16 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if let raw=log.uri,let u=URL(string:raw),u.host=="devstreaming-cdn.apple.com" {data["appleAccessLogPath"]=u.path}
   }
   if let log=adapter.player.currentItem?.errorLog()?.events.last {data["errorStatusCode"]=log.errorStatusCode}
+  // Codes only, with no localized messages or signed media URLs. This
+  // distinguishes failed network reads from container/decoder failures.
+  if let itemError=adapter.player.currentItem?.error as NSError? {
+   data["itemErrorCode"]=itemError.code
+   data["itemErrorDomain"]=itemError.domain
+  }
+  if let playerError=adapter.player.error as NSError? {
+   data["playerErrorCode"]=playerError.code
+   data["playerErrorDomain"]=playerError.domain
+  }
   data["seekInProgress"]=adapter.isSeeking
   data["itemStatus"]=adapter.player.currentItem?.status.rawValue ?? -1
   data["durationMs"]=adapter.duration
