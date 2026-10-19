@@ -1,0 +1,71 @@
+name: Verify Android 0.6.54 fluency
+on:
+  push:
+    branches: [perf/android-ui-fluency-0654-20261019]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: android-fluency-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Verify source revision
+        run: test "$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')" = "$GITHUB_SHA"
+      - name: Compile and run full unit suite
+        working-directory: android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify row reuse and playback/question/session regressions on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: cd android && gradle --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.ChatPresentationTest,dev.together.poc.RoomSessionStabilityTest,dev.together.poc.WatchInterfaceTest,dev.together.poc.FullscreenGestureTest,dev.together.poc.FilmRecapDrawerTest,dev.together.poc.InstantControlAndQuestionRailTest
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-fluency-test-reports
+          path: |
+            android/app/build/test-results/
+            android/app/build/reports/
+            android/app/build/outputs/androidTest-results/
+      - name: Package tested coexistence APK
+        run: |
+          set -euo pipefail
+          mkdir -p fluency-delivery
+          cp android/app/build/outputs/apk/debug/app-debug.apk fluency-delivery/TogetherPlayer-Android-0.6.54-Fluency-preview.apk
+          git archive --format=zip HEAD > fluency-delivery/TogetherPlayer-Android-0.6.54-source.zip
+          (cd fluency-delivery && sha256sum *.apk *.zip > SHA256SUMS.txt)
+          printf 'Source SHA: %s\nVersion: Android 0.6.54 / code74\nPackage: dev.together.poc.fluency (coexists, no existing data overwritten)\nValidation: full JVM unit suite, Android emulator UI/chat/gesture/session/question regressions; physical-device FPS not measured\n' "$GITHUB_SHA" > fluency-delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-Android-0.6.54-Fluency
+          path: fluency-delivery/
+      - name: Publish tested preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=android-v0.6.54-fluency-20261019
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 1; fi
+          gh release create "$tag" fluency-delivery/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer Android 0.6.54 · 流畅度共存预览' --notes 'Preserves 0.6.52 USB subtitles/session/P2P/decoder features. Indexed subtitle lookup and bounded native chat-row reuse. JVM and selected emulator tests must pass before packaging. Package dev.together.poc.fluency coexists with older installs and preserves their data. Preview starts with separate settings; do not uninstall the existing app. Physical-device performance remains to be checked.'

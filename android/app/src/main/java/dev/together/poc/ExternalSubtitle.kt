@@ -2,8 +2,25 @@ package dev.together.poc
 
 /** Local text subtitles only. ASS positioning, drawings and fonts are not rendered. */
 data class SubtitleCue(val start: Long,val end: Long,val text: String)
-class ExternalSubtitle(val cues: List<SubtitleCue>) {
- fun textAt(position: Long,delay: Long=0)=cues.filter {position-delay>=it.start && position-delay<it.end}.joinToString("\n"){it.text}
+class ExternalSubtitle(cues: List<SubtitleCue>) {
+ // Build once on import. Playback never scans the full subtitle file.
+ val cues: List<SubtitleCue> = cues.toList()
+ private val ordered = this.cues.indices.sortedBy {this.cues[it].start}
+ private val maximumEnds = LongArray(ordered.size).also {ends->
+  var maximum=Long.MIN_VALUE
+  ordered.forEachIndexed {index,original->maximum=maxOf(maximum,this.cues[original].end);ends[index]=maximum}
+ }
+ fun textAt(position: Long,delay: Long=0): String {
+  val time=position-delay
+  var low=0;var high=ordered.size
+  while(low<high){val mid=(low+high) ushr 1;if(cues[ordered[mid]].start<=time)low=mid+1 else high=mid}
+  var index=low-1
+  val active=ArrayList<Int>()
+  while(index>=0 && maximumEnds[index]>time){val original=ordered[index];val cue=cues[original];if(time>=cue.start && time<cue.end)active.add(original);index--}
+  // Preserve source ordering for overlapping ASS lines and unsorted inputs.
+  active.sort()
+  return active.joinToString("\n"){cues[it].text}
+ }
  companion object {
   const val MAX_BYTES=5*1024*1024
   private fun time(value: String): Long? {

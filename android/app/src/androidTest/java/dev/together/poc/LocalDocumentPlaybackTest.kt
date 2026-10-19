@@ -54,7 +54,7 @@ class LocalDocumentPlaybackTest {
     }
     assertNotNull("System Files did not show the downloaded fixture: "+device.currentPackageName,item)
     assertTrue("Current Files item must remain selectable",clickStable(device,By.text(name),5000))
-    assertTrue("Picker must return to app",device.wait(Until.hasObject(By.pkg("dev.together.poc")),5000))
+    assertTrue("Picker must return to app",device.wait(Until.hasObject(By.pkg(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.packageName)),5000))
     scenario.onActivity{welcome(it)}
     var selected=""
     for(attempt in 0 until 60){

@@ -61,7 +61,7 @@ class EmbeddedSubtitleTest {
      assertTrue("Downloads should be reachable in system Files",clickFresh(androidx.test.uiautomator.By.text("Downloads")))
     }
     assertTrue("Subtitle must be selectable in actual system Files",clickFresh(androidx.test.uiautomator.By.text(name)))
-    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg("dev.together.poc")),5000))
+    assertTrue(device.wait(androidx.test.uiautomator.Until.hasObject(androidx.test.uiautomator.By.pkg(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.packageName)),5000))
     var loaded=false
     repeat(50){if(!loaded){scenario.onActivity {a->loaded=a.javaClass.getDeclaredField("subtitleName").apply{isAccessible=true}.get(a)==name};SystemClock.sleep(100)}}
     assertTrue("Subtitle result must return without crashing",loaded)

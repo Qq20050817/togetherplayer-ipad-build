@@ -1011,23 +1011,35 @@ class MainActivity: Activity() {
    }
   }
  }
+ private data class ChatRowPresentation(val message:ChatMessage,val mine:Boolean,val width:Int,val time:String)
+ private val chatRows=StableChatRows<Long,ChatRowPresentation,View>()
  private fun renderChat(){
-  chatBubbles.removeAllViews()
-  if(chat.messages.isEmpty()){label(chatBubbles,"加入房间后，和好友聊聊这部电影").apply {gravity=android.view.Gravity.CENTER;textSize=13f;setTextColor(0xff74818c.toInt());setPadding(dp(12),dp(28),dp(12),dp(24));layoutParams=LinearLayout.LayoutParams(-1,-2)}}
-  chat.messages.takeLast(100).forEach {message->
-   val mine=message.userId==credentials?.optString("userId")
+  val messages=chat.messages.takeLast(100)
+  val width=(resources.displayMetrics.widthPixels*if(resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE)0.20 else 0.67).toInt()
+  val entries=messages.map {ChatRowPresentation(it,it.userId==credentials?.optString("userId"),width,ChatTimestamp.label(it.timestamp))}
+  val rows=chatRows.reconcile(entries,{it.message.id},{it}) {entry->createChatRow(entry)}
+  for(index in chatBubbles.childCount-1 downTo 0){if(chatBubbles.getChildAt(index) !in rows)chatBubbles.removeViewAt(index)}
+  rows.forEachIndexed {index,row->
+   if(chatBubbles.getChildAt(index)!==row){
+    (row.parent as? android.view.ViewGroup)?.removeView(row)
+    chatBubbles.addView(row,index,LinearLayout.LayoutParams(-1,-2))
+   }
+  }
+  if(rows.isEmpty() && chatBubbles.childCount==0){label(chatBubbles,"加入房间后，和好友聊聊这部电影").apply {gravity=android.view.Gravity.CENTER;textSize=13f;setTextColor(0xff74818c.toInt());setPadding(dp(12),dp(28),dp(12),dp(24));layoutParams=LinearLayout.LayoutParams(-1,-2)}}
+  chatScroll.post {chatScroll.fullScroll(View.FOCUS_DOWN)};watchTab.text=if(chat.unread>0)"一起看 (${chat.unread})" else "一起看"
+ }
+ private fun createChatRow(entry:ChatRowPresentation):View {
+   val message=entry.message;val mine=entry.mine
    val row=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL;gravity=if(mine)android.view.Gravity.END else android.view.Gravity.START;setPadding(0,dp(8),0,dp(8))}
    val avatar=ImageView(this).apply {setImageResource(R.drawable.ic_person);imageTintList=android.content.res.ColorStateList.valueOf(0xffe0e9ef.toInt());background=rounded(if(mine)0xff304452.toInt()else 0xff415465.toInt(),20);setPadding(dp(8),dp(8),dp(8),dp(8));contentDescription=message.name}
    val body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;gravity=if(mine)android.view.Gravity.END else android.view.Gravity.START;setPadding(dp(8),0,dp(8),0)}
-   val time=ChatTimestamp.label(message.timestamp)
+   val time=entry.time
    label(body,if(time.isBlank()) (if(mine)"我" else message.name) else "${if(mine)"我" else message.name} · $time").apply {textSize=11f;setTextColor(0xff88939d.toInt());setPadding(0,0,0,dp(6))}
-   label(body,message.text).apply {textSize=15f;maxWidth=(resources.displayMetrics.widthPixels*if(resources.configuration.orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE)0.20 else 0.67).toInt();setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(if(mine)0xff1688ff.toInt()else 0xff20262c.toInt(),16);layoutParams=LinearLayout.LayoutParams(-2,-2)}
+   label(body,message.text).apply {textSize=15f;maxWidth=entry.width;setPadding(dp(12),dp(10),dp(12),dp(10));background=rounded(if(mine)0xff1688ff.toInt()else 0xff20262c.toInt(),16);layoutParams=LinearLayout.LayoutParams(-2,-2)}
    if(!mine)row.addView(avatar,LinearLayout.LayoutParams(dp(36),dp(36)))
    row.addView(body,LinearLayout.LayoutParams(-2,-2))
    if(mine)row.addView(avatar,LinearLayout.LayoutParams(dp(36),dp(36)))
-   chatBubbles.addView(row,LinearLayout.LayoutParams(-1,-2))
-  }
-  chatScroll.post {chatScroll.fullScroll(View.FOCUS_DOWN)};watchTab.text=if(chat.unread>0)"一起看 (${chat.unread})" else "一起看"
+   return row
  }
 
  private fun showReaction(emoji: String){if(emoji !in listOf("😂","😱","😭","🤯","❤️","👀"))return;val v=TextView(this).apply {text=emoji;textSize=34f};videoBox.addView(v,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL));v.animate().translationY(-dp(80).toFloat()).alpha(0f).setDuration(3000).withEndAction {videoBox.removeView(v)}.start()}
