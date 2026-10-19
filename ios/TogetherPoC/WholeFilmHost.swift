@@ -214,6 +214,11 @@ enum WholeFilmPlan {
    }
   }
  }
+ private func traceAnalysis(_ stage:String) {
+  #if DEBUG
+  if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {print("WHOLE_FILM_CHECKPOINT: "+stage)}
+  #endif
+ }
  func accept(_ document:SubtitleDocument,film:String,source:String,embedded:Bool) {
   if filmKey != film {reset(film:film)}
   let rank=embedded ? 2 : 1
@@ -231,11 +236,14 @@ enum WholeFilmPlan {
    guard let self else{return}
    defer{if self.token==request {self.busy=false;self.task=nil}}
    do {
+    self.traceAnalysis("prepare chunks")
     let plan=try await Task.detached(priority:.utility){try WholeFilmPlan.chunks(document,source:source)}.value
+    self.traceAnalysis("chunks ready \(plan.count)")
     guard !Task.isCancelled,self.token==request else{return}
     let signature=WholeFilmPlan.signature(plan,film:film)
     self.chunks=plan;self.total=plan.count;self.transcriptKey=signature;self.sourceRank=rank
     var cache=await self.archive.read(signature)
+    self.traceAnalysis("archive ready")
     guard !Task.isCancelled,self.token==request else{return}
     let reviewed=cache.sections.filter{section in plan.indices.contains(section.index) && !section.evidenceIDs.isEmpty && Set(section.evidenceIDs).isSubset(of:Set(plan[section.index].evidence.map(\.id)))}
     let valid=Dictionary(grouping:reviewed,by:{$0.index}).values.compactMap{$0.last}.sorted{$0.index<$1.index}
@@ -248,7 +256,9 @@ enum WholeFilmPlan {
     @MainActor func prepareCloud() async throws {
      guard self.cloudBatching(),!preparedCloud else{return}
      let completed=self.sections
+     self.traceAnalysis("estimate cloud batches")
      let estimate=await Task.detached(priority:.utility){WholeFilmCloudPlan.estimatedRequests(plan:plan,completed:completed)}.value
+     self.traceAnalysis("cloud estimate \(estimate)")
      self.estimatedCloudRequests=estimate
      try await self.cloudPreflight(estimate)
      try Task.checkCancellation();guard self.token==request else{throw CancellationError()}
@@ -337,7 +347,10 @@ enum WholeFilmPlan {
   }
   inferenceDeadline=timeout
   defer{timeout.cancel();if token==request {inferenceDeadline=nil}}
-  return try await inference(instruction,input)
+  traceAnalysis("inference start")
+  let result=try await inference(instruction,input)
+  traceAnalysis("inference returned")
+  return result
  }
  func checkpoint(at position:Double,film:String)->Double? {
   guard ready(for:film),let selected=map?.questionMomentEvidenceIDs else{return nil}

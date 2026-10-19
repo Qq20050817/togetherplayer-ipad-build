@@ -8,11 +8,15 @@ import AVFoundation
  func testChatTrafficDoesNotRebuildWatchOrMovieLayout() async throws {
   let model=TestClient(automaticallyConnect:false)
   let host=UIHostingController(rootView:WatchScreen(model:model,chat:model.chat))
-  let window=UIWindow(frame:CGRect(x:0,y:0,width:1024,height:768))
+  let previousKeyWindow=UIApplication.shared.connectedScenes.compactMap{$0 as? UIWindowScene}.flatMap(\.windows).first{ $0.isKeyWindow }
+  let window:UIWindow
+  if let scene=previousKeyWindow?.windowScene {window=UIWindow(windowScene:scene)}
+  else {window=UIWindow(frame:.zero)}
+  window.frame=CGRect(x:0,y:0,width:1024,height:768)
   var renders:[String:Int]=[:]
   InterfaceRenderTrace.onRender={renders[$0,default:0]+=1}
   window.rootViewController=host;window.makeKeyAndVisible();host.view.layoutIfNeeded()
-  defer {InterfaceRenderTrace.onRender=nil;window.isHidden=true;window.rootViewController=nil}
+  defer {InterfaceRenderTrace.onRender=nil;window.isHidden=true;window.rootViewController=nil;previousKeyWindow?.makeKeyAndVisible()}
   try await Task.sleep(nanoseconds:300_000_000)
   XCTAssertGreaterThan(renders["watch",default:0],0,"the test must mount a real watch page")
   XCTAssertGreaterThan(renders["canvas",default:0],0,"the movie canvas must be rendered before measuring invalidation")

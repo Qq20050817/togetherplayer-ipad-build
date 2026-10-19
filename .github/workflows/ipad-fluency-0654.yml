@@ -28,6 +28,11 @@ jobs:
             if [ -d "$d" ]; then sudo xcode-select -s "$d"; break; fi
           done
           xcodebuild -version
+      - name: Generate actual UHD regression fixture
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=3840x2160:rate=2:duration=16' -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -threads 2 -x265-params 'pools=1:frame-threads=1:wpp=0:keyint=24:min-keyint=24:bframes=0:log-level=error' -an -y ios/NativeTests/Fixtures/bank-uhd10.mkv
       - name: Generate project and resolve dependencies
         run: |
           set -euo pipefail
@@ -39,11 +44,6 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO build
-      - name: Generate actual UHD regression fixture
-        run: |
-          set -euo pipefail
-          command -v ffmpeg >/dev/null || brew install ffmpeg
-          ffmpeg -nostdin -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=3840x2160:rate=2:duration=16' -c:v libx265 -preset ultrafast -pix_fmt yuv420p10le -threads 2 -x265-params 'pools=1:frame-threads=1:wpp=0:keyint=24:min-keyint=24:bframes=0:log-level=error' -an -y ios/NativeTests/Fixtures/bank-uhd10.mkv
       - name: Boot iPad simulator
         run: |
           set -euo pipefail
@@ -52,12 +52,17 @@ jobs:
           echo "SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Verify analysis and persistent selection in isolation
+        timeout-minutes: 10
+        run: |
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-isolation.xcresult -only-testing:TogetherPoCCoreTests/WholeFilmCloudBudgetTests -only-testing:TogetherPoCCoreTests/RoomMovieSelectionTests -only-testing:TogetherPoCCoreTests/PlotControllerTests test
       - name: Verify real view invalidation and legacy scan isolation
         run: |
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-focused.xcresult -only-testing:TogetherPoCCoreTests/PlaybackPresentationPerformanceTests -only-testing:TogetherPoCCoreTests/PlotPanelReadTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests test
       - name: Run full native regression without skipped test classes
+        timeout-minutes: 12
         run: |
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 60 -maximum-test-execution-time-allowance 90 -resultBundlePath fluency-native.xcresult -only-testing:TogetherPoCCoreTests test
       - name: Exercise playback, gestures, AI panels and source restoration
         run: |
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath usb-ai-build CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -resultBundlePath fluency-ui.xcresult -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRememberedMovieSurvivesRelaunchAndLeaveKeepsFileButClearsAssociation -only-testing:TogetherPoCUITests/WatchInterfaceTests/testOpeningAIKeepsTheSamePlaybackCanvasInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testAutomaticQuestionReplacesOpenSettingsInWatchAndFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus -only-testing:TogetherPoCUITests/WatchInterfaceTests/testLocalMKVPlaybackControlsSurviveInterleavedTransportActions -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment -only-testing:TogetherPoCUITests/WatchInterfaceTests/testV2MaterialsAndJSONImportArePrimaryAndKeepFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testBlockingPlotQuestionPresentsAutomaticallyInWatchPage -only-testing:TogetherPoCUITests/WatchInterfaceTests/testJSONDocumentSelectionImportsActualBankInFullscreen -only-testing:TogetherPoCUITests/WatchInterfaceTests/testCompatibleMKVSystemCopyClosesFilesAndLoadsMovie -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenQuestionRailDoesNotCoverTheMovie test

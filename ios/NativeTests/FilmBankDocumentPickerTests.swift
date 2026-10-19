@@ -57,7 +57,9 @@ import UIKit
   }
  }
  private func sample(_ hash:String)->FilmQuestionBank {
-  FilmQuestionBank(schemaVersion:1,title:"Copied JSON bank",year:nil,edition:nil,durationMs:120_000,sourceFingerprint:hash,subtitleFingerprint:nil,questions:[FilmBankQuestion(id:"q1",triggerAtMs:20_000,revealAtMs:50_000,type:"prediction",question:"守门人藏起钥匙后，访客会向谁求证？",options:["询问在场的证人","寻找购买记录"],answerIndex:0,evidence:[FilmBankEvidence(kind:"subtitle",startMs:10_000,endMs:15_000,text:"守门人否认移动钥匙")],revealEvidence:[FilmBankEvidence(kind:"subtitle",startMs:45_000,endMs:48_000,text:"访客向证人求证")],explanation:"后续对白验证选择。",confidence:0.9,qualityScore:90)])
+  var bank=FilmQuestionBank(schemaVersion:1,title:"Copied JSON bank",year:nil,edition:nil,durationMs:120_000,sourceFingerprint:hash,subtitleFingerprint:nil,questions:[FilmBankQuestion(id:"q1",triggerAtMs:20_000,revealAtMs:50_000,type:"prediction",question:"守门人藏起钥匙后，访客会向谁求证？",options:["询问在场的证人","寻找购买记录"],answerIndex:0,evidence:[FilmBankEvidence(kind:"subtitle",startMs:10_000,endMs:15_000,text:"守门人否认移动钥匙")],revealEvidence:[FilmBankEvidence(kind:"subtitle",startMs:45_000,endMs:48_000,text:"访客向证人求证")],explanation:"后续对白验证选择。",confidence:0.9,qualityScore:90)])
+  bank.filmReview=FilmReview(plotBeats:[FilmReviewBeat(title:"疑点",detail:"守门人否认移动钥匙"),FilmReviewBeat(title:"求证",detail:"访客向在场证人核对说法")],characters:[FilmReviewCharacter(name:"访客",role:"通过核对证词追查钥匙去向")],theme:"故事通过互相矛盾的证词，提醒观众依据证据判断。",discussion:"你认为访客还应核对哪一条证据？")
+  return bank
  }
  func testRuntimeImportsCapturedJSONAfterPickerTemporaryFileIsGone() async throws {
   let directory=try root();defer{try? FileManager.default.removeItem(at:directory)}

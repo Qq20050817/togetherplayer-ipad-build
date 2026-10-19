@@ -136,7 +136,8 @@ import Darwin
   defer{defaults.removePersistentDomain(forName:suite)}
   let session=FilmMaterialExportSession(defaults:defaults);defer{session.cancel()}
   session.begin(url:file,title:"memory",external:nil,allowOCR:true)
-  XCTAssertTrue(session.status.contains("核对原片"))
+  XCTAssertTrue(session.working,"the export must be active before the memory warning")
+  XCTAssertTrue(session.status.contains("核对本地原片"),session.status)
   NotificationCenter.default.post(name:UIApplication.didReceiveMemoryWarningNotification,object:nil)
   for _ in 0..<100 {if !session.working {break};try await Task.sleep(nanoseconds:10_000_000)}
   XCTAssertFalse(session.working);XCTAssertNil(session.file);XCTAssertTrue(session.individualFiles.isEmpty)

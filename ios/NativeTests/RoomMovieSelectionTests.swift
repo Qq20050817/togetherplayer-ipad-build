@@ -26,14 +26,14 @@ import AVFoundation
  private func model(_ store:RoomMovieSelectionStore)->TestClient {
   TestClient(automaticallyConnect:false,messageSender:{_ in},movieSelectionStore:store)
  }
- private func wait(_ predicate:()->Bool)async throws {
+ private func wait(_ predicate:()->Bool,details:()->String={""})async throws {
   for _ in 0..<150 {if predicate(){return};try await Task.sleep(nanoseconds:20_000_000)}
-  XCTFail("Timed out waiting for persistence/restore")
+  XCTFail("Timed out waiting for persistence/restore: "+details())
  }
  private func select(_ client:TestClient,_ movie:URL,_ snapshot:[String:Any])async throws {
   client.receive(["type":"WELCOME","room":snapshot],t4:0)
   client.beginLocalFileSelection();client.useLocalFile(movie)
-  try await wait{client.localMoviePersistenceStatus.contains("已记住")}
+  try await wait({client.localMoviePersistenceStatus.contains("已记住")},details:{client.localMoviePersistenceStatus+" / "+client.requestStatus+" connected=\(client.isConnected)"})
  }
  func testDocumentsRelativeRecordResolvesAfterContainerRelocation()throws {
   let root=try root();defer{try? FileManager.default.removeItem(at:root)}
