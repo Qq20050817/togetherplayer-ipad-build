@@ -30,6 +30,7 @@ enum FullFilmTranscriptReader {
   return tracks.first(where:{["zh","chi","zho"].contains($0.language.lowercased()) || $0.language.lowercased().hasPrefix("zh-")}) ?? tracks.first
  }
  static func extract(_ url:URL,preferredTitle:String?,preferredLanguage:String?=nil,preferredStreamIndex:Int?=nil,allowOCR:Bool,progress:(Double)->Void)throws->Output {
+  trace("worker entered")
   guard url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "") else{throw Failure.localOnly}
   if !url.isFileURL {
    // Streaming embedded subtitles still scans across the whole movie.
@@ -43,7 +44,9 @@ enum FullFilmTranscriptReader {
   let coordinator=NSFileCoordinator(filePresenter:nil)
   var coordinationError:NSError?
   var result:Result<Output,Error>?
+  trace("coordinate begins")
   coordinator.coordinate(readingItemAt:url,options:.withoutChanges,error:&coordinationError) { accessibleURL in
+   trace("coordinate accessor entered")
    result=Result {
     try extractAccessibleMovie(accessibleURL,preferredTitle:preferredTitle,preferredLanguage:preferredLanguage,preferredStreamIndex:preferredStreamIndex,allowOCR:allowOCR,progress:progress)
    }
@@ -52,6 +55,7 @@ enum FullFilmTranscriptReader {
   return try result.get()
  }
  private static func extractAccessibleMovie(_ url:URL,preferredTitle:String?,preferredLanguage:String?,preferredStreamIndex:Int?,allowOCR:Bool,progress:(Double)->Void)throws->Output {
+  trace("demux begins")
   try Task.checkCancellation()
   var allocated:UnsafeMutablePointer<AVFormatContext>?
   let source=url.isFileURL ? url.path : url.absoluteString
@@ -162,6 +166,11 @@ enum FullFilmTranscriptReader {
   }
   progress(1)
   return Output(document:document,track:track.index,label:track.title.isEmpty ? track.language : track.title,duration:duration,ocr:bitmap)
+ }
+ private static func trace(_ stage:String) {
+  #if DEBUG
+  if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {print("WHOLE_FILM_READER_CHECKPOINT: "+stage)}
+  #endif
  }
  static func cleanASS(_ value:String)->String {
   let parts=value.split(separator:",",maxSplits:8,omittingEmptySubsequences:false)
