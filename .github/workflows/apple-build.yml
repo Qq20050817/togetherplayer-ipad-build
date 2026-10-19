@@ -106,6 +106,16 @@ jobs:
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi
+          # USB/P2P startup hotfix: run the complete core suite including the
+          # stalled-decoder/hard-seek regression. The unrelated entire
+          # screenshot/UI suite can take longer than the macOS job timeout;
+          # this release-critical build requires a bounded targeted smoke test.
+          if [ "${GITHUB_REF_NAME}" = "fix/ipad-usb-resync-startup-0655-20261020" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
+            )
+          fi
           # Isolated brightness hotfix validates its gesture regression separately
           # from the known intermittent room-media layout test in the full suite.
           if [ "${GITHUB_REF_NAME}" = "fix/fullscreen-brightness-swipe-20261012" ]; then
