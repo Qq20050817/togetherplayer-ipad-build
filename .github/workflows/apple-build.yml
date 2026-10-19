@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013, fix/ipad-usb-resync-startup-0655-20261020]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
