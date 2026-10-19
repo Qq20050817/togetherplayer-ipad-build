@@ -1,0 +1,52 @@
+name: Read existing fluency test evidence
+on:
+  push:
+    branches: [chore/fluency-ci-evidence-20261019]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed fluency build run ID
+        required: true
+        default: '39225604477'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ github.event.inputs.run_id || '39225604477' }}
+    steps:
+      - name: Read completed synthetic test reports without rebuilding
+        run: |
+          python3 - <<'PY'
+          import os,subprocess,json,pathlib,xml.etree.ElementTree as ET
+          run=os.environ['RUN_ID'];assert run.isdigit()
+          repo=os.environ['GITHUB_REPOSITORY']
+          info=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run}']))
+          assert info['status']=='completed','Wait for the source run to finish'
+          print('SOURCE_RUN',run,'SHA',info['head_sha'],'CONCLUSION',info['conclusion'])
+          subprocess.run(['gh','run','download',run,'--repo',repo,'--pattern','*fluency-test-reports','--dir','reports'],check=True)
+          unit=[];device=[]
+          for p in pathlib.Path('reports').rglob('*.xml'):
+           if p.stat().st_size>5_000_000:continue
+           try:root=ET.parse(p).getroot()
+           except ET.ParseError:continue
+           if root.tag!='testsuite':continue
+           counts={k:int(root.attrib.get(k,0)) for k in ['tests','failures','errors','skipped']}
+           name=str(p)
+           if '/test-results/testDebugUnitTest/' in name:unit.append(counts)
+           elif '/outputs/androidTest-results/' in name:device.append(counts)
+           for out in root.findall('.//system-out'):
+            if out.text:
+             for line in out.text.splitlines():
+              if 'LOOKUP' in line.upper() or 'BENCHMARK' in line.upper():print(line[:1000])
+          for label,rows in [('JVM',unit),('DEVICE',device)]:
+           if rows:print(label,{k:sum(x[k] for x in rows) for k in rows[0]})
+          for p in pathlib.Path('reports').rglob('*.xcresult.json'):
+           print('IPAD_SUMMARY',p.name)
+           data=json.loads(p.read_text())
+           print(json.dumps(data,ensure_ascii=False)[:16000])
+          PY
