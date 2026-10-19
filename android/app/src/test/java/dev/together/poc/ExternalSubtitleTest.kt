@@ -22,6 +22,14 @@ class ExternalSubtitleTest {
   assertEquals("简体中文字幕",ExternalSubtitle.parse(input.toByteArray(Charsets.UTF_16LE)).textAt(1500))
   assertEquals("简体中文字幕",ExternalSubtitle.parse(byteArrayOf(-17,-69,-65)+input.toByteArray(Charsets.UTF_8)).textAt(1500))
  }
+ @Test fun validUtf8WithLiteralReplacementCharactersMustNotBecomeMojibake() {
+  // Real-world file: two existing U+FFFD characters must not force an entire
+  // otherwise valid UTF-8 subtitle through GB18030.
+  val file="1\n00:00:01,000 --> 00:00:03,000\n全部都消干抹净\n\n2\n00:00:04,000 --> 00:00:06,000\n这两处��仍需人工校对"
+  val decoded=ExternalSubtitle.parse(file.toByteArray(Charsets.UTF_8))
+  assertEquals("全部都消干抹净",decoded.textAt(2000))
+  assertEquals("这两处��仍需人工校对",decoded.textAt(5000))
+ }
  @Test(expected=IllegalArgumentException::class) fun rejectUnknownForcedEncoding() {
   ExternalSubtitle.parse("1\n00:00:01,000 --> 00:00:02,500\nHi".toByteArray(),"X-UNSAFE")
  }
