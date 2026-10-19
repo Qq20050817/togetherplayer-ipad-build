@@ -1,0 +1,52 @@
+name: Verify Android subtitle charset and HTTP recovery
+on:
+  push:
+    branches: [fix/android-subtitle-charset-http-recovery-20261019]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  android:
+    if: github.repository == 'Qq20050817/togetherplayer-ipad-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Validate exact source revision
+        run: test "$(git ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | awk '{print $1}')" = "$GITHUB_SHA"
+      - name: Run Android unit regression suite and build preview
+        working-directory: android
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Create checked APK
+        run: |
+          mkdir -p delivery
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.54-Subtitle-HTTP-preview.apk
+          (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
+          printf 'Build SHA %s\nPackage dev.together.poc.fluency\nIsolated preview. Internal bitmap/text subtitle tracks require physical-device inspection.\n' "$GITHUB_SHA" > delivery/BUILD.txt
+      - name: Upload build and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherPlayer-Android-subtitle-http-build-and-tests
+          path: |
+            android/app/build/test-results/
+            android/app/build/reports/
+            delivery/
+      - name: Publish direct APK when tests pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="android-v0.6.54-subtitle-http-20261019"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" delivery/TogetherPlayer-Android-0.6.54-Subtitle-HTTP-preview.apk --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" delivery/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer Android 0.6.54 · 字幕编码与 HTTP 超时恢复预览' --notes 'Android coexisting preview package. Adds forced encoding for external USB/local SRT/ASS/VTT and recovery for HTTP timeouts without replacing current installed app. Full device playback and embedded subtitle rendering still require acceptance.'
+          fi
