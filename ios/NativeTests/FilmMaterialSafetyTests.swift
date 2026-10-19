@@ -108,6 +108,25 @@ import Darwin
   let size=try zip.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? 0
   XCTAssertGreaterThan(size,32*1024*1024);XCTAssertLessThan(size,33*1024*1024)
  }
+ func testZipCRCMatchesIndependentIEEEVectorsAcrossBlockBoundaries() async throws {
+  let root=try directory();defer{try? FileManager.default.removeItem(at:root)}
+  // Published CRC-32 check vector plus Python zlib's independently computed
+  // repeated 0...255 fixture (153600 bytes crosses two 64KiB boundaries).
+  let values:[(Data,UInt32)]=[(Data(),0),(Data("123456789".utf8),0xcbf43926),(Data((0..<600).flatMap{_ in (0...255).map{UInt8($0)}}),0x8c878cd3)]
+  func value(_ bytes:Data,_ at:Int)->UInt32 {
+   (0..<4).reduce(UInt32(0)){$0 | UInt32(bytes[at+$1]) << ($1*8)}
+  }
+  for (index,entry) in values.enumerated() {
+   let file=root.appendingPathComponent("fixture-\(index)"),zip=root.appendingPathComponent("archive-\(index).zip")
+   try entry.0.write(to:file)
+   try await Task.detached {try FilmMaterialZip.write([("data",file)],to:zip)}.value
+   let streamed=try Data(contentsOf:zip)
+   let buffered=try XCTUnwrap(FilmMaterialZip.make([("data",entry.0)]))
+   XCTAssertEqual(streamed,buffered)
+   XCTAssertEqual(value(streamed,14),entry.1,"local header CRC")
+   XCTAssertEqual(value(streamed,30+4+entry.0.count+16),entry.1,"central header CRC")
+  }
+ }
  func testCancelledArchiveRemovesPartialFile() async throws {
   let root=try directory();defer{try? FileManager.default.removeItem(at:root)}
   let image=root.appendingPathComponent("sheet.jpg"),zip=root.appendingPathComponent("out.zip")

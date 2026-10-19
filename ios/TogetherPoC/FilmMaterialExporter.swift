@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import UIKit
 import CryptoKit
+import zlib
 
 // Offline, explicitly initiated export. No film, frames or subtitles are
 // automatically transmitted to a server or to an AI provider.
@@ -139,10 +140,12 @@ enum FilmMaterialZip {
  private static func u32(_ n:UInt32,into d:inout Data) {
   d.append(UInt8(n&255));d.append(UInt8((n>>8)&255));d.append(UInt8((n>>16)&255));d.append(UInt8((n>>24)&255))
  }
- private static func crc(_ data:Data)->UInt32 {
-  var c:UInt32=0xffffffff
-  for b in data {c ^= UInt32(b);for _ in 0..<8 {c=(c>>1) ^ ((c&1)==1 ? 0xedb88320 : 0)}}
-  return ~c
+ // zlib implements the same ZIP/IEEE CRC, including its initial/final XOR.
+ // Keep streaming in bounded blocks; avoid eight Swift bit operations per byte.
+ private static func crc(_ data:Data,startingAt checksum:UInt32=0)->UInt32 {
+  data.withUnsafeBytes {bytes in
+   UInt32(crc32(uLong(checksum),bytes.bindMemory(to:Bytef.self).baseAddress,uInt(bytes.count)))
+  }
  }
  // Write one bounded block at a time. Neither all sheets nor the completed
  // archive need to coexist in RAM alongside the playing movie and OCR model.
@@ -170,13 +173,12 @@ enum FilmMaterialZip {
    try Task.checkCancellation()
    let name=Data(path.utf8)
    guard !name.isEmpty,name.count<Int(UInt16.max),!path.contains(".."),!path.hasPrefix("/") else{throw FilmMaterialExportFailure.tooManyFiles}
-   var checksum:UInt32=0xffffffff,size=0
+   var checksum:UInt32=0,size=0
    try scan(file) {block in
     size+=block.count
     guard size<20_000_000 else{throw FilmMaterialExportFailure.tooManyFiles}
-    for byte in block {checksum ^= UInt32(byte);for _ in 0..<8 {checksum=(checksum>>1) ^ ((checksum&1)==1 ? 0xedb88320 : 0)}}
+    checksum=crc(block,startingAt:checksum)
    }
-   checksum = ~checksum
    guard UInt64(offset)+UInt64(size)+UInt64(name.count)+30<=150_000_000 else{throw FilmMaterialExportFailure.tooManyFiles}
    var header=Data()
    u32(0x04034b50,into:&header);u16(20,into:&header);u16(0x0800,into:&header);u16(0,into:&header)
