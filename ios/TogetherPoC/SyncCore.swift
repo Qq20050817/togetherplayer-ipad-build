@@ -22,7 +22,13 @@ protocol PlayerAdapter: AnyObject {
  func play(); func pause(); func seekTo(_ milliseconds: Double)
  var position: Double { get }; var duration: Double { get }
  var buffering: Bool { get }; var ready: Bool { get }
+ // Only the native transport knows whether the decoder has actually started.
+ var nativePlaybackRunning: Bool { get }
  func setPlaybackSpeed(_ speed: Float)
+}
+extension PlayerAdapter {
+ // Preserve legacy mocked adapters used by the independent sync tests.
+ var nativePlaybackRunning: Bool { true }
 }
 protocol MediaSourceAdapter { func resolve(_ url: String) -> URL? }
 struct HTTPSource: MediaSourceAdapter {
@@ -85,6 +91,7 @@ final class AVPlayerAdapter: PlayerAdapter {
  }
  var buffering: Bool { player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
  var ready: Bool { player.currentItem?.status == .readyToPlay && !isSeeking }
+ var nativePlaybackRunning: Bool { player.timeControlStatus == .playing }
  // All mutations use one queue. An off-main request belongs to the item it
  // saw, and must never execute against a replacement film.
  private func deferToMain(_ action:@escaping(AVPlayerAdapter)->Void)->Bool {
@@ -286,7 +293,7 @@ final class SyncEngine {
   // have rendered no first frame. Hard-seeking every three seconds in that
   // state cancels decoder startup indefinitely. Let the native player advance
   // off zero before applying large room-clock corrections.
-  if player.position < 100 && abs(error)>1500 {
+  if !player.nativePlaybackRunning || (player.position < 100 && abs(error)>1500) {
    resetCorrection()
    player.setPlaybackSpeed(baseRate)
    player.play()
