@@ -2,6 +2,18 @@ import XCTest
 @testable import TogetherPoC
 
 @MainActor final class FilmQuestionBankRuntimeTests:XCTestCase {
+ func testRepeatedRestoreSharesAnInFlightCandidateCheck() async throws {
+  let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+  defer{try? FileManager.default.removeItem(at:root)}
+  let movie=root.appendingPathComponent("film.mp4");try Data(repeating:0x45,count:400).write(to:movie)
+  let runtime=FilmQuestionBankRuntime(store:FilmQuestionBankStore(directory:root.appendingPathComponent("bank")))
+  var candidates=0;runtime.onCandidateFingerprint={candidates+=1}
+  for _ in 0..<20 {runtime.restore(filmKey:"film",source:movie,durationMs:120_000)}
+  XCTAssertEqual(candidates,1)
+  await runtime.waitForRestore()
+  XCTAssertNil(runtime.active);XCTAssertTrue(runtime.status.contains("尚无题库"))
+ }
  private func bank(fingerprint:String)->FilmQuestionBank {
   FilmQuestionBank(schemaVersion:1,title:"可验证的悬疑影片",year:2026,edition:"院线版",
    durationMs:120_000,sourceFingerprint:fingerprint,subtitleFingerprint:nil,

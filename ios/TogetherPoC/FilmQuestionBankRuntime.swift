@@ -15,6 +15,7 @@ import Combine
  var onBankReady:(()->Void)?
  #if DEBUG
  var onFullFingerprint:(()->Void)?
+ var onCandidateFingerprint:(()->Void)?
  #endif
  private let store:FilmQuestionBankStore
  private let progressStore:FilmBankProgressStore
@@ -87,20 +88,24 @@ import Combine
   if bank.filmReview == nil {status += " · ⚠️ 旧题库缺少片尾全片解读，建议重新制作含 filmReview 的题库"}
  }
  func restore(filmKey:String,source:URL,durationMs:Double) {
-  if key==filmKey,sourceURL==source,active != nil {return}
+  if key==filmKey,sourceURL==source,(active != nil || restoring != nil) {return}
   importWorker?.cancel();importWorker=nil;importing=false
   active=nil;playbackJumped();narrativePauseRequested=false;key=filmKey;sourceURL=source;lastPositionMs=nil;pendingQuestion=nil;pendingSubtitleSequence=nil;sendingParts=[];revealedAnswer="";finalReport=""
   generation+=1;let token=generation
   restoring?.cancel();fingerprinting?.cancel();publishing?.cancel()
   guard source.isFileURL || ["http","https"].contains(source.scheme?.lowercased() ?? "") else {status="无法校验当前片源，题库自动提问未启用";return}
   status=source.isFileURL ? "正在校验本地原片指纹和已保存题库…" : "正在分段校验 U 盘 HTTP 原片和已保存题库…"
-  let job=Task.detached(priority:.utility){() throws->String in
+  #if DEBUG
+  onCandidateFingerprint?()
+  #endif
+  let job=Task.detached(priority:.utility){() async throws->String in
    let access=source.startAccessingSecurityScopedResource();defer{if access {source.stopAccessingSecurityScopedResource()}}
-   return try FilmMaterialFingerprint.candidate(source)
+   return source.isFileURL ? try FilmMaterialFingerprint.candidate(source) : try await FilmMaterialFingerprint.remoteAsync(source)
   }
   fingerprinting=job
   restoring=Task {[weak self] in
    guard let self else{return}
+   defer{if generation==token {restoring=nil;fingerprinting=nil}}
    do {
     let candidate=try await job.value
     guard generation==token,!Task.isCancelled else{return}
@@ -113,9 +118,9 @@ import Combine
     #if DEBUG
     onFullFingerprint?()
     #endif
-    let full=Task.detached(priority:.utility){() throws->String in
+    let full=Task.detached(priority:.utility){() async throws->String in
      let access=source.startAccessingSecurityScopedResource();defer{if access {source.stopAccessingSecurityScopedResource()}}
-     return try FilmMaterialFingerprint.source(source)
+     return source.isFileURL ? try FilmMaterialFingerprint.source(source) : try await FilmMaterialFingerprint.remoteAsync(source)
     }
     fingerprinting=full
     let fingerprint=try await full.value
@@ -141,17 +146,25 @@ import Combine
   defer{if generation==token {importing=false;importWorker=nil}}
   status=source.isFileURL ? "正在校验 Schema、完整原片 SHA256 与时间轴…" : "正在校验 Schema、U 盘分段指纹与时间轴…"
   do {
-   let worker=Task.detached(priority:.utility){() throws->(FilmQuestionBank,String,String) in
+   let worker=Task.detached(priority:.utility){() async throws->(FilmQuestionBank,String,String) in
     let data=try read(),bank=try FilmBankCodec.decode(data)
     try FilmBankCodec.requireCompleteReviewForImport(bank)
     let scoped=source.startAccessingSecurityScopedResource();defer{if scoped {source.stopAccessingSecurityScopedResource()}}
-    let fingerprint=try FilmMaterialFingerprint.source(source,progress:{[weak self] value in
+    let report:(Double)->Void={[weak self] value in
      Task {@MainActor in
       guard let self,self.generation==token,self.importing else{return}
       self.status="JSON 已读取，正在核对原片 \(Int(value*100))%…"
      }
-    })
-    return (bank,fingerprint,try FilmMaterialFingerprint.candidate(source))
+    }
+    let fingerprint:String,candidate:String
+    if source.isFileURL {
+     fingerprint=try FilmMaterialFingerprint.source(source,progress:report)
+     candidate=try FilmMaterialFingerprint.candidate(source)
+    } else {
+     fingerprint=try await FilmMaterialFingerprint.remoteAsync(source,progress:report)
+     candidate=fingerprint // Remote candidate and strict-range identity are identical.
+    }
+    return (bank,fingerprint,candidate)
    }
    importWorker=worker
    let result=try await worker.value

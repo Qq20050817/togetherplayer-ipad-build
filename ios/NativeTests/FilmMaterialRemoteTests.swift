@@ -73,4 +73,47 @@ final class FilmMaterialRemoteTests:XCTestCase {
   let session=session();defer{session.invalidateAndCancel()}
   XCTAssertThrowsError(try FilmMaterialFingerprint.remote(URL(string:"ftp://usb.film-range.invalid/movie.mkv")!,session:session))
  }
+ func testAsyncFingerprintPreservesExistingRangeIdentityAndRefusesNonRangeHTTP() async throws {
+  let session=session();defer{session.invalidateAndCancel()}
+  let a=URL(string:"https://usb.film-range.invalid/media/film.mkv?sig=old")!
+  let b=URL(string:"https://usb.film-range.invalid/media/film.mkv?sig=new")!
+  let original=try FilmMaterialFingerprint.remote(a,session:session)
+  let restored=try await FilmMaterialFingerprint.remoteAsync(b,session:session)
+  XCTAssertEqual(original,restored,"Existing saved USB banks must remain compatible")
+  do {_ = try await FilmMaterialFingerprint.remoteAsync(URL(string:"https://no-range.film-range.invalid/film.mkv")!,session:session);XCTFail("Non-range HTTP must be refused")}
+  catch {XCTAssertEqual(error.localizedDescription,FilmMaterialExportFailure.remoteUnavailable.localizedDescription)}
+ }
+ func testPendingAsyncProbesDoNotOccupyUtilityWorkersAndCancelPromptly() async throws {
+  let configuration=URLSessionConfiguration.ephemeral
+  configuration.protocolClasses=[PendingFilmRangeProtocol.self]
+  let session=URLSession(configuration:configuration)
+  defer{session.invalidateAndCancel()}
+  let started=expectation(description:"Six pending HEAD requests reached URLSession");started.expectedFulfillmentCount=6
+  let prefix=UUID().uuidString
+  let observer=NotificationCenter.default.addObserver(forName:PendingFilmRangeProtocol.started,object:nil,queue:nil) {note in
+   if (note.object as? String)?.hasPrefix(prefix)==true {started.fulfill()}
+  }
+  defer{NotificationCenter.default.removeObserver(observer)}
+  let jobs=(0..<6).map{index in Task.detached(priority:.utility) {
+   try await FilmMaterialFingerprint.remoteAsync(URL(string:"https://pending.film-range.invalid/\(prefix)-\(index)")!,session:session)
+  }}
+  defer{jobs.forEach{$0.cancel()}}
+  await fulfillment(of:[started],timeout:5)
+  let responsive=expectation(description:"An unrelated utility task can run while all requests are pending")
+  let probe=Task.detached(priority:.utility){responsive.fulfill()}
+  await fulfillment(of:[responsive],timeout:2);await probe.value
+  jobs.forEach{$0.cancel()}
+  for job in jobs {
+   do {_ = try await job.value;XCTFail("Cancelled probes must not return an identity")}
+   catch is CancellationError {} catch {XCTFail("Expected cancellation: \(error)")}
+  }
+ }
+}
+
+private final class PendingFilmRangeProtocol:URLProtocol {
+ static let started=Notification.Name("TogetherPlayer.PendingFilmRangeStarted")
+ override class func canInit(with request:URLRequest)->Bool {request.url?.host=="pending.film-range.invalid"}
+ override class func canonicalRequest(for request:URLRequest)->URLRequest {request}
+ override func startLoading() {NotificationCenter.default.post(name:Self.started,object:request.url?.lastPathComponent)}
+ override func stopLoading() {}
 }

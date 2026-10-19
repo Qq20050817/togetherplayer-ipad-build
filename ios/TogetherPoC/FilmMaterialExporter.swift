@@ -107,6 +107,48 @@ enum FilmMaterialFingerprint {
         lastResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\(size)")==true else {
    throw FilmMaterialExportFailure.remoteUnavailable
   }
+  progress(1)
+  return remoteIdentity(url,head:head,size:size,first:first,last:last)
+ }
+ static func remoteAsync(_ url:URL,session:URLSession = .shared,progress:(Double)->Void={_ in})async throws->String {
+  guard ["http","https"].contains(url.scheme?.lowercased() ?? ""),url.host != nil else {
+   throw FilmMaterialExportFailure.localFileRequired
+  }
+  try Task.checkCancellation()
+  func request(_ method:String,range:String?=nil)->URLRequest {
+   var result=URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:45)
+   result.httpMethod=method
+   if let range {result.setValue(range,forHTTPHeaderField:"Range")}
+   return result
+  }
+  func load(_ request:URLRequest,expected:Int,limit:Int) async throws->(Data,HTTPURLResponse)? {
+   // URLSession range requests must stay bounded. A non-range server can
+   // return the whole 50 GB movie; refuse it before receiving its body.
+   let reader=FilmMaterialRangeRequest(limit:limit,expectedStatus:expected)
+   return try await reader.fetchAsync(request:request,configuration:session.configuration)
+  }
+  guard let (_,head)=try await load(request("HEAD"),expected:200,limit:0),
+        let lengthText=head.value(forHTTPHeaderField:"Content-Length"),
+        let size=Int64(lengthText),size>0 else{throw FilmMaterialExportFailure.remoteUnavailable}
+  progress(0.3)
+  let chunk:Int64=min(65_536,size)
+  let firstRange="bytes=0-\(chunk-1)"
+  guard let (first,firstResponse)=try await load(request("GET",range:firstRange),expected:206,limit:Int(chunk)),
+        first.count==Int(chunk),
+        firstResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\(size)")==true else {
+   throw FilmMaterialExportFailure.remoteUnavailable
+  }
+  progress(0.65)
+  let lastRange="bytes=\(size-chunk)-\(size-1)"
+  guard let (last,lastResponse)=try await load(request("GET",range:lastRange),expected:206,limit:Int(chunk)),
+        last.count==Int(chunk),
+        lastResponse.value(forHTTPHeaderField:"Content-Range")?.hasSuffix("/\(size)")==true else {
+   throw FilmMaterialExportFailure.remoteUnavailable
+  }
+  progress(1)
+  return remoteIdentity(url,head:head,size:size,first:first,last:last)
+ }
+ private static func remoteIdentity(_ url:URL,head:HTTPURLResponse,size:Int64,first:Data,last:Data)->String {
   var identity=URLComponents(url:url,resolvingAgainstBaseURL:false)
   identity?.query=nil;identity?.fragment=nil;identity?.user=nil;identity?.password=nil
   var hash=SHA256()
@@ -116,7 +158,6 @@ enum FilmMaterialFingerprint {
   hash.update(data:Data((head.value(forHTTPHeaderField:"ETag") ?? "").utf8))
   hash.update(data:Data((head.value(forHTTPHeaderField:"Last-Modified") ?? "").utf8))
   hash.update(data:first);hash.update(data:last)
-  progress(1)
   return hash.finalize().map{String(format:"%02x",$0)}.joined()
  }
  // Candidate lookup only; never accepted as a strict source match.
