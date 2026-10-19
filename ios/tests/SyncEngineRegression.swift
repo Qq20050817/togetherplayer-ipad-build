@@ -8,6 +8,7 @@ final class FakePlayer: PlayerAdapter {
  var rate: Float=1
  var seekCount=0
  var playing=false
+ var nativePlaybackRunning=true
  func play() {playing=true}
  func pause() {playing=false}
  func seekTo(_ ms: Double) {seekCount += 1;position=ms}
@@ -85,6 +86,18 @@ final class FakePlayer: PlayerAdapter {
   precondition(player.seekCount==recoverySeeks,"no hard-seek storm before first movie frame")
   player.position=180;now += 100;engine.tick()
   precondition(player.seekCount==recoverySeeks+1,"sync should seek to room clock after actual playback advances")
+  // A ready AVPlayerItem may still be natively paused while recovering after
+  // an HTTP interruption. Do not fire a hard seek every three seconds.
+  engine.resetSession();clock.add(0,0,0,0);engine.receive(room())
+  player.position=210_000
+  player.nativePlaybackRunning=false
+  let seekBeforePausedDecoder=player.seekCount
+  for _ in 0..<10 {now += 4000;engine.tick()}
+  precondition(player.seekCount==seekBeforePausedDecoder,"paused decoder must not enter a hard-seek storm")
+  precondition(player.playing,"sync must keep requesting the decoder to resume")
+  player.nativePlaybackRunning=true
+  now += 4000;engine.tick()
+  precondition(player.seekCount>seekBeforePausedDecoder,"sync must catch up after the decoder is genuinely playing")
   print("iOS SyncEngine regression checks passed")
  }
 }
