@@ -281,7 +281,7 @@ enum FilmMaterialExportGate {
 }
 
 enum FilmMaterialExportStage:String {
- case fingerprint="核对原片",subtitles="读取完整字幕 / PGS OCR",frames="提取分镜",archive="保存素材与打包"
+ case fingerprint="核对原片",subtitles="读取完整字幕 / PGS OCR",frames="全片采样",tail="片尾加密",boundary="边界补采",archive="保存素材与打包"
 }
 
 enum FilmMaterialExporter {
@@ -326,8 +326,9 @@ enum FilmMaterialExporter {
     let scale=min(Double(cellW)/Double(image.size.width),Double(cellH-25)/Double(image.size.height))
     let width=Double(image.size.width)*scale,height=Double(image.size.height)*scale
     image.draw(in:CGRect(x:Double(x)+(Double(cellW)-width)/2,y:Double(y)+(Double(cellH-25)-height)/2,width:width,height:height))
-    let seconds=Int(value.0.rounded())
-    let timestamp=String(format:"%02d:%02d:%02d",seconds/3600,(seconds/60)%60,seconds%60)
+    let totalMs=Int((value.0*1000).rounded())
+    let seconds=totalMs/1000
+    let timestamp=String(format:"%02d:%02d:%02d.%03d",seconds/3600,(seconds/60)%60,seconds%60,totalMs%1000)
     let text=timestamp as NSString
     text.draw(at:CGPoint(x:x+8,y:y+cellH-23),withAttributes:[.font:UIFont.monospacedDigitSystemFont(ofSize:15,weight:.semibold),.foregroundColor:UIColor.white])
    }
@@ -388,40 +389,77 @@ enum FilmMaterialExporter {
   let directFFmpeg = !url.isFileURL || ["mkv","webm","ts","m2ts","avi"].contains(url.pathExtension.lowercased())
   var ffmpegOpenFailure:String?
   var ffmpeg:FilmFFmpegFrameSampler?=directFFmpeg ? FilmFFmpegFrameSampler.openCoordinated(url:url,onFailure:{ffmpegOpenFailure=$0}) : nil
-  var attempted:[Double]=[],previousSignature:[Double]?,previousRequested:Double?
+  var attempted:Set<Int>=[],successful:Set<Int>=[],previousSignature:[Double]?,previousRequested:Double?
+  var failures:[Int:FilmFrameFailure]=[:]
+  var creditSignals:[(Int,Bool)]=[]
+  var phase=FilmMaterialExportStage.frames
+  var phaseInterval=60.0
   var lastFrameError:String?
   var nativeFrameProbeTried=false,nativeFrameProbeWorks=false
   func decode(_ time:Double)->(Double,CGImage)? {
-   attempted.append(time)
+   let requestedMs=Int((time*1000).rounded())
+   attempted.insert(requestedMs)
    guard !Task.isCancelled else{return nil}
-   var image:CGImage?,actualTime=time
+   var image:CGImage?,actualTime=Double.nan
    if directFFmpeg {
-    image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
+    image=ffmpeg?.image(at:time,reuseDecoder:phase == .tail || phase == .boundary)
+    actualTime=ffmpeg?.lastDecodedTime ?? .nan
     if image==nil {
      lastFrameError=ffmpeg?.lastFailure ?? ffmpegOpenFailure ?? "FFmpeg无法打开MKV视频轨道"
-     // Some local HEVC tracks can be decoded natively, even when the
-     // container is not universally supported by AVFoundation. Probe once
-     // to avoid 250 failed image-generator calls on unsupported MKVs.
      if url.isFileURL && (!nativeFrameProbeTried || nativeFrameProbeWorks) {
       nativeFrameProbeTried=true
       var nativeActual=CMTime.invalid
       let nativeImage=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&nativeActual)
-      if let nativeImage,nativeActual.seconds.isFinite,nativeActual.seconds>=0 {
+      if let nativeImage,nativeActual.isValid,nativeActual.seconds.isFinite,nativeActual.seconds>=0 {
        image=nativeImage;actualTime=nativeActual.seconds;nativeFrameProbeWorks=true
       } else {nativeFrameProbeWorks=false}
      }
     }
-   }
-   else {
-    var actual=CMTime.invalid
-    image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
-    if actual.seconds.isFinite {actualTime=actual.seconds} else {image=nil}
+   } else {
+    var nativeActual=CMTime.invalid
+    image=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&nativeActual)
+    if nativeActual.isValid,nativeActual.seconds.isFinite {actualTime=nativeActual.seconds} else {image=nil}
     if image==nil {
      if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler.openCoordinated(url:url,onFailure:{ffmpegOpenFailure=$0})}
-     image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? -1
+     image=ffmpeg?.image(at:time);actualTime=ffmpeg?.lastDecodedTime ?? .nan
     }
    }
-   guard let image,actualTime.isFinite,actualTime>=0,actualTime<=duration else{return nil}
+   func invalid(_ timestamp:Double,_ picture:CGImage?)->String? {
+    guard picture != nil,timestamp.isFinite,timestamp>=0,timestamp<=duration else{return lastFrameError ?? ffmpeg?.lastFailure ?? ffmpegOpenFailure ?? "视频未返回有效帧时间戳"}
+    let actualMs=Int((timestamp*1000).rounded())
+    let history=timeline.map{($0.requestedMs,$0.actualMs)}
+    if let reason=FilmFrameTimeGate.rejection(requestedMs:requestedMs,actualMs:actualMs,intervalMs:Int(phaseInterval*1000),
+      previous:history,durationMs:Int(duration*1000)) {
+     return reason+"（请求\(requestedMs)ms，实际\(actualMs)ms）"
+    }
+    return nil
+   }
+   var reason=invalid(actualTime,image)
+   if reason != nil {
+    // Exact native seek followed by an FFmpeg backward/preroll decode. The
+    // latter uses real decoded PTS and never fabricates the requested time.
+    if !directFFmpeg {
+     generator.requestedTimeToleranceBefore = .zero
+     generator.requestedTimeToleranceAfter = .zero
+     var actual=CMTime.invalid
+     let exact=try? generator.copyCGImage(at:CMTime(seconds:time,preferredTimescale:600),actualTime:&actual)
+     if let exact,actual.isValid {image=exact;actualTime=actual.seconds}
+    }
+    if invalid(actualTime,image) != nil {
+     if ffmpeg==nil {ffmpeg=FilmFFmpegFrameSampler.openCoordinated(url:url,onFailure:{ffmpegOpenFailure=$0})}
+     image=ffmpeg?.image(at:time,seekBackSeconds:4)
+     actualTime=ffmpeg?.lastDecodedTime ?? .nan
+    }
+    reason=invalid(actualTime,image)
+   }
+   if let reason {
+    let width=Int(max(0.5,phaseInterval/2)*1000)
+    failures[requestedMs]=FilmFrameFailure(startMs:max(0,requestedMs-width),endMs:min(Int(duration*1000),requestedMs+width),requestedMs:requestedMs,reason:reason,returnedActualMs:actualTime.isFinite ? Int((actualTime*1000).rounded()) : nil)
+    lastFrameError=reason
+    return nil
+   }
+   guard let image else{return nil}
+   failures.removeValue(forKey:requestedMs)
    return (actualTime,image)
   }
   func saveSheet()throws {
@@ -436,53 +474,117 @@ enum FilmMaterialExporter {
   func append(_ value:(Double,CGImage),requested:Double,score:Double?,reason:String)throws {
    let actualMs=Int((value.0*1000).rounded())
    timeline.append(FilmFrameRecord(requestedMs:Int((requested*1000).rounded()),actualMs:actualMs,sheet:String(format:"contact-sheets/scene-%03d.jpg",sheets.count+1),row:pending.count/4,column:pending.count%4,visualEvidenceComplete:false,sceneChangeScore:score,samplingReason:reason))
-   pending.append(value);frameTimes.append(actualMs)
+   pending.append(value);frameTimes.append(actualMs);successful.insert(Int((requested*1000).rounded()))
    if pending.count==16 {try saveSheet()}
   }
   stage(.frames)
   for (index,time) in times.enumerated() {
    try Task.checkCancellation()
    try autoreleasepool {
-   let decoded=decode(time)
-   if directFFmpeg && ffmpeg == nil && nativeFrameProbeTried && !nativeFrameProbeWorks {
-    throw FilmMaterialExportFailure.frameExtractionDiagnostic("FFmpeg 初始化失败；"+(ffmpegOpenFailure ?? "未知视频解码初始化故障")+"；系统原生解码也未取得画面")
+    phase=.frames;phaseInterval=60
+    let decoded=decode(time)
+    if directFFmpeg && ffmpeg == nil && nativeFrameProbeTried && !nativeFrameProbeWorks {
+     throw FilmMaterialExportFailure.frameExtractionDiagnostic("FFmpeg 初始化失败；"+(ffmpegOpenFailure ?? "未知视频解码初始化故障")+"；系统原生解码也未取得画面")
+    }
+    if let main=decoded {
+     let signature=FilmSceneChange.signature(main.1)
+     let score=FilmSceneChange.distance(previousSignature,signature)
+     let nextTime=index+1<times.count ? times[index+1] : duration
+     // Reserve room for whole-film dialogue and interval samples.
+     let extraRoom=250-attempted.count-(times.count-index-1)
+     let supplement=score.map{$0>0.55}==true && extraRoom>=2 && time-(previousRequested ?? time)>=10
+     if supplement,time-2>(previousRequested ?? 0)+0.8,let before=decode(time-2) {try append(before,requested:time-2,score:score,reason:"visual-change-before")}
+     try append(main,requested:time,score:score,reason:"whole-film-interval-caption-or-dialogue-gap")
+     if supplement,time+2<nextTime-0.8,time+2<duration,let after=decode(time+2) {try append(after,requested:time+2,score:score,reason:"visual-change-after")}
+     previousSignature=signature;previousRequested=time
+    }
    }
-   if let main=decoded {
-    let signature=FilmSceneChange.signature(main.1)
-    let score=FilmSceneChange.distance(previousSignature,signature)
-    let nextTime=index+1<times.count ? times[index+1] : duration
-    // Heuristic visual change between sampled frames, not semantic shot
-    // recognition. Reserve room for ALL remaining baseline samples.
-    let extraRoom=250-attempted.count-(times.count-index-1)
-    let supplement=score.map{$0>0.55}==true && extraRoom>=2 && time-(previousRequested ?? time)>=10
-    if supplement,time-2>(previousRequested ?? 0)+0.8,let before=decode(time-2) {try append(before,requested:time-2,score:score,reason:"visual-change-before")}
-    try append(main,requested:time,score:score,reason:"interval-caption-or-dialogue-gap")
-    if supplement,time+2<nextTime-0.8,time+2<duration,let after=decode(time+2) {try append(after,requested:time+2,score:score,reason:"visual-change-after")}
-    previousSignature=signature;previousRequested=time
+   if index%5==0 {progress(0.30+0.29*Double(index+1)/Double(max(1,times.count)))}
+  }
+  // A separate tail phase is NEVER downsampled by the old 250-frame cap.
+  // Sample all the way to EOF, including the regions after the first credits.
+  stage(.tail);phase = .tail;phaseInterval=FilmTailSamplingPlan.interval
+  let tailStart=FilmTailSamplingPlan.start(duration:duration)
+  let dense=FilmTailSamplingPlan.dense(duration:duration)
+  func tailFrame(_ t:Double,reason:String)throws {
+   try Task.checkCancellation()
+   let key=Int((t*1000).rounded())
+   guard !successful.contains(key) else{return}
+   try autoreleasepool {
+    if let picture=decode(t) {
+     creditSignals.append((key,FilmCreditsDetector.isCreditsLike(picture.1)))
+     try append(picture,requested:t,score:nil,reason:reason)
+    }
    }
+  }
+  for (index,t) in dense.enumerated() {
+   try tailFrame(t,reason:"tail-2s")
+   if index%5==0 {progress(0.59+0.29*Double(index+1)/Double(max(1,dense.count)))}
+  }
+  var expandedStart=tailStart
+  // A credits run present at the beginning of the priority window might
+  // have begun much earlier. Expand backward until non-credit evidence
+  // appears, or reach the start of the actual media.
+  let leading=creditSignals.filter{$0.0<Int((tailStart+12)*1000)}.sorted{$0.0<$1.0}
+  if leading.prefix(3).filter({$0.1}).count>=2 {
+   var foundPrecedingScene=false
+   while expandedStart>0 && !foundPrecedingScene {
+    try Task.checkCancellation()
+    let earlier=FilmTailSamplingPlan.backward(from:expandedStart)
+    let previous=creditSignals.count
+    for t in earlier {try tailFrame(t,reason:"credits-backward-extension")}
+    expandedStart=max(0,expandedStart-60)
+    let sampled=creditSignals.dropFirst(previous).sorted{$0.0<$1.0}
+    var quiet=0
+    for signal in sampled.reversed() {
+     quiet=signal.1 ? 0 : quiet+1
+     if quiet>=3 {foundPrecedingScene=true;break}
+    }
    }
-   if index%5==0 {progress(0.30+0.65*Double(index+1)/Double(max(1,times.count)))}
+  }
+  let candidates=FilmCreditsDetector.candidates(creditSignals)
+  stage(.boundary);phase = .boundary;phaseInterval=0.5
+  let boundaryPoints=Array(Set(candidates.flatMap{FilmTailSamplingPlan.boundary(at:Double($0.atMs)/1000,duration:duration).map{Int(($0*1000).rounded())}})).sorted()
+  for (index,key) in boundaryPoints.enumerated() {
+   try Task.checkCancellation()
+   if !successful.contains(key) {
+    try autoreleasepool {
+     if let value=decode(Double(key)/1000) {try append(value,requested:Double(key)/1000,score:nil,reason:"credits-transition-0.5s")}
+    }
+   }
+   if index%5==0 {progress(0.88+0.08*Double(index+1)/Double(max(1,boundaryPoints.count)))}
   }
   try Task.checkCancellation()
   if !pending.isEmpty {try saveSheet()}
   pending.removeAll();ffmpeg=nil;generator.cancelAllCGImageGeneration()
   // We cannot claim to have understood the film's images if sampling failed.
   guard frameTimes.count>=min(4,times.count),
-   Double(frameTimes.count)>=Double(attempted.count)*0.80 else{
-    throw FilmMaterialExportFailure.frameExtractionDiagnostic("实际画面\(frameTimes.count)/\(attempted.count)；"+(lastFrameError ?? "视频轨道无法解码"))
+   Double(successful.count)>=Double(attempted.count)*0.80 else{
+    throw FilmMaterialExportFailure.frameExtractionDiagnostic("实际画面\(successful.count)/\(attempted.count)；"+(lastFrameError ?? "视频轨道无法解码"))
    }
-  stage(.archive)
-  var manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; interval, dialogue-gap and sampled-histogram visual-change followups; incomplete motion evidence",requestedFrameCount:attempted.count,missingFrameTimesMs:attempted.map{Int(($0*1000).rounded())}.filter{requested in !timeline.contains{$0.requestedMs==requested}})
+  stage(.archive);progress(0.96)
+  var inspection=FilmEndingInspection(formatVersion:1,durationMs:Int((duration*1000).rounded()),
+    priorityStartMs:Int((tailStart*1000).rounded()),inspectedRangesMs:[[Int((expandedStart*1000).rounded()),Int((duration*1000).rounded())]],
+    creditCandidates:candidates,failedIntervals:failures.values.sorted{$0.requestedMs<$1.requestedMs},
+    unverifiedRangesMs:candidates.isEmpty ? [[Int(tailStart*1000),Int(duration*1000)]] :
+      candidates.map{[max(0,$0.atMs-5000),min(Int(duration*1000),$0.atMs+5000)]},
+    storyEndMs:nil,storyEndStatus:"unverified: visual credit detection cannot establish the last required story scene or rule out post-credit material",
+    samplingPolicy:"full-film interval + dialogue gaps + scene changes; final 720 seconds every 2s; credits transitions ±5s every 0.5s; credits until EOF")
+  inspection.unverifiedRangesMs += inspection.failedIntervals.map{[$0.startMs,$0.endMs]}
+  var manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; whole-film interval and scene-change, tail 2s, transition 0.5s; actual decoded PTS; story end unverified",requestedFrameCount:attempted.count,missingFrameTimesMs:Array(attempted.subtracting(successful)).sorted())
   if !url.isFileURL {manifest.fingerprintAlgorithm="sha256-sparse-http-range-v1"}
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
+  var endingDictionary=(try JSONSerialization.jsonObject(with:enc.encode(inspection))) as? [String:Any] ?? [:]
+  endingDictionary["storyEndMs"]=NSNull()  // Explicit null, never an invented ending timestamp.
+  let endingData=try JSONSerialization.data(withJSONObject:endingDictionary,options:[.prettyPrinted,.sortedKeys])
   let instructions="TogetherPlayer 电影素材包 v1\n本包含完整字幕、分镜图及时间轴。ChatGPT 必须根据这部影片的主类型与实际副类型选取独立出题指南，制作有片内证据、不跑题的个性化互动问题。\n使用 ChatGPT项目指令.txt 和 genres 文件夹内的 21 类电影独立规则。多类型电影按真实情节混合，而不是一律套用侦探题。\n静态截图不能证明缺失片段的动作；缺少素材时先补齐，不要编造。\n生成 JSON 时使用正式Schema，影片指纹和时长从 manifest.json 原样复制，并包含完整 filmReview 片尾解读。\n"
   let schemaURL=Bundle.main.url(forResource:"question-bank-v1.schema",withExtension:"json")
   guard let schemaURL else{throw FilmBankValidation.detail("安装包缺少正式题库Schema，素材未发布。")}
   let schema=try Data(contentsOf:schemaURL)
   let projectGuide=FilmBankProjectInstructions.text
   let sourceNote=url.isFileURL ? "原片指纹采用完整文件SHA256" : "U盘 HTTP 原片使用首尾分段与 HTTP 元数据指纹（sha256-sparse-http-range-v1），是轻量识别而非完整文件SHA256；请使用同一片源链接导入题库"
-  let entries:[(String,Data)]=[("manifest.json",info),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]+FilmBankGenreInstructions.exportFiles
+  let entries:[(String,Data)]=[("manifest.json",info),("ending-inspection.json",endingData),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。结尾分析见 ending-inspection.json；storyEndMs 为 null 时必须人工验证候选边界与所有片尾彩蛋。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]+FilmBankGenreInstructions.exportFiles
   let name=url.deletingPathExtension().lastPathComponent
    .replacingOccurrences(of:"[^a-zA-Z0-9_\\-一-龥]",with:"_",options:.regularExpression)
   let filename=String(name.prefix(52))
