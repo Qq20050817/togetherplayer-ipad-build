@@ -17,6 +17,7 @@ final class FilmFFmpegFrameSampler {
  private let firstTimestamp:Int64
  private(set) var lastDecodedTime:Double?
  private(set) var lastFailure:String?
+ private var sequentialCursor:Double?
 
  static func mediaDuration(_ url:URL)->Double? {
   guard (url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "")),!Task.isCancelled else{return nil}
@@ -154,28 +155,32 @@ final class FilmFFmpegFrameSampler {
   if decoder != nil {avcodec_free_context(&decoder)}
   if format != nil {avformat_close_input(&format)}
  }
- func image(at seconds:Double)->CGImage? {
+ func image(at seconds:Double,reuseDecoder:Bool=false,seekBackSeconds:Double=0)->CGImage? {
   lastDecodedTime=nil;lastFailure=nil
   guard !Task.isCancelled,seconds.isFinite,seconds>=0,
    let format,let decoder,let packet,let frame else {
    lastFailure="视频解码器尚未准备好或任务已取消";return nil
   }
-  let target=firstTimestamp+Int64((seconds/secondsPerTick).rounded(.towardZero))
+  let canContinue=reuseDecoder && sequentialCursor.map{$0<=seconds && seconds-$0<=3.5}==true && seekBackSeconds==0
+  let seekTime=max(0,seconds-seekBackSeconds)
+  let target=firstTimestamp+Int64((seekTime/secondsPerTick).rounded(.towardZero))
   // MKV files with sparse, late or absent cue indexes can reject a stream-
   // specific backward seek. Try the bounded libavformat alternatives before
   // giving up; never linear-scan a 20GB movie just to find one thumbnail.
-  var seekCode=av_seek_frame(format,index,target,AVSEEK_FLAG_BACKWARD)
-  if seekCode<0 {
-   seekCode=avformat_seek_file(format,index,Int64.min,target,Int64.max,AVSEEK_FLAG_BACKWARD)
+  if !canContinue {
+   var seekCode=av_seek_frame(format,index,target,AVSEEK_FLAG_BACKWARD)
+   if seekCode<0 {
+    seekCode=avformat_seek_file(format,index,Int64.min,target,Int64.max,AVSEEK_FLAG_BACKWARD)
+   }
+   if seekCode<0 {
+    let globalTarget=Int64((seekTime*1_000_000).rounded(.towardZero))
+    seekCode=av_seek_frame(format,-1,globalTarget,AVSEEK_FLAG_BACKWARD)
+   }
+   if seekCode<0 && seconds>0.5 {
+    lastFailure="MKV 的视频索引不允许随机定位到 \(Int(seconds)) 秒";sequentialCursor=nil;return nil
+   }
+   avcodec_flush_buffers(decoder)
   }
-  if seekCode<0 {
-   let globalTarget=Int64((seconds*1_000_000).rounded(.towardZero))
-   seekCode=av_seek_frame(format,-1,globalTarget,AVSEEK_FLAG_BACKWARD)
-  }
-  if seekCode<0 && seconds>0.5 {
-   lastFailure="MKV 的视频索引不允许随机定位到 \(Int(seconds)) 秒";return nil
-  }
-  avcodec_flush_buffers(decoder)
   var packets=0,decoded=0,conversionFailures=0
   var nearby:(time:Double,image:CGImage)?
   var found:Double?
@@ -190,12 +195,14 @@ final class FilmFFmpegFrameSampler {
    found=position
    // A seek can land slightly before the target keyframe. Retain only one
    // genuine nearby image instead of rejecting every long-GOP 4K frame.
-   let onTarget=position>=seconds-0.35 && position<=seconds+4
+   // The caller verifies a stricter bound based on the sampling interval.
+   // Do not return a keyframe several seconds late as a valid target.
+   let onTarget=position>=seconds-0.12 && position<=seconds+0.22
    let nearbyEarlier=position>=seconds-5 && position<seconds-0.35 &&
     (nearby.map{position-$0.time>0.9} ?? true)
    guard onTarget || nearbyEarlier else{return nil}
    guard let image=Self.convert(frame) else{conversionFailures+=1;return nil}
-   if onTarget {lastDecodedTime=position;return image}
+   if onTarget {lastDecodedTime=position;sequentialCursor=position;return image}
    nearby=(position,image)
    return nil
   }
@@ -225,7 +232,8 @@ final class FilmFFmpegFrameSampler {
     if let image {return image}
    }
   }
-  if let nearby {lastDecodedTime=nearby.time;return nearby.image}
+  if let nearby {lastDecodedTime=nearby.time;sequentialCursor=nearby.time;return nearby.image}
+  sequentialCursor=nil
   if conversionFailures>0 {
    lastFailure="已解码视频帧，但像素格式或HDR画面转换失败（\(conversionFailures)次）"
   } else if decoded==0 {
