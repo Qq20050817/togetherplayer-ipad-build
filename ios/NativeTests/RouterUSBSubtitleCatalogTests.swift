@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import AVFoundation
 @testable import TogetherPoC
 
 final class RouterUSBSubtitleCatalogTests:XCTestCase {
@@ -43,4 +44,15 @@ final class RouterUSBSubtitleCatalogTests:XCTestCase {
   XCTAssertEqual(document.cues.count,2)
   XCTAssertEqual(document.cues.first?.text,"第一句话")
  }
+ @MainActor func testRemoteSubtitleCanBeUsedForPlaybackWithoutImportingLocalFile() {
+  let overlay=ExternalSubtitles(player:AVPlayer())
+  let document=SubtitleDocument([SubtitleCue(start:1,end:3,text:"第一句话")])
+  overlay.installRemote(document,name:"movie.zh.srt")
+  XCTAssertTrue(overlay.available)
+  XCTAssertTrue(overlay.enabled)
+  XCTAssertEqual(overlay.name,"movie.zh.srt")
+  XCTAssertNil(overlay.importedFileURL)
+  XCTAssertEqual(overlay.completeExternalForAI?.text(at:2),"第一句话")
+ }
+
 }
