@@ -274,6 +274,16 @@ import CoreFoundation
   for cue in document.cues {nativeTimeline.receive(text:cue.text,time:cue.start,end:cue.end)}
   refresh()
  }
+ /// Apply a validated signed U 盘 subtitle directly to playback, with no document picker.
+ func installRemote(_ result:SubtitleDocument,name remoteName:String) {
+  generation+=1;plotFullFilmReset?()
+  document=result;importedFileURL=nil
+  plannedQuestions=PlotQuestionPlanner.indexed(result.cues)
+  name=remoteName;delay=0;enabled=true
+  status="已从 U 盘读取 \(result.cues.count) 条字幕"
+  plotFullSubtitleIndexed?(result,"external-subtitle",plannedQuestions)
+  refresh()
+ }
  func beginSelection() {status="请选择字幕文件"}
  func cancelImport() {status="已取消选择字幕"}
  func importFile(_ url: URL) async -> Bool {
