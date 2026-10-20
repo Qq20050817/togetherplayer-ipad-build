@@ -380,13 +380,31 @@ struct SubtitleHeightKey:PreferenceKey {
  }
  private var subtitleMenu: some View {
   Button {showingSubtitles=true} label:{Label("字幕",systemImage:"captions.bubble")}.popover(isPresented:$showingSubtitles) {
-   VStack(alignment:.leading,spacing:12) {
-    Button {model.chooseSubtitle(-1);showingSubtitles=false} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
-    Button {model.chooseSubtitle(-2);showingSubtitles=false} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
-    if model.subtitleLabels.isEmpty {Text("未读取到可选内置文字字幕；可导入外挂字幕")}
-    ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index);showingSubtitles=false} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
-    if subtitles.available {Button {model.enableExternalSubtitle();showingSubtitles=false} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
-   }.buttonStyle(AnimatedAppButtonStyle(.borderless)).padding(20)
+   ScrollView {
+    VStack(alignment:.leading,spacing:12) {
+     Button {model.chooseSubtitle(-1);showingSubtitles=false} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
+     Button {model.chooseSubtitle(-2);showingSubtitles=false} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
+     ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index);showingSubtitles=false} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
+     if subtitles.available {Button {model.enableExternalSubtitle();showingSubtitles=false} label:{Label("外挂：\(subtitles.name)",systemImage:subtitles.enabled ? "checkmark" : "doc.text")}}
+     if model.bankMovieURL.flatMap({RouterUSBSubtitleCatalog.catalogURL(for:$0)}) != nil {
+      Divider()
+      Text("路由器 U 盘字幕").font(.caption).foregroundStyle(.secondary)
+      if model.routerSubtitleScanning {ProgressView("正在扫描同目录字幕…")}
+      ForEach(model.routerSubtitleOptions) {entry in
+       Button {model.selectRouterSubtitle(entry);showingSubtitles=false} label:{
+        Label(entry.name,systemImage:subtitles.enabled && model.routerSubtitleSelectedID==entry.id ? "checkmark" : "doc.text")
+       }.accessibilityIdentifier("router-playback-subtitle-option")
+      }
+      if model.routerSubtitleOptions.isEmpty && !model.routerSubtitleScanning {
+       Text(model.routerSubtitleStatus.isEmpty ? "暂无匹配字幕" : model.routerSubtitleStatus).font(.caption).foregroundStyle(.secondary)
+      }
+      Button {model.refreshRouterSubtitles()} label:{Label("重新扫描 U 盘字幕",systemImage:"arrow.clockwise")}
+       .disabled(model.routerSubtitleScanning)
+     } else if model.subtitleLabels.isEmpty && !subtitles.available {
+      Text("未读取到可选字幕，可使用导入字幕。").font(.caption).foregroundStyle(.secondary)
+     }
+    }.buttonStyle(AnimatedAppButtonStyle(.borderless)).padding(20)
+   }.frame(maxHeight:440)
   }
  }
  private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-adjustments" : "subtitle-adjustments")}
