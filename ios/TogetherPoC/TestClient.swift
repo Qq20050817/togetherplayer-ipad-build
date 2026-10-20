@@ -238,6 +238,15 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  var requestStatus: String {get {feedback.requestStatus} set {if feedback.requestStatus != newValue {feedback.requestStatus=newValue}}}
  @Published var audioLabels: [String]=[]
  @Published var selectedAudioIndex = -1
+ @Published private(set) var routerSubtitleOptions:[RouterUSBSubtitleOption]=[]
+ @Published private(set) var routerSubtitleStatus=""
+ @Published private(set) var routerSubtitleScanning=false
+ @Published private(set) var routerSubtitleLoadingName=""
+ @Published private(set) var routerSubtitleSelectedID=""
+ private var routerSubtitleMovie:URL?
+ private var routerSubtitleScanTask:Task<Void,Never>?
+ private var routerSubtitleLoadTask:Task<Void,Never>?
+ private var routerSubtitleReadToken=0
  @Published var subtitleLabels: [String]=[]
  @Published var selectedSubtitleIndex = -1
  private var subtitleGroup: AVMediaSelectionGroup?
@@ -548,6 +557,12 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   externalSubtitles.beginPlotFilm(plotKey)
    visualSampler.beginFilm(plotKey)
   currentOriginalURL=url
+  if routerSubtitleMovie != url {
+   routerSubtitleMovie=url;routerSubtitleScanTask?.cancel();routerSubtitleLoadTask?.cancel()
+   routerSubtitleReadToken += 1;routerSubtitleSelectedID="";routerSubtitleLoadingName=""
+   routerSubtitleOptions=[];routerSubtitleStatus="";routerSubtitleScanning=false
+   if RouterUSBSubtitleCatalog.catalogURL(for:url) != nil {refreshRouterSubtitles()}
+  }
   filmMaterials.selectMovie(url)
   questionBankRuntime.restore(filmKey:plotKey,source:url,durationMs:0)
   if plotIntelligence.wholeFilm.filmKey != plotKey {plotIntelligence.wholeFilm.reset(film:plotKey)}
@@ -868,7 +883,57 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   selectedSubtitleIndex=requested
   diagnostic("nativeSubtitleOptionRecovered")
  }
+ // Scan only the bounded manifest, never the movie stream; unrelated sources remain untouched.
+ func refreshRouterSubtitles() {
+  guard let movie=currentOriginalURL,RouterUSBSubtitleCatalog.catalogURL(for:movie) != nil else {
+   routerSubtitleScanTask?.cancel();routerSubtitleOptions=[];routerSubtitleScanning=false;routerSubtitleStatus=""
+   return
+  }
+  routerSubtitleScanTask?.cancel()
+  routerSubtitleOptions=[];routerSubtitleScanning=true
+  routerSubtitleStatus="正在查找 U 盘同目录字幕…"
+  routerSubtitleScanTask=Task { [weak self] in
+   do {
+    let options=try await RouterUSBSubtitleCatalog.list(for:movie)
+    guard let self,!Task.isCancelled,self.currentOriginalURL==movie else {return}
+    self.routerSubtitleOptions=options
+    self.routerSubtitleScanning=false
+    self.routerSubtitleStatus=options.isEmpty ? "同目录未找到匹配字幕，可检查字幕文件名。" : "已找到 \(options.count) 份 U 盘字幕"
+   } catch {
+    guard let self,!Task.isCancelled,self.currentOriginalURL==movie else {return}
+    self.routerSubtitleOptions=[]
+    self.routerSubtitleScanning=false
+    self.routerSubtitleStatus="U 盘字幕扫描失败："+error.localizedDescription
+   }
+  }
+ }
+ func selectRouterSubtitle(_ option:RouterUSBSubtitleOption) {
+  guard let movie=currentOriginalURL,
+        routerSubtitleOptions.contains(where:{$0.id==option.id}) else {return}
+  routerSubtitleReadToken += 1;let ticket=routerSubtitleReadToken
+  routerSubtitleLoadTask?.cancel()
+  routerSubtitleLoadingName=option.name;routerSubtitleStatus="正在从 U 盘读取 \(option.name)…"
+  routerSubtitleLoadTask=Task { [weak self] in
+   do {
+    let document=try await RouterUSBSubtitleCatalog.read(option,for:movie)
+    guard let self,!Task.isCancelled,self.currentOriginalURL==movie,
+          self.routerSubtitleReadToken==ticket else {return}
+    self.externalSubtitles.installRemote(document,name:option.name)
+    self.enableExternalSubtitle()
+    self.routerSubtitleSelectedID=option.id
+    self.routerSubtitleLoadingName=""
+    self.routerSubtitleStatus="已启用 U 盘字幕：\(option.name)"
+    self.filmMaterials.invalidateSubtitleSelection()
+   } catch {
+    guard let self,!Task.isCancelled,self.currentOriginalURL==movie,
+          self.routerSubtitleReadToken==ticket else {return}
+    self.routerSubtitleLoadingName=""
+    self.routerSubtitleStatus="U 盘字幕读取失败："+error.localizedDescription
+   }
+  }
+ }
  func importSubtitle(_ url: URL) {
+  routerSubtitleReadToken += 1;routerSubtitleLoadTask?.cancel();routerSubtitleLoadingName="";routerSubtitleSelectedID=""
   Task {if await externalSubtitles.importFile(url) {enableExternalSubtitle();filmMaterials.invalidateSubtitleSelection()}}
  }
  func enableExternalSubtitle() {
@@ -880,6 +945,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   selectedSubtitleIndex = -2;externalSubtitles.enabled=true
  }
  func chooseSubtitle(_ index: Int) {
+  routerSubtitleReadToken += 1;routerSubtitleLoadTask?.cancel();routerSubtitleLoadingName="";routerSubtitleSelectedID=""
   requestedSubtitleIndex=index
   // Reselecting an already applied track must preserve its earlier cues.
   // A pending selection without a loaded group still needs to be applied later.
