@@ -39,6 +39,11 @@ import AVFoundation
    defer{try? FileManager.default.removeItem(at:output.deletingLastPathComponent())}
    let entries=try zipEntries(Data(contentsOf:output))
    XCTAssertNotNil(entries["manifest.json"]);XCTAssertNotNil(entries["question-bank-v1.schema.json"])
+   let inspection=try XCTUnwrap(JSONSerialization.jsonObject(with:try XCTUnwrap(entries["ending-inspection.json"])) as? [String:Any])
+   XCTAssertTrue(inspection["storyEndMs"] is NSNull,"Unverified story ending must remain explicit null")
+   XCTAssertNotNil(inspection["unverifiedRangesMs"])
+   let manifest=try XCTUnwrap(JSONSerialization.jsonObject(with:try XCTUnwrap(entries["manifest.json"])) as? [String:Any])
+   XCTAssertGreaterThan(manifest["requestedFrameCount"] as? Int ?? 0,0)
    XCTAssertNotNil(entries["ChatGPT项目指令.txt"])
    let guide=String(decoding:try XCTUnwrap(entries["ChatGPT项目指令.txt"]),as:UTF8.self)
    XCTAssertTrue(guide.contains("喜剧与无厘头"))
@@ -53,6 +58,7 @@ import AVFoundation
    XCTAssertGreaterThanOrEqual(timeline.count,1)
    for frame in timeline {
     XCTAssertNotNil(entries[frame.sheet]);XCTAssertTrue((0..<4).contains(frame.column));XCTAssertGreaterThanOrEqual(frame.actualMs,0);XCTAssertFalse(frame.visualEvidenceComplete)
+    XCTAssertLessThanOrEqual(abs(frame.requestedMs-frame.actualMs),30_000)
    }
    let onDisk=output.deletingLastPathComponent().appendingPathComponent("frame-timeline.json")
    XCTAssertEqual(try Data(contentsOf:onDisk),entries["frame-timeline.json"])
