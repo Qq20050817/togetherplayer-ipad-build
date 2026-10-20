@@ -883,6 +883,12 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   selectedSubtitleIndex=requested
   diagnostic("nativeSubtitleOptionRecovered")
  }
+ private func resetRouterSubtitleDiscovery() {
+  routerSubtitleScanTask?.cancel();routerSubtitleLoadTask?.cancel()
+  routerSubtitleReadToken += 1;routerSubtitleMovie=nil
+  routerSubtitleOptions=[];routerSubtitleStatus="";routerSubtitleScanning=false
+  routerSubtitleLoadingName="";routerSubtitleSelectedID=""
+ }
  // Scan only the bounded manifest, never the movie stream; unrelated sources remain untouched.
  func refreshRouterSubtitles() {
   guard let movie=currentOriginalURL,RouterUSBSubtitleCatalog.catalogURL(for:movie) != nil else {
@@ -1738,7 +1744,7 @@ extension TestClient {
   }
  }
  private func stopUnmatchedMedia() {
-  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();visualSampler.clear();currentOriginalURL=nil
+  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();resetRouterSubtitleDiscovery();visualSampler.clear();currentOriginalURL=nil
  }
  func useBaiduSource(_ url: URL,file: BaiduFile,confirmedRoomID: String? = nil,confirmedMediaURL: String? = nil) -> Bool {
   guard connected,let room=engine.room else {requestStatus="请先创建或加入房间，再选择百度影片";return false}
@@ -1828,7 +1834,7 @@ extension TestClient {
   localQualityCandidate=nil;variantRoomID="";variantMediaURL=""
   if pendingRoomMedia != nil {finishRoomMedia("已离开房间，换片请求已取消。")}
   localSelectionGeneration += 1;pendingLocalFile=nil;localSelectionRoom="";localSelectionMedia=""
-  externalSubtitles.clear()
+  externalSubtitles.clear();resetRouterSubtitleDiscovery()
   visualSampler.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
   mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
