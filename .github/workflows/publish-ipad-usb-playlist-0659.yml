@@ -1,0 +1,89 @@
+name: Publish verified iPad 0.6.59 USB poster playlist IPA
+on:
+  push:
+    branches: [feat/ipad-usb-playlist-posters-0659-20261022]
+    paths: ['.github/workflows/publish-ipad-usb-playlist-0659.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish-tested-ipa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact successful physical build and tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          build=39690482361
+          source_commit=cae70b34d84b163061ae8967eb8a02ef7125d14e
+          # The source-pinned build runs in a separate workflow, so publication
+          # waits for a definitive CI conclusion instead of racing artifact upload.
+          for attempt in $(seq 1 65); do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build" --jq .status)"
+            if [ "$status" = completed ]; then break; fi
+            sleep 30
+          done
+          result="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build" --jq .conclusion)"
+          test "$result" = success || { echo "Source CI did not pass: $result" >&2; exit 1; }
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build" --jq '.head_sha')" = "$source_commit"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$build/jobs?per_page=100" > jobs.json
+          python3 - <<'PY'
+          import json
+          jobs=json.load(open('jobs.json'))['jobs']
+          assert len(jobs)==1,jobs
+          job=jobs[0]
+          assert job['status']=='completed' and job['conclusion']=='success',job['conclusion']
+          required={'Build for physical iPad architecture without signing','Verify iPad interface on native simulator','Package unsigned IPA for on-device signing','Upload IPA and relink source'}
+          checked={step['name'] for step in job['steps'] if step['name'] in required and step['conclusion']=='success'}
+          assert checked==required,required-checked
+          print('Verified physical build, selected simulator regressions and IPA package')
+          PY
+      - name: Download source-pinned IPA artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 39690482361 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-unsigned-iPad --dir verified
+          test "$(find verified -type f -name '*.ipa' | wc -l)" -eq 1
+          test "$(find verified -type f -name SHA256SUMS.txt | wc -l)" -eq 1
+      - name: Verify checksum and installed version metadata
+        run: |
+          set -euo pipefail
+          ipa="$(find verified -type f -name '*.ipa' -print -quit)"
+          sums="$(find verified -type f -name SHA256SUMS.txt -print -quit)"
+          expected="$(awk 'NR==1 {print $1}' "$sums")"
+          actual="$(sha256sum "$ipa" | awk '{print $1}')"
+          test -n "$expected" && test "$expected" = "$actual"
+          python3 - "$ipa" <<'PY'
+          import plistlib,sys,zipfile
+          with zipfile.ZipFile(sys.argv[1]) as zipfile_:
+              plists=[x for x in zipfile_.namelist() if x.startswith('Payload/') and x.endswith('.app/Info.plist')]
+              assert len(plists)==1,plists
+              info=plistlib.loads(zipfile_.read(plists[0]))
+              assert info['CFBundleShortVersionString']=='0.6.59',info
+              assert str(info['CFBundleVersion'])=='119',info
+          PY
+          mkdir -p publish
+          cp "$ipa" publish/TogetherPlayer-iPad-0.6.59-USB-Playlist-unsigned.ipa
+          (cd publish && sha256sum TogetherPlayer-iPad-0.6.59-USB-Playlist-unsigned.ipa > SHA256SUMS.txt)
+          printf 'iPad 0.6.59 build119\nSource SHA: cae70b34d84b163061ae8967eb8a02ef7125d14e\nCI: https://github.com/Qq20050817/togetherplayer-ipad-build/actions/runs/39690482361\nPhysical ARM64 build and selected core/UI simulator tests passed. Actual iPad and Android room playback remains to be tested. Unsigned IPA must be signed for installation.\n' > publish/BUILD.txt
+      - name: Publish direct IPA without ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="ipad-v0.6.59-usb-playlist-preview-20261022"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release exists; refusing overwrite' >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            publish/TogetherPlayer-iPad-0.6.59-USB-Playlist-unsigned.ipa \
+            publish/SHA256SUMS.txt publish/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" --target cae70b34d84b163061ae8967eb8a02ef7125d14e --prerelease \
+            --title 'TogetherPlayer iPad 0.6.59 · USB 影视海报播放列表' \
+            --notes 'Unsigned iPad preview: router USB video catalog auto-displays in the playlist, movies/episodes have readable names and cover images with fallback title art, manual additions/favorites/history retained. Source isolated from 0.6.58; full device-to-device video playback still requires acceptance. Must sign IPA before installation.'
