@@ -1,0 +1,77 @@
+name: Publish iPad 0.6.58 USB HTTP unsigned IPA preview
+on:
+  push:
+    branches: [feat/ipad-usb-http-library-20261022]
+    paths:
+      - .github/workflows/publish-ipad-usb-http-0658.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish-compiled-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source SHA and physical iPad compile from upstream run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=54702043a27b8a8010249fd9f17aa044ce294e2b
+          run_id=39682233114
+          observed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_sha)"
+          test "$observed" = "$source_sha"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" \
+            --jq '.jobs[].steps[] | select(.name=="Build for physical iPad architecture without signing" or .name=="Package unsigned IPA for on-device signing" or .name=="Upload IPA and relink source") | [.name,.conclusion] | @tsv' > build-steps.txt
+          cat build-steps.txt
+          test "$(grep -c $'\tsuccess$' build-steps.txt)" -eq 3
+      - name: Fetch exact archived iPad app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 39682233114 --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-unsigned-iPad --dir verified
+          test "$(find verified -type f -name '*.ipa' | wc -l)" -eq 1
+          test "$(find verified -type f -name SHA256SUMS.txt | wc -l)" -eq 1
+      - name: Check SHA256, version and build number
+        shell: bash
+        run: |
+          set -euo pipefail
+          ipa="$(find verified -type f -name '*.ipa' -print -quit)"
+          sums="$(find verified -type f -name SHA256SUMS.txt -print -quit)"
+          expected="$(awk 'NR==1 {print $1}' "$sums")"
+          actual="$(sha256sum "$ipa" | awk '{print $1}')"
+          test -n "$expected" && test "$expected" = "$actual"
+          python3 - "$ipa" <<'PY'
+          import plistlib,sys,zipfile
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              plists=[f for f in archive.namelist() if f.startswith('Payload/') and f.endswith('.app/Info.plist')]
+              assert len(plists)==1,plists
+              info=plistlib.loads(archive.read(plists[0]))
+              assert info['CFBundleShortVersionString']=='0.6.58',info
+              assert str(info['CFBundleVersion'])=='118',info
+              print('Unsigned iPad 0.6.58 build118 package verified')
+          PY
+          mkdir -p publish
+          cp "$ipa" publish/TogetherPlayer-iPad-0.6.58-USB-HTTP-unsigned.ipa
+          (cd publish && sha256sum TogetherPlayer-iPad-0.6.58-USB-HTTP-unsigned.ipa > SHA256SUMS.txt)
+          printf 'App: TogetherPlayer iPad 0.6.58 build118\nSource SHA: 54702043a27b8a8010249fd9f17aa044ce294e2b\nPhysical build: https://github.com/Qq20050817/togetherplayer-ipad-build/actions/runs/39682233114\nStatus: successful physical compile, unsigned IPA verification. Full simulator suite did not pass and was cancelled after UI test failures. Device testing outstanding.\nUnsigned: requires user-provided iOS signing before installation.\n' > publish/BUILD.txt
+      - name: Publish unsigned preview as direct IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="ipad-v0.6.58-usb-http-preview-20261022"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite it.' >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            publish/TogetherPlayer-iPad-0.6.58-USB-HTTP-unsigned.ipa \
+            publish/SHA256SUMS.txt publish/BUILD.txt \
+            --repo "$GITHUB_REPOSITORY" --target 54702043a27b8a8010249fd9f17aa044ce294e2b --prerelease \
+            --title "TogetherPlayer iPad 0.6.58 · USB HTTP 影片库预览" \
+            --notes "Unsigned IPA with iPad host-only U disk HTTP movie selection, movie-title sync and same-directory subtitles. Physical ARM64 iPad compilation, packaging and SHA256 verification passed. CAUTION: full UI simulator suite encountered unrelated local picker/subtitle/plot settings failures and was cancelled; on-device playback unverified. Requires signing before install; keep existing working version for rollback."
