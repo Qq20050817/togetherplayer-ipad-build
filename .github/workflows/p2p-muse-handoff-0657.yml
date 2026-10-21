@@ -1,0 +1,37 @@
+name: Verify iPad 0.6.57 P2P to Muse handoff
+on:
+  push:
+    branches:
+      - fix/ipad-p2p-muse-handoff-0657-20261022
+    paths:
+      - 'ios/TogetherPoC/P2PMuseHandoff.swift'
+      - 'ios/TogetherPoC/P2PFastPathGate.swift'
+      - 'ios/TogetherPoC/TestClient.swift'
+      - 'ios/tests/P2PMuseHandoffRegression.swift'
+      - '.github/workflows/p2p-muse-handoff-0657.yml'
+  pull_request:
+    paths:
+      - 'ios/TogetherPoC/P2PMuseHandoff.swift'
+      - 'ios/TogetherPoC/P2PFastPathGate.swift'
+      - 'ios/TogetherPoC/TestClient.swift'
+      - 'ios/tests/P2PMuseHandoffRegression.swift'
+permissions:
+  contents: read
+jobs:
+  handoff-regressions:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift toolchain
+        run: swift --version
+      - name: Test short speculative P2P to Muse reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun swiftc \
+            ios/TogetherPoC/P2PFastPathGate.swift \
+            ios/TogetherPoC/P2PMuseHandoff.swift \
+            ios/tests/P2PMuseHandoffRegression.swift \
+            -o /tmp/together-p2p-muse-handoff
+          /tmp/together-p2p-muse-handoff
