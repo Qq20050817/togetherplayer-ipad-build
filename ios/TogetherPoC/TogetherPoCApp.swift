@@ -798,6 +798,7 @@ struct RoomActionStyle:ButtonStyle {
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
+ @State private var usbMoviePicker=false
  private enum Picker:Identifiable,Equatable {
   case baidu,library,cleanup(URL,URL?)
   var id:String {switch self {case .baidu:return "baidu";case .library:return "library";case .cleanup(let source,_):return "cleanup-"+source.absoluteString}}
@@ -827,6 +828,21 @@ struct RoomActionStyle:ButtonStyle {
     }
     roomCard("房间影片",icon:"video.fill") {
      Label(model.playbackTitle,systemImage:"doc").font(.subheadline).lineLimit(3).textSelection(.enabled)
+     Button {usbMoviePicker=true} label:{
+      Label("从路由器 U 盘选片",systemImage:"externaldrive.fill").frame(maxWidth:.infinity,alignment:.leading)
+     }
+     .disabled(!model.isRoomHost || !model.isConnected)
+     .accessibilityIdentifier("ipad-host-usb-movie-picker")
+     .sheet(isPresented:$usbMoviePicker) {
+      USBMovieBrowser(select:{movie,url in
+       guard model.isRoomHost,model.isConnected else{return}
+       model.updateRoomMediaDraft(url.absoluteString)
+       model.movieTitle=FilmSourceTitle.fromMediaURL(url.absoluteString) ?? movie.name
+       model.setRoomMedia()
+       usbMoviePicker=false
+      },close:{usbMoviePicker=false})
+     }
+     Text("仅 iPad 房主选片。安卓端加入房间后自动加载相同片源。").font(.caption).foregroundStyle(.secondary)
      DisclosureGroup("设置房间影片") {
       VStack(alignment:.leading,spacing:14) {
        TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder).accessibilityIdentifier("room-movie-title")

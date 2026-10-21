@@ -5,6 +5,19 @@ import AVFoundation
 
 final class RouterUSBSubtitleCatalogTests:XCTestCase {
  private let movie=URL(string:"https://router.example/media/usb-mount/movie.mkv?expires=12345&sig=validtoken")!
+ func testUnsignedUSBMovieAcceptsOnlySameFolderSubtitles() throws {
+  let film=URL(string:"http://router.example:49185/usb-files/高清/电影.mkv")!
+  let endpoint=RouterUSBSubtitleCatalog.catalogURL(for:film)!
+  XCTAssertEqual(URLComponents(url:endpoint,resolvingAgainstBaseURL:false)?.queryItems?.first?.value,"1")
+  let rows:[String:Any]=["subtitles":[
+   ["name":"电影.zh.srt","url":"/usb-files/%E9%AB%98%E6%B8%85/%E7%94%B5%E5%BD%B1.zh.srt"],
+   ["name":"电影.zh.srt","url":"http://another.example:49185/usb-files/高清/电影.zh.srt"],
+   ["name":"skip.srt","url":"/usb-files/other/skip.srt"],
+   ["name":"bad.exe","url":"/usb-files/高清/bad.exe"]
+  ]]
+  let result=try RouterUSBSubtitleCatalog.decodeCatalog(JSONSerialization.data(withJSONObject:rows),movie:film)
+  XCTAssertEqual(result.map(\.name),["电影.zh.srt"])
+ }
  func testSignedMovieGetsManifestQueryWithoutChangingSignature() {
   let url=RouterUSBSubtitleCatalog.catalogURL(for:movie)
   XCTAssertNotNil(url)

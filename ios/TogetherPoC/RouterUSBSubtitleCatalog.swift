@@ -29,6 +29,14 @@ enum RouterUSBSubtitleCatalog {
  private static let maxCatalogBytes=64*1024
 
  static func catalogURL(for movie:URL?) -> URL? {
+  if let movie,let scheme=movie.scheme?.lowercased(),["http","https"].contains(scheme),
+     movie.host != nil,movie.pathComponents.count>=3,
+     movie.pathComponents[1]=="usb-files",
+     var parts=URLComponents(url:movie,resolvingAgainstBaseURL:false),
+     (parts.queryItems ?? []).isEmpty {
+   parts.queryItems=[URLQueryItem(name:"subtitles",value:"1")]
+   return parts.url
+  }
   guard let movie,let scheme=movie.scheme?.lowercased(),["http","https"].contains(scheme),
         movie.host != nil,movie.pathComponents.count>=4,
         movie.pathComponents[1]=="media",
@@ -41,6 +49,14 @@ enum RouterUSBSubtitleCatalog {
   return components.url
  }
  private static func allowed(_ file:URL,movie:URL)->Bool {
+  if movie.pathComponents.count>=3,movie.pathComponents[1]=="usb-files",
+     file.pathComponents.dropLast()==movie.pathComponents.dropLast(),
+     file.scheme?.lowercased()==movie.scheme?.lowercased(),
+     file.host?.lowercased()==movie.host?.lowercased(),file.port==movie.port,
+     extensions.contains(file.pathExtension.lowercased()),
+     (URLComponents(url:file,resolvingAgainstBaseURL:false)?.queryItems ?? []).isEmpty {
+   return true
+  }
   guard file.scheme?.lowercased()==movie.scheme?.lowercased(),
         file.host?.lowercased()==movie.host?.lowercased(),file.port==movie.port,
         file.pathComponents.dropLast()==movie.pathComponents.dropLast(),
