@@ -17,6 +17,9 @@ object UsbSubtitleCatalog {
 
  fun manifestUrl(videoUrl: String): String? {
   val url = videoUrl.toHttpUrlOrNull() ?: return null
+  if (url.encodedPathSegments.firstOrNull() == "usb-files" &&
+      url.encodedPathSegments.size >= 2 && url.querySize == 0)
+   return url.newBuilder().addQueryParameter("subtitles", "1").build().toString()
   if (!authorizedVideoPath(url) ||
       url.queryParameter("expires").isNullOrBlank() ||
       url.queryParameter("sig").isNullOrBlank() ||
@@ -32,7 +35,9 @@ object UsbSubtitleCatalog {
 
  fun parse(videoUrl: String, json: String): List<UsbSubtitleOption> {
   val video = videoUrl.toHttpUrlOrNull() ?: return emptyList()
-  if (!authorizedVideoPath(video)) return emptyList()
+  val unsigned = video.encodedPathSegments.firstOrNull() == "usb-files" &&
+   video.encodedPathSegments.size >= 2 && video.querySize == 0
+  if (!authorizedVideoPath(video) && !unsigned) return emptyList()
   val list = JSONObject(json).optJSONArray("subtitles") ?: return emptyList()
   val found = LinkedHashMap<String, UsbSubtitleOption>()
   for (i in 0 until minOf(list.length(), 48)) {
@@ -45,6 +50,15 @@ object UsbSubtitleCatalog {
    // OkHttp's resolve accepts a path supplied by this router, and never
    // accepts redirects/URLs on an unrelated authority as subtitle entries.
    val candidate = video.resolve(raw) ?: continue
+   if (unsigned) {
+    if (candidate.scheme == video.scheme && candidate.host == video.host &&
+        candidate.port == video.port && candidate.querySize == 0 &&
+        candidate.encodedPathSegments.dropLast(1) == video.encodedPathSegments.dropLast(1) &&
+        candidate.pathSegments.lastOrNull() == name)
+     found.putIfAbsent(candidate.toString(), UsbSubtitleOption(name, candidate.toString()))
+    if (found.size >= 24) break
+    continue
+   }
    if (candidate.scheme != video.scheme || candidate.host != video.host ||
        candidate.port != video.port ||
        candidate.encodedPathSegments.size != 3 ||

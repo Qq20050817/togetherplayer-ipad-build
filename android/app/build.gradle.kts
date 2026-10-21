@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
  namespace = "dev.together.poc"
  compileSdk = 35
- defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 74; versionName = "0.6.54"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
+ defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 75; versionName = "0.6.55"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
  buildTypes { getByName("debug") {
   // Separate preview identity preserves every existing install and its data.
   applicationIdSuffix = ".fluency"

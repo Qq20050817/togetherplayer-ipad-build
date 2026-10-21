@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014, feat/android-usb-http-library-20261022]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
@@ -53,9 +53,15 @@ jobs:
         run: |
           mkdir -p android-delivery/screenshots
           if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk
-            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk > SHA256SUMS.txt)
-            printf 'Source SHA: %s\nAndroid: 0.6.6\nScope: keep Android 0.6.5 fixes; display full plot question as scrollable dialog body, support prediction labels.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            if [ "$GITHUB_REF_NAME" = "feat/android-usb-http-library-20261022" ]; then
+              filename=TogetherPlayer-Android-0.6.55-USB-HTTP.apk
+              printf 'Source SHA: %s\nAndroid: 0.6.55\nScope: iPad-only room selection, Android local media override retained, unsigned USB subtitles.\nValidation: Android CI; dual-device real media still needs on-device verification.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            else
+              filename=TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk
+              printf 'Source SHA: %s\nAndroid: 0.6.6\nScope: keep Android 0.6.5 fixes; display full plot question as scrollable dialog body, support prediction labels.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            fi
+            cp android/app/build/outputs/apk/debug/app-debug.apk "android-delivery/$filename"
+            (cd android-delivery && sha256sum "$filename" > SHA256SUMS.txt)
           fi
       - uses: actions/upload-artifact@v4
         if: always()
