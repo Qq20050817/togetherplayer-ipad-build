@@ -809,12 +809,10 @@ class MainActivity: Activity() {
    else if(expectedRoom!=null && (room!=expectedRoom || r.optString("mediaUrl")!=original)){requestStatus.text="房间或影片已改变，请重新打开百度选片";android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_LONG).show();false}
    else if(!BaiduSourceAdapter.allowedURL(u)){requestStatus.text="不允许的百度片源";false}
    else {
-    val ref=if(isHost)BaiduMediaReference.create(f.fingerprint,f.size) else BaiduMediaReference.parse(r.optString("mediaUrl"))?.takeIf {it.matches(f.fingerprint,f.size)}
-    if(ref==null){requestStatus.text=if(isHost)"百度未提供可核对的文件指纹/大小" else "文件与房间影片不匹配，请转存房主分享的同一文件";android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_LONG).show();false}
-    else if(isHost && queued.size>=8){requestStatus.text="请等待操作完成";false}
+    val ref=BaiduMediaReference.parse(r.optString("mediaUrl"))?.takeIf {it.matches(f.fingerprint,f.size)}
+    if(ref==null){requestStatus.text="当前房间未使用百度文件匹配，或文件与房间影片不匹配";android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_LONG).show();false}
     else {variantRoomID="";variantMediaURL="";variantDuration=0.0;localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";baiduURL=u;baiduSourceID=ref.value;baiduSourceRoom=room;activeLocalSource="";localSource.text.clear()
-     if(isHost)enqueue(JSONObject().put("type","ROOM_MEDIA").put("data",JSONObject().put("mediaUrl",ref.value).put("title",f.name.take(160))))
-     else loadMedia(u,r.getDouble("position")+engine.timelineOffset)
+     loadMedia(u,r.getDouble("position")+engine.timelineOffset)
      requestStatus.text="已选择百度同一文件，等待双方准备好后由房主播放";true}
    }
   },{clearBaiduSource()}).show()
@@ -921,7 +919,7 @@ class MainActivity: Activity() {
  }
  private fun useLocalMovie(uri:android.net.Uri,grantFlags:Int,confirmedVariant:Boolean=false){
   val room=engine.room ?: return;val expectedRoom=room.optString("roomId");val expectedMedia=room.optString("mediaUrl");val start=room.optDouble("position")+engine.timelineOffset
-  val selection=localSelectionGeneration;val publish=isHost && localSelectionPublishes
+  val selection=localSelectionGeneration;val publish=false // Android viewer cannot publish room movies.
   runCatching {contentResolver.takePersistableUriPermission(uri,grantFlags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)}
   requestStatus.text="正在读取本地影片…"
   localFileLabel.text="正在读取本地影片…"
