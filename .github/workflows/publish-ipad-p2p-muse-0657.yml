@@ -1,0 +1,63 @@
+name: Publish verified iPad 0.6.57 P2P Muse preview IPA
+on:
+  push:
+    branches: [fix/ipad-p2p-muse-handoff-0657-20261022]
+    paths: ['.github/workflows/publish-ipad-p2p-muse-0657.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish-verified-unsigned-ipa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the exact successful 0.6.57 IPA build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh run download 39638496300 --repo "${GITHUB_REPOSITORY}" --name TogetherPlayer-unsigned-iPad --dir verified-artifact
+          find verified-artifact -maxdepth 3 -type f -name '*.ipa' -print
+      - name: Check exact commit, checksum and app version
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find verified-artifact -type f -name '*.ipa' | wc -l)" -eq 1
+          test "$(find verified-artifact -type f -name SHA256SUMS.txt | wc -l)" -eq 1
+          ipa="$(find verified-artifact -type f -name '*.ipa' -print -quit)"
+          sums="$(find verified-artifact -type f -name SHA256SUMS.txt -print -quit)"
+          expected="$(awk 'NR==1 {print $1}' "$sums")"
+          actual="$(sha256sum "$ipa" | awk '{print $1}')"
+          test -n "$expected" && test "$expected" = "$actual"
+          python3 - "$ipa" <<'PY'
+          import sys,zipfile,plistlib
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              paths=[n for n in z.namelist() if n.startswith("Payload/") and n.endswith(".app/Info.plist")]
+              assert len(paths)==1,paths
+              info=plistlib.loads(z.read(paths[0]))
+              assert info["CFBundleShortVersionString"]=="0.6.57", info
+              assert str(info["CFBundleVersion"])=="117", info
+              print("Verified:",info["CFBundleShortVersionString"],info["CFBundleVersion"])
+          PY
+          mkdir -p publish
+          cp "$ipa" publish/TogetherPlayer-iPad-0.6.57-P2P-Muse-Handoff-unsigned.ipa
+          (cd publish && sha256sum TogetherPlayer-iPad-0.6.57-P2P-Muse-Handoff-unsigned.ipa > SHA256SUMS.txt)
+          printf 'App: TogetherPlayer 0.6.57 build117\nSource SHA: 5ab715ef86c188176ce67926e69e747654852124\nBuild: https://github.com/Qq20050817/togetherplayer-ipad-build/actions/runs/39638496300\nRegression: https://github.com/Qq20050817/togetherplayer-ipad-build/actions/runs/39638502647\nStatus: verified CI preview, actual P2P to Muse dual-device playback pending.\nUnsigned IPA: sign before installation.\n' > publish/BUILD.txt
+      - name: Create standalone direct IPA prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create ipad-v0.6.57-p2p-muse-handoff-preview-20261022 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target 5ab715ef86c188176ce67926e69e747654852124 \
+            --prerelease \
+            --title "TogetherPlayer iPad 0.6.57 · P2P/Muse 切换优化预览" \
+            --notes "iPad 0.6.57 build117. P2P→Muse speculative control handoff fix. Full unsigned IPA compilation and handoff regression passed on GitHub Actions. Real iPad/Android switch playback has not been verified. Unsigned IPA must be signed for installation. No existing live services, router or Muse configuration changed." \
+            publish/TogetherPlayer-iPad-0.6.57-P2P-Muse-Handoff-unsigned.ipa \
+            publish/SHA256SUMS.txt \
+            publish/BUILD.txt
