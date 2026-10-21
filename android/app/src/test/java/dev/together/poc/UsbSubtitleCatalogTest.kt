@@ -5,6 +5,18 @@ import org.junit.Test
 
 class UsbSubtitleCatalogTest {
  private val video = "http://usb-media.example:49185/media/usb-123/Example.Movie.2020.mkv?expires=1800000000&sig=movie-signature"
+ @Test fun unsignedVideoUsesLocalSameFolderSidecars() {
+  val movie = "http://usb-media.example:49185/usb-files/高清/Example.Movie.mkv"
+  assertEquals("http://usb-media.example:49185/usb-files/%E9%AB%98%E6%B8%85/Example.Movie.mkv?subtitles=1", UsbSubtitleCatalog.manifestUrl(movie))
+  val json = """{"subtitles":[
+   {"name":"Example.Movie.zh.srt","url":"/usb-files/%E9%AB%98%E6%B8%85/Example.Movie.zh.srt"},
+   {"name":"wrong.srt","url":"/usb-files/elsewhere/wrong.srt"},
+   {"name":"evil.srt","url":"http://attacker.example/usb-files/高清/evil.srt"},
+   {"name":"bad.exe","url":"/usb-files/高清/bad.exe"}
+  ]}"""
+  val found=UsbSubtitleCatalog.parse(movie,json)
+  assertEquals(listOf("Example.Movie.zh.srt"),found.map {it.name})
+ }
 
  @Test fun signedVideoHasCatalogRepresentation() {
   assertEquals(

@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014, feat/android-usb-http-library-20261022]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
@@ -53,9 +53,15 @@ jobs:
         run: |
           mkdir -p android-delivery/screenshots
           if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk android-delivery/TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk
-            (cd android-delivery && sha256sum TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk > SHA256SUMS.txt)
-            printf 'Source SHA: %s\nAndroid: 0.6.6\nScope: keep Android 0.6.5 fixes; display full plot question as scrollable dialog body, support prediction labels.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            if [ "$GITHUB_REF_NAME" = "feat/android-usb-http-library-20261022" ]; then
+              filename=TogetherPlayer-Android-0.6.55-USB-HTTP.apk
+              printf 'Source SHA: %s\nAndroid: 0.6.55\nScope: iPad-only room selection, Android local media override retained, unsigned USB subtitles.\nValidation: Android CI; dual-device real media still needs on-device verification.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            else
+              filename=TogetherPlayer-Android-0.6.6-PlotQuestion-FullText.apk
+              printf 'Source SHA: %s\nAndroid: 0.6.6\nScope: keep Android 0.6.5 fixes; display full plot question as scrollable dialog body, support prediction labels.\nValidation: Android CI plus emulator; real 4K MOV and dual-device playback not yet verified.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            fi
+            cp android/app/build/outputs/apk/debug/app-debug.apk "android-delivery/$filename"
+            (cd android-delivery && sha256sum "$filename" > SHA256SUMS.txt)
           fi
       - uses: actions/upload-artifact@v4
         if: always()
@@ -119,3 +125,46 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "TogetherPlayer Android 0.6.6 - Full plot question and prediction UI (experimental)" \
             --notes "Experimental direct APK, no ZIP. Based on the last verified Android 0.6.4 local MOV compatible playback. Preserves 0.6.5 synchronized speed/recovery. Fixes truncated plot poll question titles on Android by showing long questions in a scrollable body, with prediction hints and unchanged vote flow. Emulator CI verification; two real devices and all high-bitrate sources require acceptance. Existing iPad/server/router services unchanged."
+
+  release-usb-viewer:
+    name: Publish USB HTTP Android APK after complete verification
+    needs: android-build
+    if: ${{ success() && github.ref_name == 'feat/android-usb-http-library-20261022' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Verify source commit and packaged APK checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-phone --dir verified
+          report="$(find verified -type f -name BUILD.txt -print -quit)"
+          test -n "$report"
+          folder="$(dirname "$report")"
+          grep -Fx "Source SHA: $GITHUB_SHA" "$report"
+          grep -Fx "Android: 0.6.55" "$report"
+          (cd "$folder" && sha256sum -c SHA256SUMS.txt)
+          test -s "$folder/TogetherPlayer-Android-0.6.55-USB-HTTP.apk"
+          mkdir -p release-files
+          cp "$folder/TogetherPlayer-Android-0.6.55-USB-HTTP.apk" "$folder/BUILD.txt" "$folder/SHA256SUMS.txt" release-files/
+      - name: Create standalone APK prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="android-v0.6.55-usb-http-viewer-preview-20261022"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Tag already exists; refusing to overwrite previously published assets." >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            release-files/TogetherPlayer-Android-0.6.55-USB-HTTP.apk \
+            release-files/BUILD.txt release-files/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "TogetherPlayer Android 0.6.55 · USB HTTP viewer" \
+            --notes "Direct APK, no ZIP. Android joins room and loads the iPad owner's HTTP movie automatically; local video and alternative HTTP sources remain selectable per device, with no Android room-media publication. CI and emulator tests pass; dual-device actual media needs confirmation. Existing router/media services unchanged."

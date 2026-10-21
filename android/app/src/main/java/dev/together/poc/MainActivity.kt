@@ -194,31 +194,32 @@ class MainActivity: Activity() {
   notice=label(videoColumn);notice.textSize=12f;notice.setTextColor(0xff95b7d3.toInt());requestStatus=label(videoColumn);requestStatus.textSize=12f;requestStatus.setTextColor(0xffffba67.toInt());approveButton=button(videoColumn,"批准对方请求") {pending?.let {control(it.optString("type"),it.optDouble("position",0.0));pending=null;approveButton.visibility=View.GONE;requestStatus.text=""}};approveButton.visibility=View.GONE
   chatScroll=ScrollView(this).apply {isFillViewport=true;isVerticalScrollBarEnabled=false};chatText=TextView(this);chatBubbles=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(6),dp(8),dp(6),dp(8))};chatScroll.addView(chatBubbles);chatColumn.addView(chatScroll,LinearLayout.LayoutParams(-1,0,1f));typing=label(chatColumn);typing.textSize=11f
   val chatRow=row(chatColumn).apply {gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(0,dp(8),0,dp(6))}
-  icon(chatRow,R.drawable.ic_add,"聊天工具",44,0xff1c242b.toInt()) {android.app.AlertDialog.Builder(this).setTitle("聊天工具").setItems(arrayOf("播放列表","导入外挂字幕","房间与片源")){_,i->when(i){0->showLibrary();1->importSubtitle();2->openSettings()}}.show()}
+  icon(chatRow,R.drawable.ic_add,"聊天工具",44,0xff1c242b.toInt()) {android.app.AlertDialog.Builder(this).setTitle("聊天工具").setItems(arrayOf("导入外挂字幕","房间与片源")){_,i->when(i){0->importSubtitle();1->openSettings()}}.show()}
   val inputWrap=LinearLayout(this).apply {gravity=android.view.Gravity.CENTER_VERTICAL;background=rounded(0xff191f24.toInt(),28)};chatRow.addView(inputWrap,LinearLayout.LayoutParams(0,-2,1f).apply {setMargins(dp(8),0,dp(8),0)})
   draft=field(inputWrap,"发消息…").apply {textSize=14f;maxLines=3;minHeight=dp(48);setTextColor(-1);setHintTextColor(0xff8f99a4.toInt());background=null;setPadding(dp(14),dp(10),0,dp(10));layoutParams=LinearLayout.LayoutParams(0,-2,1f);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEND;setOnEditorActionListener {_,action,_->if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){sendChat();true}else false}}
   icon(inputWrap,R.drawable.ic_sentiment_satisfied_alt,"发送表情") {emojiPicker()};icon(chatRow,R.drawable.ic_send,"发送",48,0xff1688ff.toInt()) {sendChat()};draft.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){if(connected && clock.localNow()-lastTyping>1000){lastTyping=clock.localNow();send(JSONObject().put("type","CHAT_TYPING"))}};override fun afterTextChanged(s: Editable?) {}})
   renderChat()
-  label(settingsBody,"房间与片源").apply {textSize=26f;setTypeface(typeface,android.graphics.Typeface.BOLD)};label(settingsBody,"连接房间，选择影片，就可以开始观影。");val connectionCard=settingsCard(settingsBody,"房间连接");val connectionOptions=settingsFold(connectionCard,"连接设置");server=field(connectionOptions,"服务端 HTTPS 地址",getPreferences(0).getString("server","https://together.xiaokai123.de5.net")!!);roomInput=field(connectionCard,"房间编号")
-  val rooms=row(connectionCard);button(rooms,"创建") {register(false)};button(rooms,"加入 / 重连") {register(true)};button(rooms,"离开") {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
+  label(settingsBody,"房间与片源").apply {textSize=26f;setTypeface(typeface,android.graphics.Typeface.BOLD)};label(settingsBody,"房间影片由 iPad 房主设置；安卓可单独选择本地影片、另一画质或自己的播放链接。");val connectionCard=settingsCard(settingsBody,"房间连接");val connectionOptions=settingsFold(connectionCard,"连接设置");server=field(connectionOptions,"服务端 HTTPS 地址",getPreferences(0).getString("server","https://together.xiaokai123.de5.net")!!);roomInput=field(connectionCard,"房间编号")
+  val rooms=row(connectionCard);button(rooms,"加入 / 重连") {register(true)};button(rooms,"离开") {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
    button(connectionCard,"🔗 P2P 直连测试（实验，不操作播放器）") {P2PDiagnosticsDialog.show(this)}
   // Keep REST feedback visible next to the buttons as well as on the watch page.
   val feedback=label(connectionCard);requestStatus.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){feedback.text=s};override fun afterTextChanged(s: Editable?) {}})
   waitToggle=Switch(this).apply {text="等待对方缓冲或重连";connectionOptions.addView(this);setOnCheckedChangeListener {_,enabled->if(!settingWait && connected && isHost)enqueue(JSONObject().put("type","ROOM_SETTINGS").put("data",JSONObject().put("waitForPeer",enabled)))}}
-  val sourceCard=settingsCard(settingsBody,"选择片源")
-  localFileLabel=label(sourceCard,"未选择本地影片").apply {textSize=12f;setTextColor(0xff95b7d3.toInt())}
-  button(sourceCard,"选择本地影片") {importLocalMovie()}.apply {setTextColor(-1);background=rounded(0xff1688ff.toInt());minHeight=dp(48)}
-  label(sourceCard,"直接读取设备上的视频，不复制、不上传。")
-  button(sourceCard,"百度网盘 · 授权并选择房间影片") {openBaidu()}
-  val sourceOptions=settingsFold(sourceCard,"片源管理")
-  button(sourceOptions,"重试播放") {retryPlayback()}
-  button(sourceOptions,"清除本机百度授权和片源") {baidu.clear();clearBaiduSource()}
-  button(sourceOptions,"清除本地影片") {clearLocalMovie()}
+  val sourceCard=settingsCard(settingsBody,"房间影片")
+  localFileLabel=label(sourceCard,"未选择本机备用影片").apply {textSize=12f;setTextColor(0xff95b7d3.toInt())}
+  button(sourceCard,"选择本地影片 / 另一画质") {importLocalMovie(publishRoom=false)}
+  button(sourceCard,"原百度网盘文件匹配模式") {openBaidu()}
+  label(sourceCard,"仅切换这台安卓手机实际播放的片源，房间影片和 iPad 房主的影片保持不变。不同剪辑需要确认时间轴是否一致。")
+  button(sourceCard,"恢复播放房主的影片") {clearLocalMovie()}
+  button(sourceCard,"重试播放") {retryPlayback()}
   button(sourceCard,"看完清理 · 影片与字幕") {beginWatchedCleanup()}.apply {contentDescription="看完清理";setTextColor(0xffff7b83.toInt())}
-  val linkCard=settingsCard(settingsBody,"链接播放");val linkOptions=settingsFold(linkCard,"输入房间影片链接")
-  titleField=field(linkOptions,"影片名称","一起看电影");media=field(linkOptions,"HTTP / HLS / WebDAV 文件链接","https://media.w3.org/2010/05/bunny/movie.mp4");button(linkOptions,"设置房间影片") {setRoomMedia()};button(linkOptions,"添加到本机播放列表") {saveLibrary()}
-  val localOptions=settingsFold(linkCard,"仅本机使用另一播放链接")
-  localSource=field(localOptions,"仅本机片源（留空恢复）");button(localOptions,"应用本机片源") {applyLocalSource()};val moreCard=settingsCard(settingsBody,"更多设置");val profileOptions=settingsFold(moreCard,"身份与时间校准");nickname=field(profileOptions,"昵称",getPreferences(0).getString("nickname","我")!!);offset=field(profileOptions,"时间偏移（秒，可负数）",getPreferences(0).getString("offset","0")!!);label(profileOptions,"本地文件直接从本机读取，不会上传；百度房间会核对同一文件。片头差异可用时间偏移校准，不同剪辑无法靠偏移同步。");button(profileOptions,"保存昵称与校准") {saveProfile()}
+  val hiddenSource=LinearLayout(this)
+  titleField=field(hiddenSource,"影片名称","一起看电影")
+  media=field(hiddenSource,"房间影片链接")
+  val localOptions=settingsFold(sourceCard,"仅本机使用另一 HTTP 播放链接")
+  localSource=field(localOptions,"本机播放链接（留空恢复房间片源）")
+  button(localOptions,"应用本机片源") {applyLocalSource()}
+  val moreCard=settingsCard(settingsBody,"更多设置");val profileOptions=settingsFold(moreCard,"身份与时间校准");nickname=field(profileOptions,"昵称",getPreferences(0).getString("nickname","我")!!);offset=field(profileOptions,"时间偏移（秒，可负数）",getPreferences(0).getString("offset","0")!!);label(profileOptions,"房间影片来自 iPad 房主，安卓端自动读取并同步播放。");button(profileOptions,"保存昵称与校准") {saveProfile()}
   // Retain backing fields used by telemetry without exposing diagnostic actions.
   val diagnosticStorage=LinearLayout(this);seek=field(diagnosticStorage,"跳转秒数","20");status=TextView(this)
   label(moreCard,"TogetherPlayer $clientVersion").apply {textSize=12f;setTextColor(0xff8f99a4.toInt())}
@@ -808,12 +809,10 @@ class MainActivity: Activity() {
    else if(expectedRoom!=null && (room!=expectedRoom || r.optString("mediaUrl")!=original)){requestStatus.text="房间或影片已改变，请重新打开百度选片";android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_LONG).show();false}
    else if(!BaiduSourceAdapter.allowedURL(u)){requestStatus.text="不允许的百度片源";false}
    else {
-    val ref=if(isHost)BaiduMediaReference.create(f.fingerprint,f.size) else BaiduMediaReference.parse(r.optString("mediaUrl"))?.takeIf {it.matches(f.fingerprint,f.size)}
-    if(ref==null){requestStatus.text=if(isHost)"百度未提供可核对的文件指纹/大小" else "文件与房间影片不匹配，请转存房主分享的同一文件";android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_LONG).show();false}
-    else if(isHost && queued.size>=8){requestStatus.text="请等待操作完成";false}
+    val ref=BaiduMediaReference.parse(r.optString("mediaUrl"))?.takeIf {it.matches(f.fingerprint,f.size)}
+    if(ref==null){requestStatus.text="当前房间未使用百度文件匹配，或文件与房间影片不匹配";android.widget.Toast.makeText(this,requestStatus.text,android.widget.Toast.LENGTH_LONG).show();false}
     else {variantRoomID="";variantMediaURL="";variantDuration=0.0;localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";baiduURL=u;baiduSourceID=ref.value;baiduSourceRoom=room;activeLocalSource="";localSource.text.clear()
-     if(isHost)enqueue(JSONObject().put("type","ROOM_MEDIA").put("data",JSONObject().put("mediaUrl",ref.value).put("title",f.name.take(160))))
-     else loadMedia(u,r.getDouble("position")+engine.timelineOffset)
+     loadMedia(u,r.getDouble("position")+engine.timelineOffset)
      requestStatus.text="已选择百度同一文件，等待双方准备好后由房主播放";true}
    }
   },{clearBaiduSource()}).show()
@@ -920,7 +919,7 @@ class MainActivity: Activity() {
  }
  private fun useLocalMovie(uri:android.net.Uri,grantFlags:Int,confirmedVariant:Boolean=false){
   val room=engine.room ?: return;val expectedRoom=room.optString("roomId");val expectedMedia=room.optString("mediaUrl");val start=room.optDouble("position")+engine.timelineOffset
-  val selection=localSelectionGeneration;val publish=isHost && localSelectionPublishes
+  val selection=localSelectionGeneration;val publish=false // Android viewer cannot publish room movies.
   runCatching {contentResolver.takePersistableUriPermission(uri,grantFlags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)}
   requestStatus.text="正在读取本地影片…"
   localFileLabel.text="正在读取本地影片…"
@@ -1016,14 +1015,14 @@ class MainActivity: Activity() {
  private fun clearLocalMovie(){
   variantRoomID="";variantMediaURL="";variantDuration=0.0
   localSelectionGeneration++;pendingLocalMovie=null
-  if(localFileUri.isBlank()){requestStatus.text="当前没有本地影片";return}
-  localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";val r=engine.room
+  if(localFileUri.isBlank() && activeLocalSource.isBlank()){requestStatus.text="当前没有本机替代片源";return}
+  localFileUri="";localFileName="";activeLocalSource="";localSource.text.clear();if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";val r=engine.room
   if(r==null){requestStatus.text="本地影片已清除";return}
   if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){baiduSourceID="";baiduSourceRoom="";playback.pause();playback.clearMediaItems();clearSubtitle();loadedURL="";requestStatus.text="本地影片已清除；当前房间仍需重新选择同一文件。"}
   else {localSourceRoom="";localSourceRoomID="";loadMedia(r.optString("mediaUrl"),r.optDouble("position")+engine.timelineOffset);requestStatus.text="本地影片已清除，已恢复房间片源。"}
  }
  private fun applyLocalSource(){val r=engine.room ?: return;if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){requestStatus.text="当前房间使用文件匹配，请点“选择本地影片”或使用自己的百度授权选片";return};try {localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource=if(localSource.text.isBlank())"" else MediaSources.resolve(localSource.text.toString());localSourceRoom=r.getString("mediaUrl");localSourceRoomID=r.getString("roomId");loadMedia(playbackSource(localSourceRoom),r.getDouble("position")+engine.timelineOffset);requestStatus.text="已应用本机片源；链接不分享"}catch(e: Exception){requestStatus.text="本机链接无效"}}
- private fun setRoomMedia(){if(!isHost || !connected){requestStatus.text="请先作为房主连接";return};val source=media.text.toString();if(!MediaSources.canShare(source)){requestStatus.text="公用片源不能含账户凭据";return};enqueue(JSONObject().put("type","ROOM_MEDIA").put("data",JSONObject().put("mediaUrl",MediaSources.resolve(source)).put("title",titleField.text.toString())))}
+ private fun setRoomMedia(){requestStatus.text="仅 iPad 房主可设置房间影片"}
  private fun enqueue(obj: JSONObject){if(queued.size>=8){requestStatus.text="请等待操作完成";return};queued.addLast(obj);flush()}
  private fun flush(){if(!connected || !clock.ready || inFlight!=null || queued.isEmpty() || (!isHost && queued.first().optString("type")!="INSTANT_CONTROL"))return;val op=queued.removeFirst();inFlight=op;flightSequence=++sequence;val command=JSONObject(op.toString()).put("sequence",sequence).put("baseVersion",engine.version);send(command);sendP2PHint(command)}
  private fun playbackAction(text:String){

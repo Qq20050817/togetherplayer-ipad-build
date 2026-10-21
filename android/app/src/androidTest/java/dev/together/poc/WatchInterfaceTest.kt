@@ -28,10 +28,14 @@ class WatchInterfaceTest {
  @Test fun testSettingsCardsKeepSourceActionsAndRemoveDiagnosticEntries() {
   ActivityScenario.launch(MainActivity::class.java).use {
    onView(withContentDescription("房间 / 设置")).perform(click())
-   onView(withText("创建")).check(matches(isDisplayed()))
-   onView(withText("选择本地影片")).perform(scrollTo()).check(matches(isDisplayed()))
-   onView(withContentDescription("输入房间影片链接")).perform(scrollTo(),click())
-   onView(withText("设置房间影片")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withText("加入 / 重连")).check(matches(isDisplayed()))
+   onView(withText("选择本地影片 / 另一画质")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withText("原百度网盘文件匹配模式")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withText("恢复播放房主的影片")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withContentDescription("仅本机使用另一 HTTP 播放链接")).perform(scrollTo(),click())
+   onView(withText("应用本机片源")).perform(scrollTo()).check(matches(isDisplayed()))
+   onView(withText("创建")).check(doesNotExist())
+   onView(withText("设置房间影片")).check(doesNotExist())
    onView(withText("苹果 HDR / Atmos 测试片")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
    onView(withText("仅替换本机为本地影片（好友继续在线）")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
    onView(withText("模拟断线3秒")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist())
@@ -53,7 +57,7 @@ class WatchInterfaceTest {
    onView(withContentDescription("静音 / 恢复音量")).perform(click())
    scenario.onActivity {activity->val p=activity.javaClass.getDeclaredField("player").apply {isAccessible=true}.get(activity) as androidx.media3.exoplayer.ExoPlayer;assertEquals(0f,p.volume,0.001f)}
    onView(withContentDescription("静音 / 恢复音量")).perform(click())
-   onView(withContentDescription("房间 / 设置")).perform(click());onView(withText("创建")).check(matches(isDisplayed()));onView(withText("选择本地影片")).perform(scrollTo()).check(matches(isDisplayed()));capture("02-room-settings")
+   onView(withContentDescription("房间 / 设置")).perform(click());onView(withText("加入 / 重连")).check(matches(isDisplayed()));onView(withText("选择本地影片 / 另一画质")).perform(scrollTo()).check(matches(isDisplayed()));capture("02-room-settings")
    onView(withText("一起看")).perform(click())
    scenario.onActivity {it.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE};SystemClock.sleep(1000);capture("03-landscape")
    // Espresso waits for delayed main-loop messages; inspect the timed overlay
@@ -121,7 +125,7 @@ class WatchInterfaceTest {
  @Test fun testBaiduEntryOpensWithoutRoomAndDuringReconnect() {
   ActivityScenario.launch<MainActivity>(MainActivity::class.java).use {scenario->
    onView(withContentDescription("房间 / 设置")).perform(click())
-   onView(withText("百度网盘 · 授权并选择房间影片")).perform(scrollTo(),click())
+   onView(withText("原百度网盘文件匹配模式")).perform(scrollTo(),click())
    onView(withText("百度网盘 · 房间选片")).check(matches(isDisplayed()))
    onView(withText("打开官方体验授权页")).check(matches(isDisplayed()))
    onView(withText("返回")).perform(click())
@@ -130,7 +134,7 @@ class WatchInterfaceTest {
     activity.javaClass.getDeclaredMethod("receive",org.json.JSONObject::class.java,Double::class.javaPrimitiveType).apply {isAccessible=true}.invoke(activity,org.json.JSONObject().put("type","STATE").put("room",room),0.0)
     activity.javaClass.getDeclaredField("connected").apply {isAccessible=true}.setBoolean(activity,false)
    }
-   onView(withText("百度网盘 · 授权并选择房间影片")).perform(scrollTo(),click())
+   onView(withText("原百度网盘文件匹配模式")).perform(scrollTo(),click())
    onView(withText("百度网盘 · 房间选片")).check(matches(isDisplayed()))
    onView(withText("返回")).perform(click())
   }
