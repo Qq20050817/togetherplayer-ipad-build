@@ -281,8 +281,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var p2pRoomID=""
  private var p2pEstablished=false
  private var p2pLastOfferAt=0.0
- private var p2pFastUntil=0.0
- private var p2pFastVersion: Int64=0
+ private var p2pHandoff=P2PMuseHandoff()
  private var p2pGate=P2PFastPathGate()
  private var initializedP2PTransport:P2PWebRTCTransport?
  var p2pTransport:P2PWebRTCTransport {
@@ -1097,7 +1096,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     if localFileURL != nil || expected?.roomID != room.roomId || expected?.mediaID != room.mediaUrl {forgetRememberedMovie();releaseLocalFileAccess()}
    }
    engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
-   if p2pFastUntil>0 && (room.roomId != p2pRoomID || room.version>p2pFastVersion) {p2pFastUntil=0}
+   if room.roomId != p2pRoomID {p2pHandoff.reset()}
    p2pGate.serverState(version:room.version)
    if plotPollWaiting {clearOptimisticPlayback()}
    if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
@@ -1410,7 +1409,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if speedHoldID != nil,engine.target()?.1 == "paused" {setSpeedHold(false)}
   let error: Double?
   if variantDurationCheck == .compatible {
-   if !plotPollWaiting,p2pFastUntil>clock.localNow(),let room=engine.room,room.roomId==p2pRoomID,room.version==p2pFastVersion {
+   if let room=engine.room,p2pHandoff.shouldDeferMuse(now:clock.localNow(),
+         roomID:room.roomId,roomVersion:room.version,
+         targetState:engine.target()?.1,targetPositionMs:engine.target()?.0,
+         blockingPoll:plotPollWaiting,authoritativePause:room.pauseReason != nil && room.pauseReason != "") {
     error=nil
    } else if let room=engine.room,optimisticRoomID==room.roomId,clock.localNow()<optimisticUntil,
       (inFlight != nil || !queuedOperations.isEmpty || holdingLocalPause) {
@@ -1900,7 +1902,7 @@ extension TestClient {
  private func stopP2P() {
   initializedP2PTransport?.close()
   p2pGate.reset();p2pSupported=false;p2pPeerID="";p2pRoomID=""
-  p2pEstablished=false;p2pFastUntil=0;p2pFastVersion=0
+  p2pEstablished=false;p2pHandoff.reset()
   p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
  }
  private func refreshP2P() {
@@ -1972,7 +1974,7 @@ extension TestClient {
   let hint=P2PControlHint(roomID:roomID,senderUserID:sender,roomVersion:version,
                           sequence:seq,action:action,positionMs:position,issuedAtMs:sentAt)
   guard p2pGate.admit(hint,nowMs:Date().timeIntervalSince1970*1000) == .accepted else{return}
-  p2pFastVersion=version;p2pFastUntil=clock.localNow()+1200
+  p2pHandoff.begin(hint,timelineOffset:engine.timelineOffset,now:clock.localNow())
   switch action {
   case .pause:adapter.pause()
   case .seek:adapter.seekTo(position+engine.timelineOffset)
