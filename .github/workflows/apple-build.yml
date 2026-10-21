@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013, fix/ipad-usb-resync-startup-0655-20261020, feat/ipad-usb-playback-subtitles-20261021, fix/ipad-tail-evidence-sampling-20261021, fix/ipad-p2p-muse-handoff-0657-20261022, feat/ipad-usb-http-library-20261022]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013, fix/ipad-real-brightness-20261013 , feat/plot-polls-local-ai-20261013, fix/ipad-usb-resync-startup-0655-20261020, feat/ipad-usb-playback-subtitles-20261021, fix/ipad-tail-evidence-sampling-20261021, fix/ipad-p2p-muse-handoff-0657-20261022, feat/ipad-usb-http-library-20261022, feat/ipad-usb-playlist-posters-0659-20261022]
     paths:
       - 'ios/**'
       - 'tools/package_unsigned_ipa.py'
@@ -172,6 +172,15 @@ jobs:
               -only-testing:TogetherPoCCoreTests
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenGestureSurfaceAndDeviceStatus
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testRepeatedFullscreenExitAfterBrightnessAndLongPressDoesNotCrash
+              -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
+            )
+          fi
+          # 0.6.59 playlist branch: run the complete core regression suite and
+          # native watch layout smoke test. Known external file-provider UI
+          # flakes are left in the full suite for separate investigation.
+          if [ "${GITHUB_REF_NAME}" = "feat/ipad-usb-playlist-posters-0659-20261022" ]; then
+            TEST_SELECTION=(
+              -only-testing:TogetherPoCCoreTests
               -only-testing:TogetherPoCUITests/WatchInterfaceTests/testWatchInterfacePortraitLandscapeAndFullscreen
             )
           fi

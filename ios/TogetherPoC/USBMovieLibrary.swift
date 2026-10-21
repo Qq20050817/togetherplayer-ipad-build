@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 struct USBMovie: Decodable, Identifiable {
  let name: String
@@ -41,6 +42,7 @@ enum USBMovieLibrary {
  @State private var loading=false
  @State private var error=""
  @State private var search=""
+ @StateObject private var posters=USBPosterStore()
 
  private var filtered:[USBMovie] {
   guard !search.isEmpty else {return movies}
@@ -59,10 +61,14 @@ enum USBMovieLibrary {
      ForEach(filtered) {movie in
       if let url=USBMovieLibrary.playableURL(movie.url) {
        Button {select(movie,url)} label:{
-        VStack(alignment:.leading,spacing:4) {
-         Label(movie.name,systemImage:"film").lineLimit(2)
-         Text("\(movie.path) · \(ByteCountFormatter.string(fromByteCount:movie.size,countStyle:.file))")
-          .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        HStack(alignment:.center,spacing:12) {
+         USBPosterTile(movie:movie,posters:posters,width:60,height:82)
+         VStack(alignment:.leading,spacing:5) {
+          Text(movie.displayTitle).font(.subheadline.bold()).lineLimit(2)
+          Text(movie.isEpisode ? "电视剧 / 动画剧集" : "电影").font(.caption2).foregroundStyle(.cyan)
+          Text(ByteCountFormatter.string(fromByteCount:movie.size,countStyle:.file))
+           .font(.caption).foregroundStyle(.secondary)
+         }
         }.padding(.vertical,4)
        }.accessibilityIdentifier("usb-movie-option")
       }
@@ -86,5 +92,152 @@ enum USBMovieLibrary {
   defer{loading=false}
   do {movies=try await USBMovieLibrary.list();error=""}
   catch {self.error="获取影片目录失败：\(error.localizedDescription)"}
+ }
+}
+
+// A router file is a transient catalog entry, not a locally downloaded movie.
+// Presentation metadata never alters its original play URL or room identity.
+extension USBMovie {
+ var mediaURL: URL? { USBMovieLibrary.playableURL(url) }
+ var isEpisode: Bool {
+  let s = (name + " " + path).lowercased()
+  return s.contains("第") && (s.contains("季") || s.contains("集"))
+    || s.range(of: #"(?i)\bs\d{1,2}e\d{1,3}\b"#,options:.regularExpression) != nil
+    || s.range(of: #"(?i)\b(?:ep|episode)[. _-]?\d+\b"#,options:.regularExpression) != nil
+    || s.range(of: #"\d{2,3}\s*[-–]\s*\d{2,3}"#,options:.regularExpression) != nil
+ }
+ var releaseYear: Int? {
+  let s=URL(fileURLWithPath:name).deletingPathExtension().lastPathComponent
+  guard let range=s.range(of:#"(?<!\d)(?:19|20)\d{2}(?!\d)"#,options:.regularExpression) else{return nil}
+  return Int(s[range])
+ }
+ var displayTitle: String {
+  let base=URL(fileURLWithPath:name).deletingPathExtension().lastPathComponent
+  // Common release suffixes must not show up as the film's public title.
+  let clean=base.replacingOccurrences(of:"_",with:" ").replacingOccurrences(of:".",with:" ")
+  let pattern=#"(?i)[\s\[\(]+(?:19|20)\d{2}(?:[\s\]\)\.\-_].*)?$|[\s\[\(]+(?:2160p|1080p|720p|480p|bluray|bdrip|web-dl|remux|x264|x265|hevc|hdr|dv)(?:[\s\]\)\.\-_].*)?$"#
+  let stem=clean.replacingOccurrences(of:pattern,with:"",options:.regularExpression)
+  let result=stem.replacingOccurrences(of:#"\s+"#,with:" ",options:.regularExpression).trimmingCharacters(in:.whitespacesAndNewlines)
+  if let year=releaseYear,!isEpisode,!result.isEmpty {return String("\(result) (\(year))".prefix(100))}
+  return String((result.isEmpty ? base : result).prefix(100))
+ }
+ var posterSearchTitle: String {
+  let title=displayTitle
+  if let year=releaseYear {return title.replacingOccurrences(of:" (\(year))",with:"")}
+  if isEpisode {
+   // Do not send episode numbers, file paths or release tags to a public artwork service.
+   if let part=title.range(of:#"(?i)(?:s\d{1,2}e\d+|\d{2,3}\s*[-–]\s*\d{2,3}|第\s*\d+\s*集)"#,options:.regularExpression) {
+    return String(title[..<part.lowerBound]).trimmingCharacters(in:.whitespacesAndNewlines)
+   }
+  }
+  return title
+ }
+ var savedMedia: SavedMedia? {
+  guard let mediaURL else {return nil}
+  return SavedMedia(id:UUID(),title:displayTitle,url:mediaURL.absoluteString,favorite:false,lastPlayed:nil)
+ }
+}
+
+@MainActor final class USBCatalogStore: ObservableObject {
+ @Published private(set) var movies:[USBMovie]=[]
+ @Published private(set) var loading=false
+ @Published private(set) var error=""
+ private var lastLoaded:Date?
+ func refresh(force:Bool=false) async {
+  if loading {return}
+  if !force,let lastLoaded,Date().timeIntervalSince(lastLoaded)<90 {return}
+  loading=true
+  defer {loading=false}
+  do {
+   let fetched=try await USBMovieLibrary.list()
+   movies=fetched.sorted {
+    $0.displayTitle.localizedStandardCompare($1.displayTitle)==(.orderedAscending)
+   }
+   lastLoaded=Date()
+   error=""
+  } catch {
+   self.error="无法读取 U 盘影视目录：\(error.localizedDescription)"
+  }
+ }
+}
+
+@MainActor final class USBPosterStore: ObservableObject {
+ @Published private(set) var covers:[String:URL]=[:]
+ private var lookedUp:Set<String>=[]
+ func cover(for movie:USBMovie) async {
+  guard lookedUp.insert(movie.id).inserted else{return}
+  let title=movie.posterSearchTitle
+  guard title.count>=3,title.count<=70,
+        title.range(of:#"[A-Za-z\p{Han}]"#,options:.regularExpression) != nil else{return}
+  var comps=URLComponents(string:"https://itunes.apple.com/search")
+  comps?.queryItems=[
+   URLQueryItem(name:"term",value:title),
+   URLQueryItem(name:"entity",value:movie.isEpisode ? "tvSeason" : "movie"),
+   URLQueryItem(name:"country",value:"US"),
+   URLQueryItem(name:"limit",value:"8")
+  ]
+  guard let url=comps?.url else{return}
+  var request=URLRequest(url:url,cachePolicy:.returnCacheDataElseLoad,timeoutInterval:8)
+  request.setValue("application/json",forHTTPHeaderField:"Accept")
+  guard let (data,response)=try? await URLSession.shared.data(for:request),
+        (response as? HTTPURLResponse)?.statusCode==200,
+        data.count<=512_000,
+        let index=try? JSONDecoder().decode(ITunesPosterResults.self,from:data) else{return}
+  func norm(_ value:String)->String {
+   value.lowercased().unicodeScalars.filter {
+    CharacterSet.alphanumerics.contains($0)
+   }.map {String($0)}.joined()
+  }
+  let expected=norm(title)
+  guard let row=index.results.first(where: {result in
+   let candidate=norm(result.trackName ?? result.collectionName ?? "")
+   guard !expected.isEmpty,candidate==expected else{return false}
+   if let year=movie.releaseYear,let released=result.releaseDate,
+      let otherYear=Int(released.prefix(4)) {return abs(year-otherYear)<=1}
+   return true
+  }),let artwork=row.artworkUrl100,artwork.hasPrefix("https://"),
+       let posterURL=URL(string:artwork) else{return}
+  covers[movie.id]=posterURL
+ }
+ private struct ITunesPosterResults:Decodable {
+  let results:[Poster]
+  struct Poster:Decodable {
+   let trackName:String?
+   let collectionName:String?
+   let releaseDate:String?
+   let artworkUrl100:String?
+  }
+ }
+}
+
+@MainActor struct USBPosterTile:View {
+ let movie:USBMovie
+ @ObservedObject var posters:USBPosterStore
+ var width:CGFloat=138
+ var height:CGFloat=180
+ var body:some View {
+  ZStack {
+   RoundedRectangle(cornerRadius:12).fill(
+    LinearGradient(colors:movie.isEpisode ? [.indigo,.purple,.black] : [.blue,.teal,.black],
+     startPoint:.topLeading,endPoint:.bottomTrailing))
+   if let art=posters.covers[movie.id] {
+    AsyncImage(url:art) {phase in
+     if let image=phase.image {image.resizable().scaledToFill()}
+     else {placeholder}
+    }
+   } else {placeholder}
+  }
+  .frame(width:width,height:height)
+  .clipped().clipShape(RoundedRectangle(cornerRadius:12))
+  .overlay(RoundedRectangle(cornerRadius:12).stroke(.white.opacity(0.12)))
+  .task(id:movie.id) {await posters.cover(for:movie)}
+  .accessibilityLabel(movie.displayTitle)
+ }
+ private var placeholder:some View {
+  VStack(spacing:10) {
+   Image(systemName:movie.isEpisode ? "play.tv" : "film.stack").font(.system(size:32)).foregroundStyle(.white.opacity(0.8))
+   Text(movie.displayTitle).font(.caption.bold()).multilineTextAlignment(.center)
+    .foregroundStyle(.white).lineLimit(4).padding(.horizontal,8)
+  }.frame(maxWidth:.infinity,maxHeight:.infinity)
  }
 }

@@ -68,6 +68,8 @@ import UniformTypeIdentifiers
  @State private var settings=false
   @State private var p2pDiagnosticsOpen=false
  @State private var sidebar=0
+ @StateObject private var usbCatalog=USBCatalogStore()
+ @StateObject private var posters=USBPosterStore()
  var body: some View {
   #if DEBUG
   let _=InterfaceRenderTrace.record("watch")
@@ -86,7 +88,7 @@ import UniformTypeIdentifiers
      layout {
       VStack(spacing:12) {
        watchCard(height:wide ? min(movieWidth * CGFloat(9.0/16.0),max(300,geometry.size.height-360)) : movieWidth * CGFloat(9.0/16.0))
-       MediaLibraryPanel(model:model,library:model.library)
+       MediaLibraryPanel(model:model,library:model.library,usbCatalog:usbCatalog,posters:posters)
       }.frame(maxWidth:.infinity)
       VStack(spacing:12) {sidePanel(height:wide ? max(330,geometry.size.height-290) : 300);actions}.frame(width:wide ? sideWidth : nil)
      }
@@ -177,7 +179,29 @@ import UniformTypeIdentifiers
    Picker("侧栏",selection:$sidebar) {Text("聊天").tag(0);Text("成员 \(model.members.count)").tag(1);Text("列表").tag(2)}.pickerStyle(.segmented)
    if sidebar==0 {ChatPanel(model:model,chat:chat)}
    else if sidebar==1 {RoomMemberPanel(roster:model.roster)}
-   else {ScrollView {VStack(alignment:.leading,spacing:12) {ForEach(model.library.items) {item in Button {model.playLibraryItem(item)} label:{Label(item.title,systemImage:"film").lineLimit(2)}.disabled(!model.isRoomHost)};if model.library.items.isEmpty {Text("在下方添加影片到播放列表").font(.caption).foregroundStyle(.secondary)}}}}
+   else {ScrollView {
+    VStack(alignment:.leading,spacing:12) {
+     Text("路由器 U 盘 · \(usbCatalog.movies.count) 部").font(.caption.bold()).foregroundStyle(.secondary)
+     ForEach(usbCatalog.movies) {movie in
+      if let item=movie.savedMedia {
+       Button {model.playLibraryItem(item)} label:{
+        Label(movie.displayTitle,systemImage:movie.isEpisode ? "play.tv" : "film").lineLimit(2)
+       }.disabled(!model.isRoomHost || !model.isConnected)
+      }
+     }
+     let others=model.library.items.filter {saved in
+      !usbCatalog.movies.contains(where:{$0.mediaURL?.absoluteString==saved.url})
+     }
+     ForEach(others) {item in
+      Button {model.playLibraryItem(item)} label:{Label(item.title,systemImage:"film").lineLimit(2)}
+       .disabled(!model.isRoomHost || !model.isConnected)
+     }
+     if usbCatalog.movies.isEmpty && others.isEmpty {
+      Text(usbCatalog.loading ? "正在读取 U 盘…" : "暂无片源，请在播放列表中刷新 U 盘或添加影片")
+       .font(.caption).foregroundStyle(.secondary)
+     }
+    }.task {await usbCatalog.refresh()}
+   }}
   }.padding(14).frame(height:height).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20)).overlay {RoundedRectangle(cornerRadius:20).stroke(Color.white.opacity(0.07))}
  }
  private var actions: some View {
@@ -198,25 +222,157 @@ import UniformTypeIdentifiers
 @MainActor struct MediaLibraryPanel: View {
  @ObservedObject var model: TestClient
  @ObservedObject var library: MediaLibrary
+ @ObservedObject var usbCatalog: USBCatalogStore
+ @ObservedObject var posters: USBPosterStore
  @State private var category=0
  @State private var adding=false
- private var filtered: [SavedMedia] {category==1 ? library.items.filter(\.favorite) : category==2 ? library.items.filter {$0.lastPlayed != nil}.sorted {($0.lastPlayed ?? .distantPast)>($1.lastPlayed ?? .distantPast)} : library.items}
- var body: some View {
-  VStack(alignment:.leading,spacing:12) {
-   HStack {Picker("影片",selection:$category) {Text("播放列表").tag(0);Text("我的收藏").tag(1);Text("历史记录").tag(2)}.pickerStyle(.segmented).frame(maxWidth:380);Spacer()}
+ @State private var search=""
+ private var usbItems:[USBMovie] {
+  let items=usbCatalog.movies.filter {movie in
+   guard let url=movie.mediaURL?.absoluteString else{return false}
+   let saved=library.items.first {$0.url==url}
+   return (category==0 || (category==1 && saved?.favorite==true) || (category==2 && saved?.lastPlayed != nil))
+     && (search.isEmpty || movie.displayTitle.localizedStandardContains(search) || movie.path.localizedStandardContains(search))
+  }
+  if category==2 {
+   return items.sorted {a,b in
+    let left=library.items.first {$0.url==a.mediaURL?.absoluteString}?.lastPlayed ?? .distantPast
+    let right=library.items.first {$0.url==b.mediaURL?.absoluteString}?.lastPlayed ?? .distantPast
+    return left>right
+   }
+  }
+  return items
+ }
+ private var manualItems:[SavedMedia] {
+  let usbURLs=Set(usbCatalog.movies.compactMap{$0.mediaURL?.absoluteString})
+  let saved=library.items.filter {
+   !usbURLs.contains($0.url) &&
+   (category==0 || (category==1 && $0.favorite) || (category==2 && $0.lastPlayed != nil)) &&
+   (search.isEmpty || $0.title.localizedStandardContains(search))
+  }
+  if category==2 {return saved.sorted {($0.lastPlayed ?? .distantPast)>($1.lastPlayed ?? .distantPast)}}
+  return saved
+ }
+ private func isFavorite(_ movie:USBMovie)->Bool {
+  guard let url=movie.mediaURL?.absoluteString else{return false}
+  return library.items.first {$0.url==url}?.favorite==true
+ }
+ private func favorite(_ movie:USBMovie) {
+  guard let item=movie.savedMedia else{return}
+  if !library.items.contains(where:{$0.url==item.url}) {
+   guard library.add(title:item.title,url:item.url) else{return}
+  }
+  if let saved=library.items.first(where:{$0.url==item.url}) {library.toggleFavorite(saved)}
+ }
+ private func usbRow(_ title:String,_ items:[USBMovie])->some View {
+  VStack(alignment:.leading,spacing:8) {
+   HStack(spacing:8) {
+    Text(title).font(.subheadline.bold())
+    Text("\(items.count)").font(.caption).foregroundStyle(.secondary)
+   }
    ScrollView(.horizontal) {
     HStack(alignment:.top,spacing:12) {
-     ForEach(filtered) {item in
-      VStack(alignment:.leading,spacing:8) {
-       Button {model.playLibraryItem(item)} label:{ZStack {RoundedRectangle(cornerRadius:12).fill(Color.blue.opacity(0.12));Image(systemName:model.engine.room?.mediaUrl==item.url ? "play.circle.fill" : "film").font(.largeTitle).foregroundColor(.blue)}.frame(width:150,height:80)}.disabled(!model.isRoomHost || !model.isConnected)
-       Text(item.title).font(.caption).lineLimit(2).frame(width:150,alignment:.leading)
-       HStack {Button {library.toggleFavorite(item)} label:{Image(systemName:item.favorite ? "heart.fill" : "heart")}.accessibilityLabel(item.favorite ? "取消收藏" : "收藏影片");Spacer();Button(role:.destructive) {library.remove(item)} label:{Image(systemName:"trash")}.accessibilityLabel("移除影片")}.font(.caption).frame(width:150)
+     ForEach(items) {movie in
+      VStack(alignment:.leading,spacing:6) {
+       Button {
+        if let item=movie.savedMedia {model.playLibraryItem(item)}
+       } label:{
+        USBPosterTile(movie:movie,posters:posters,width:138,height:174)
+         .overlay(alignment:.bottomTrailing) {
+          Image(systemName:"play.circle.fill").font(.title2).foregroundStyle(.white)
+           .shadow(color:.black,radius:4).padding(8)
+         }
+       }
+       .disabled(!model.isRoomHost || !model.isConnected)
+       Text(movie.displayTitle).font(.caption.bold()).lineLimit(2).frame(width:138,alignment:.leading)
+       HStack {
+        Text(ByteCountFormatter.string(fromByteCount:movie.size,countStyle:.file))
+         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        Spacer()
+        Button {favorite(movie)} label:{
+         Image(systemName:isFavorite(movie) ? "heart.fill" : "heart")
+          .foregroundStyle(isFavorite(movie) ? .pink : .secondary)
+        }.accessibilityLabel(isFavorite(movie) ? "取消收藏" : "收藏影片")
+       }.frame(width:138)
       }
      }
-     Button {adding=true} label:{VStack(spacing:10) {Image(systemName:"plus").font(.title);Text("添加影片").font(.caption)}.frame(width:120,height:115).overlay {RoundedRectangle(cornerRadius:12).stroke(Color.white.opacity(0.18),style:StrokeStyle(lineWidth:1,dash:[5]))}}
+    }.padding(.vertical,3)
+   }.scrollIndicators(.hidden)
+  }
+ }
+ var body:some View {
+  VStack(alignment:.leading,spacing:12) {
+   HStack(spacing:10) {
+    Picker("影片",selection:$category) {
+     Text("播放列表").tag(0);Text("我的收藏").tag(1);Text("历史记录").tag(2)
+    }.pickerStyle(.segmented).frame(maxWidth:380)
+    Spacer(minLength:0)
+    Button {Task {await usbCatalog.refresh(force:true)}} label:{
+     Label("刷新U盘",systemImage:"arrow.clockwise").font(.caption)
+    }.disabled(usbCatalog.loading).accessibilityIdentifier("usb-playlist-refresh")
+   }
+   HStack(spacing:8) {
+    Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
+    TextField("搜索 U 盘电影、剧集或片名",text:$search)
+     .font(.subheadline).textInputAutocapitalization(.never)
+    if !search.isEmpty {Button {search=""} label:{Image(systemName:"xmark.circle.fill").foregroundStyle(.secondary)}}
+   }.padding(10).background(.white.opacity(0.055)).clipShape(RoundedRectangle(cornerRadius:9))
+   HStack(spacing:8) {
+    Image(systemName:"externaldrive").foregroundStyle(.cyan)
+    Text("U 盘影视库 · \(usbCatalog.movies.count) 个视频 · 自动同步")
+     .font(.caption).foregroundStyle(.secondary)
+    if usbCatalog.loading {ProgressView().controlSize(.small)}
+   }
+   if !usbCatalog.error.isEmpty {
+    HStack {
+     Text(usbCatalog.error).font(.caption).foregroundStyle(.orange)
+     Button("重试") {Task {await usbCatalog.refresh(force:true)}}.font(.caption)
     }
    }
-  }.padding(14).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20)).sheet(isPresented:$adding) {AddMediaSheet(library:library)}
+   let films=usbItems.filter{!$0.isEpisode}
+   let episodes=usbItems.filter{$0.isEpisode}
+   if !films.isEmpty {usbRow("电影",films)}
+   if !episodes.isEmpty {usbRow("电视剧 / 动画剧集",episodes)}
+   if !manualItems.isEmpty {
+    Text("手动添加").font(.subheadline.bold())
+    ScrollView(.horizontal) {
+     HStack(alignment:.top,spacing:12) {
+      ForEach(manualItems) {item in
+       VStack(alignment:.leading,spacing:7) {
+        Button {model.playLibraryItem(item)} label:{
+         ZStack {
+          RoundedRectangle(cornerRadius:12).fill(.blue.opacity(0.18))
+          VStack(spacing:8) {Image(systemName:"film").font(.title);Text(item.title).font(.caption.bold()).lineLimit(3)}
+         }.frame(width:138,height:174)
+        }.disabled(!model.isRoomHost || !model.isConnected)
+        Text(item.title).font(.caption).lineLimit(2).frame(width:138,alignment:.leading)
+        HStack {
+         Button {library.toggleFavorite(item)} label:{Image(systemName:item.favorite ? "heart.fill" : "heart")}
+          .accessibilityLabel(item.favorite ? "取消收藏" : "收藏影片")
+         Spacer()
+         Button(role:.destructive) {library.remove(item)} label:{Image(systemName:"trash")}
+          .accessibilityLabel("移除影片")
+        }.frame(width:138)
+       }
+      }
+     }
+    }.scrollIndicators(.hidden)
+   }
+   if films.isEmpty && episodes.isEmpty && manualItems.isEmpty && !usbCatalog.loading {
+    Text(category==0 ? "暂无影片。请刷新 U 盘或手动添加。" : category==1 ? "还没有收藏影片" : "还没有播放记录")
+     .font(.caption).foregroundStyle(.secondary)
+   }
+   HStack {
+    Button {adding=true} label:{Label("添加影片链接",systemImage:"plus").font(.caption)}
+    Spacer()
+    if !model.isRoomHost || !model.isConnected {
+     Text("连接房间后仅房主可换片").font(.caption2).foregroundStyle(.secondary)
+    }
+   }
+  }.padding(14).background(Color.white.opacity(0.035))
+   .clipShape(RoundedRectangle(cornerRadius:20))
+   .sheet(isPresented:$adding) {AddMediaSheet(library:library)}
+   .task {await usbCatalog.refresh()}
  }
 }
 @MainActor struct AddMediaSheet: View {
