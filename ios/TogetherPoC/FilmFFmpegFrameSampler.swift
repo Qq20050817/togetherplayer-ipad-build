@@ -206,6 +206,16 @@ final class FilmFFmpegFrameSampler {
    nearby=(position,image)
    return nil
   }
+  // After a successful sequential sample the codec may still hold reordered
+  // frames from the previous packet. Drain those before feeding new packets,
+  // otherwise EAGAIN can discard packets and create spurious timestamp gaps.
+  if canContinue {
+   while decoded<maxFrames && avcodec_receive_frame(decoder,frame)>=0 {
+    let image=acceptDecodedFrame()
+    av_frame_unref(frame)
+    if let image {return image}
+   }
+  }
   while packets<maxPackets && decoded<maxFrames {
    if Task.isCancelled {lastFailure="已取消抽帧";return nil}
    let status=av_read_frame(format,packet)
