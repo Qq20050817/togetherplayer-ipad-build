@@ -85,6 +85,6 @@ enum USBMovieLibrary {
   loading=true
   defer{loading=false}
   do {movies=try await USBMovieLibrary.list();error=""}
-  catch {error="获取影片目录失败：\(error.localizedDescription)"}
+  catch {self.error="获取影片目录失败：\(error.localizedDescription)"}
  }
 }
