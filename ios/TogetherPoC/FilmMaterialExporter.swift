@@ -481,7 +481,7 @@ enum FilmMaterialExporter {
   for (index,time) in times.enumerated() {
    try Task.checkCancellation()
    try autoreleasepool {
-    phase=.frames;phaseInterval=60
+    phase = .frames;phaseInterval = 60
     let decoded=decode(time)
     if directFFmpeg && ffmpeg == nil && nativeFrameProbeTried && !nativeFrameProbeWorks {
      throw FilmMaterialExportFailure.frameExtractionDiagnostic("FFmpeg 初始化失败；"+(ffmpegOpenFailure ?? "未知视频解码初始化故障")+"；系统原生解码也未取得画面")
@@ -503,7 +503,7 @@ enum FilmMaterialExporter {
   }
   // A separate tail phase is NEVER downsampled by the old 250-frame cap.
   // Sample all the way to EOF, including the regions after the first credits.
-  stage(.tail);phase = .tail;phaseInterval=FilmTailSamplingPlan.interval
+  stage(.tail);phase = .tail;phaseInterval = FilmTailSamplingPlan.interval
   let tailStart=FilmTailSamplingPlan.start(duration:duration)
   let dense=FilmTailSamplingPlan.dense(duration:duration)
   func tailFrame(_ t:Double,reason:String)throws {
@@ -543,7 +543,7 @@ enum FilmMaterialExporter {
    }
   }
   let candidates=FilmCreditsDetector.candidates(creditSignals)
-  stage(.boundary);phase = .boundary;phaseInterval=0.5
+  stage(.boundary);phase = .boundary;phaseInterval = 0.5
   let boundaryPoints=Array(Set(candidates.flatMap{FilmTailSamplingPlan.boundary(at:Double($0.atMs)/1000,duration:duration).map{Int(($0*1000).rounded())}})).sorted()
   for (index,key) in boundaryPoints.enumerated() {
    try Task.checkCancellation()
@@ -566,12 +566,12 @@ enum FilmMaterialExporter {
   var inspection=FilmEndingInspection(formatVersion:1,durationMs:Int((duration*1000).rounded()),
     priorityStartMs:Int((tailStart*1000).rounded()),inspectedRangesMs:[[Int((expandedStart*1000).rounded()),Int((duration*1000).rounded())]],
     creditCandidates:candidates,failedIntervals:failures.values.sorted{$0.requestedMs<$1.requestedMs},
-    unverifiedRangesMs:candidates.isEmpty ? [[Int(tailStart*1000),Int(duration*1000)]] :
+    unverifiedRangesMs:[[Int(tailStart*1000),Int(duration*1000)]] +
       candidates.map{[max(0,$0.atMs-5000),min(Int(duration*1000),$0.atMs+5000)]},
     storyEndMs:nil,storyEndStatus:"unverified: visual credit detection cannot establish the last required story scene or rule out post-credit material",
     samplingPolicy:"full-film interval + dialogue gaps + scene changes; final 720 seconds every 2s; credits transitions ±5s every 0.5s; credits until EOF")
   inspection.unverifiedRangesMs += inspection.failedIntervals.map{[$0.startMs,$0.endMs]}
-  var manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes,frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; whole-film interval and scene-change, tail 2s, transition 0.5s; actual decoded PTS; story end unverified",requestedFrameCount:attempted.count,missingFrameTimesMs:Array(attempted.subtracting(successful)).sorted())
+  var manifest=FilmMaterialManifest(schemaVersion:1,title:String(title.prefix(180)),durationMs:Int((duration*1000).rounded()),sourceFingerprint:fingerprint,subtitleFingerprint:FilmMaterialFingerprint.subtitles(srt),subtitleCueCount:subtitles.cues.count,frameCount:frameTimes.count,contactSheets:sheets,frameTimesMs:frameTimes.sorted(),frameExportMode:"AVFoundation SDR / FFmpeg PQ-HLG tone map; whole-film interval and scene-change, tail 2s, transition 0.5s; actual decoded PTS; story end unverified",requestedFrameCount:attempted.count,missingFrameTimesMs:Array(attempted.subtracting(successful)).sorted())
   if !url.isFileURL {manifest.fingerprintAlgorithm="sha256-sparse-http-range-v1"}
   let enc=JSONEncoder();enc.outputFormatting=[.prettyPrinted,.sortedKeys]
   let info=try enc.encode(manifest)
@@ -584,7 +584,7 @@ enum FilmMaterialExporter {
   let schema=try Data(contentsOf:schemaURL)
   let projectGuide=FilmBankProjectInstructions.text
   let sourceNote=url.isFileURL ? "原片指纹采用完整文件SHA256" : "U盘 HTTP 原片使用首尾分段与 HTTP 元数据指纹（sha256-sparse-http-range-v1），是轻量识别而非完整文件SHA256；请使用同一片源链接导入题库"
-  let entries:[(String,Data)]=[("manifest.json",info),("ending-inspection.json",endingData),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline)),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。结尾分析见 ending-inspection.json；storyEndMs 为 null 时必须人工验证候选边界与所有片尾彩蛋。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]+FilmBankGenreInstructions.exportFiles
+  let entries:[(String,Data)]=[("manifest.json",info),("ending-inspection.json",endingData),("subtitles/whole-film.srt",Data(srt.utf8)),("frame-timeline.json",try enc.encode(timeline.sorted{$0.actualMs<$1.actualMs})),("question-bank-v1.schema.json",schema),("ChatGPT项目指令.txt",Data(projectGuide.utf8)),("README.txt",Data((instructions+"\n"+sourceNote+"；画面时间轴的actualMs是实际解码时间，截图不是连续动作证据。结尾分析见 ending-inspection.json；storyEndMs 为 null 时必须人工验证候选边界与所有片尾彩蛋。\n可单独分享SRT、manifest、Schema和所有分镜JPG；不要只提供影片名称。\n").utf8))]+FilmBankGenreInstructions.exportFiles
   let name=url.deletingPathExtension().lastPathComponent
    .replacingOccurrences(of:"[^a-zA-Z0-9_\\-一-龥]",with:"_",options:.regularExpression)
   let filename=String(name.prefix(52))
