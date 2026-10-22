@@ -26,3 +26,12 @@ Recommendation cards include a premise, recommendation reason and specific tag/h
 Targeted tests cover source deletion plus relaunch, rating and note persistence, duplicate Chinese/English titles, remake year discrimination, seen/dismissed filtering, positive and negative feedback, cold start, seeking/buffering/source switches, repeated intervals, natural ending and corrupt archive preservation. CI builds actual applications and packages installers only after targeted native checks. iPad UI tests open the real new page and save a record.
 
 Full two-device playback and physical iPad/Android installation remain to be verified on hardware. Existing network and playback features are not intentionally changed.
+
+## Android verified checkpoint
+
+- Final implementation: 3aa16df42ed948f88137b2b928abee17be000c52.
+- CI 39789092945 passed full unit tests, APK build and WatchMemoryPersistenceTest on an Android emulator.
+- Direct Kotlin compiler check plus eight WatchMemoryCoreTest JUnit cases passed before CI.
+- Download: https://github.com/Qq20050817/togetherplayer-ipad-build/releases/tag/watch-memory-android-0.6.60-39789092945
+- Genre mapping was checked against Apple's live taxonomy: family 4410, horror 4408. Online summaries are capped at 220 characters.
+- Physical phone installation and two-device playback remain unverified.
