@@ -78,6 +78,9 @@ class MainActivity: Activity() {
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private lateinit var networkHealthLabel:TextView;private var memberSummary="";private var onlineMembers=0
  private var importedSubtitleUri:android.net.Uri?=null
  private var loadedSubtitleBytes:ByteArray?=null
+ private lateinit var videoRotationLayer:VideoRotationLayout
+ private var videoRotationTurns=0
+ private fun rotateVideo(){videoRotationTurns=VideoRotation.next(videoRotationTurns);videoRotationLayer.quarterTurns=videoRotationTurns;Toast.makeText(this,"画面 "+VideoRotation.degrees(videoRotationTurns)+"°",Toast.LENGTH_SHORT).show();if(fullscreenDialog!=null)revealControls()}
  private val watchMemory by lazy {WatchMemory(this)}
  private val watchCoverage=WatchCoverage()
  private var watchRecordedSource=""
@@ -112,7 +115,7 @@ class MainActivity: Activity() {
  private fun emojiPicker(){if(!connected){Toast.makeText(this,"请先加入房间",Toast.LENGTH_SHORT).show();return};android.app.AlertDialog.Builder(this).setTitle("发送表情").setItems(arrayOf("😂","😱","😭","🤯","❤️","👀")){_,i->send(JSONObject().put("type","REACTION").put("data",JSONObject().put("emoji",listOf("😂","😱","😭","🤯","❤️","👀")[i])))}.show()}
  private fun membersDialog(){android.app.AlertDialog.Builder(this).setTitle("房间成员").setMessage(memberSummary.ifBlank {"尚未加入房间"}).setPositiveButton("完成",null).show()}
  override fun onCreate(savedInstanceState: Bundle?) {
-  super.onCreate(savedInstanceState);window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+  super.onCreate(savedInstanceState);videoRotationTurns=VideoRotation.normalized(savedInstanceState?.getInt("videoRotationTurns")?:0);window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   // Keep a reserve before starting/resuming; a short reserve repeatedly drains on slow sources.
   val buffering=AdaptiveHttpLoadControl(httpHealth)
   val renderers=PlaybackRenderers.create(this,decoderRecovery)
@@ -160,6 +163,7 @@ class MainActivity: Activity() {
  }
  override fun onStart(){super.onStart();foreground=true;if(p2pTransport.view.parent==null)p2pTransport.attach();if(credentials!=null)connect()}
  override fun onSaveInstanceState(state:Bundle){
+  state.putInt("videoRotationTurns",videoRotationTurns)
   state.putString("localPickerRoom",pendingLocalRoom);state.putString("localPickerMedia",pendingLocalMedia)
   state.putBoolean("localPickerPublish",localSelectionPublishes);state.putInt("localPickerGeneration",localSelectionGeneration)
   pendingLocalMovie?.let {state.putString("localPickerUri",it.first.toString());state.putInt("localPickerFlags",it.second)}
@@ -180,9 +184,12 @@ class MainActivity: Activity() {
   icon(tabs,R.drawable.ic_logout,"离开房间",44,0xfff73861.toInt()) {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
   root.addView(watch,LinearLayout.LayoutParams(-1,0,1f));root.addView(settings,LinearLayout.LayoutParams(-1,0,1f))
   watchBody=LinearLayout(this);watch.addView(watchBody,LinearLayout.LayoutParams(-1,0,1f));videoColumn=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL};chatColumn=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff090e10.toInt())};watchBody.addView(videoColumn);watchBody.addView(chatColumn)
-  videoBox=FrameLayout(this).apply {setBackgroundColor(android.graphics.Color.BLACK)};videoColumn.addView(videoBox);nativeVideoView=PlayerView(this).apply {player=this@MainActivity.player;useController=false;isClickable=false};videoBox.addView(nativeVideoView,FrameLayout.LayoutParams(-1,-1));independentVideoView=org.videolan.libvlc.util.VLCVideoLayout(this).apply {visibility=View.GONE};videoBox.addView(independentVideoView,FrameLayout.LayoutParams(-1,-1));playback.bind(independentVideoView!!)
+  videoBox=FrameLayout(this).apply {setBackgroundColor(android.graphics.Color.BLACK)};videoColumn.addView(videoBox);videoRotationLayer=VideoRotationLayout(this).apply {quarterTurns=videoRotationTurns};videoBox.addView(videoRotationLayer,FrameLayout.LayoutParams(-1,-1));nativeVideoView=PlayerView(this).apply {player=this@MainActivity.player;useController=false;isClickable=false};videoRotationLayer.addView(nativeVideoView,FrameLayout.LayoutParams(-1,-1));independentVideoView=org.videolan.libvlc.util.VLCVideoLayout(this).apply {visibility=View.GONE};videoRotationLayer.addView(independentVideoView,FrameLayout.LayoutParams(-1,-1));playback.bind(independentVideoView!!)
+  nativeVideoView?.subtitleView?.let{overlay->(overlay.parent as? android.view.ViewGroup)?.removeView(overlay);videoBox.addView(overlay,FrameLayout.LayoutParams(-1,-1));overlay.isClickable=false}
+
   val titlePanel=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(8),dp(16));background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xc9000000.toInt(),0x00000000))};watchHeading=titlePanel;videoBox.addView(titlePanel,FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP))
   val heading=row(titlePanel).apply {gravity=android.view.Gravity.CENTER_VERTICAL};roomTitle=label(heading,"选择影片，开始一起看").apply {layoutParams=LinearLayout.LayoutParams(0,-2,1f);textSize=15f;setTypeface(typeface,android.graphics.Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END}
+  icon(heading,R.drawable.ic_rotate_right,"旋转画面",36){rotateVideo()}
   icon(heading,R.drawable.ic_audiotrack,"音轨",36) {selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
   icon(heading,R.drawable.ic_subtitles,"字幕",36) {subtitleMenu()}
   icon(heading,R.drawable.ic_more_horiz,"更多",36) {android.app.AlertDialog.Builder(this).setTitle("观影工具").setItems(arrayOf("播放列表","发送表情","房间成员","片源与校准","剧情推理","观影结算")){_,i->when(i){0->showLibrary();1->emojiPicker();2->membersDialog();3->openSettings();4->showPlotPoll();5->showFilmRecap()}}.show()}
@@ -205,7 +212,7 @@ class MainActivity: Activity() {
   notice=label(videoColumn);notice.textSize=12f;notice.setTextColor(0xff95b7d3.toInt());requestStatus=label(videoColumn);requestStatus.textSize=12f;requestStatus.setTextColor(0xffffba67.toInt());approveButton=button(videoColumn,"批准对方请求") {pending?.let {control(it.optString("type"),it.optDouble("position",0.0));pending=null;approveButton.visibility=View.GONE;requestStatus.text=""}};approveButton.visibility=View.GONE
   chatScroll=ScrollView(this).apply {isFillViewport=true;isVerticalScrollBarEnabled=false};chatText=TextView(this);chatBubbles=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(6),dp(8),dp(6),dp(8))};chatScroll.addView(chatBubbles);chatColumn.addView(chatScroll,LinearLayout.LayoutParams(-1,0,1f));typing=label(chatColumn);typing.textSize=11f
   val chatRow=row(chatColumn).apply {gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(0,dp(8),0,dp(6))}
-  icon(chatRow,R.drawable.ic_add,"聊天工具",44,0xff1c242b.toInt()) {android.app.AlertDialog.Builder(this).setTitle("聊天工具").setItems(arrayOf("导入外挂字幕","房间与片源")){_,i->when(i){0->importSubtitle();1->openSettings()}}.show()}
+  icon(chatRow,R.drawable.ic_add,"聊天工具",44,0xff1c242b.toInt()) {android.app.AlertDialog.Builder(this).setTitle("聊天工具").setItems(arrayOf("字幕","房间与片源")){_,i->when(i){0->subtitleMenu();1->openSettings()}}.show()}
   val inputWrap=LinearLayout(this).apply {gravity=android.view.Gravity.CENTER_VERTICAL;background=rounded(0xff191f24.toInt(),28)};chatRow.addView(inputWrap,LinearLayout.LayoutParams(0,-2,1f).apply {setMargins(dp(8),0,dp(8),0)})
   draft=field(inputWrap,"发消息…").apply {textSize=14f;maxLines=3;minHeight=dp(48);setTextColor(-1);setHintTextColor(0xff8f99a4.toInt());background=null;setPadding(dp(14),dp(10),0,dp(10));layoutParams=LinearLayout.LayoutParams(0,-2,1f);imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEND;setOnEditorActionListener {_,action,_->if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){sendChat();true}else false}}
   icon(inputWrap,R.drawable.ic_sentiment_satisfied_alt,"发送表情") {emojiPicker()};icon(chatRow,R.drawable.ic_send,"发送",48,0xff1688ff.toInt()) {sendChat()};draft.addTextChangedListener(object: TextWatcher {override fun beforeTextChanged(s: CharSequence?,start: Int,count: Int,after: Int){};override fun onTextChanged(s: CharSequence?,start: Int,before: Int,count: Int){if(connected && clock.localNow()-lastTyping>1000){lastTyping=clock.localNow();send(JSONObject().put("type","CHAT_TYPING"))}};override fun afterTextChanged(s: Editable?) {}})
@@ -720,7 +727,7 @@ class MainActivity: Activity() {
   val tracks=GridLayout(this).apply {columnCount=((resources.configuration.screenWidthDp-24)/76).coerceIn(2,8);overlay.addView(this,LinearLayout.LayoutParams(-1,-2))}
   fun tool(text:String,action:()->Unit){tracks.addView(Button(this).apply {this.text=text;contentDescription=text;textSize=11f;isAllCaps=false;minWidth=0;minimumWidth=0;minHeight=0;minimumHeight=0;setPadding(2,0,2,0);background=android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x553c9bff),rounded(0xff14283a.toInt(),8),null);setTextColor(0xff58adff.toInt());setOnClickListener {action()};ButtonMotion.install(this)},GridLayout.LayoutParams().apply {width=dp(72);height=dp(36);setMargins(dp(2),dp(2),dp(2),dp(2))})}
   tool("音轨"){selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
-  tool("字幕"){subtitleMenu()};tool("导入字幕"){importSubtitle()}
+  tool("字幕"){subtitleMenu()};tool("旋转画面"){rotateVideo()}
   tool("字幕调整"){if(external!=null)subtitleTiming()else android.widget.Toast.makeText(this,"请先导入外挂字幕，再调整时间偏移",android.widget.Toast.LENGTH_SHORT).show()}
   tool("剧情推理"){showPlotPoll()};tool("发弹幕"){composeDanmaku()};tool("弹幕字号"){danmakuSettings()};tool("弹幕速度"){danmakuSettings()};tool("退出全屏"){dialog.dismiss()}
   val voiceDock=LinearLayout(this).apply {gravity=android.view.Gravity.END};overlay.addView(voiceDock,LinearLayout.LayoutParams(-1,-2));val fullVoice=VoiceDanmakuView(this,voice,{connected},compact=true);voiceViews.add(fullVoice);voiceDock.addView(fullVoice,LinearLayout.LayoutParams(-2,-2))
