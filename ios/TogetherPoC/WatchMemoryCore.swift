@@ -42,20 +42,46 @@ enum FilmTaste {
   guard !records.isEmpty else{return []}
   let seen=Set(records.map(\.id))
   var weights=[String:Double]()
-  for r in records {
-   let w=r.rating.map{Double($0-3)} ?? 0.25
-   for t in Set(r.tags) {weights[t,default:0]+=w}
+  for record in records {
+   let weight=record.rating.map{Double($0-3)} ?? 0.25
+   for tag in Set(record.tags) {weights[tag,default:0]+=weight}
   }
-  return catalog.filter{film in !seen.contains(film.id) && !dismissed.contains(film.id) && !records.contains{($0.id.hasPrefix("title:") && key(clean($0.title))==key(film.title))}}.map{film -> (Double,FilmSuggestion) in
+  var ranked=[(score:Double,suggestion:FilmSuggestion)]()
+  for film in catalog {
+   if seen.contains(film.id) || dismissed.contains(film.id) {continue}
+   let unknownSeen=records.contains {r in
+    r.id.hasPrefix("title:") && key(clean(r.title))==key(film.title)
+   }
+   if unknownSeen {continue}
    let shared=film.tags.filter{(weights[$0] ?? 0)>0}.sorted{(weights[$0] ?? 0)>(weights[$1] ?? 0)}
-   let related=records.filter{($0.rating ?? 3)>=3 && !Set($0.tags).intersection(shared).isEmpty}.sorted{($0.rating ?? 3)>($1.rating ?? 3)}.prefix(2)
-   let liked=related.filter{($0.rating ?? 0)>=4}
-   let names=related.map{"《"+$0.title+"》"}.joined(separator:"、")
-   let connection=shared.isEmpty ? "这是一部探索推荐，现有观影记录尚未提供明确的相似偏好。" : "与你记录中的"+shared.prefix(3).joined(separator:"、")+"有关"+(names.isEmpty ? "。" : "；参考了"+names+"。")
-   let reason=liked.isEmpty ? "根据已看题材尝试推荐；看过只作为弱参考，评分后会继续调整。" : "你对"+liked.map{"《"+$0.title+"》"}.joined(separator:"、")+"给过较高评价，这部也包含"+shared.prefix(2).joined(separator:"、")+"元素。"
-   return (film.tags.reduce(0){$0+(weights[$1] ?? 0)},FilmSuggestion(film:film,reason:reason,connection:connection))
-  }.sorted{a,b in a.0==b.0 ? a.1.id<b.1.id : a.0>b.0}.prefix(6).map{$0.1}
+   let sharedSet=Set(shared)
+   let related=records.filter {r in
+    (r.rating ?? 3)>=3 && !Set(r.tags).intersection(sharedSet).isEmpty
+   }.sorted{($0.rating ?? 3)>($1.rating ?? 3)}
+   let references=Array(related.prefix(2))
+   let liked=references.filter{($0.rating ?? 0)>=4}
+   let names=references.map{"《"+$0.title+"》"}.joined(separator:"、")
+   var connection="这是一部探索推荐，现有观影记录尚未提供明确的相似偏好。"
+   if !shared.isEmpty {
+    connection="与你记录中的"+shared.prefix(3).joined(separator:"、")+"有关"
+    connection += names.isEmpty ? "。" : "；参考了"+names+"。"
+   }
+   var reason="根据已看题材尝试推荐；看过只作为弱参考，评分后会继续调整。"
+   if !liked.isEmpty {
+    let likedNames=liked.map{"《"+$0.title+"》"}.joined(separator:"、")
+    reason="你对"+likedNames+"给过较高评价，这部也包含"+shared.prefix(2).joined(separator:"、")+"元素。"
+   }
+   let score=film.tags.reduce(0.0){$0+(weights[$1] ?? 0)}
+   let suggestion=FilmSuggestion(film:film,reason:reason,connection:connection)
+   ranked.append((score:score,suggestion:suggestion))
+  }
+  ranked.sort {a,b in
+   if a.score==b.score {return a.suggestion.id<b.suggestion.id}
+   return a.score>b.score
+  }
+  return ranked.prefix(6).map{$0.suggestion}
  }
+
 }
 // Tracks only continuous playback. Scrubbing, buffering, repeats and reconnect
 // gaps cannot manufacture coverage. This state is unrelated to source cleanup.
