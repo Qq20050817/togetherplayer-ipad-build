@@ -15,6 +15,8 @@ final class TMDBScraperTests:XCTestCase {
   let remake=row("罪人","2021",id:2)
   let known=WatchFilm(id:"guilty2018",title:"罪人",year:2018,
    aliases:["The Guilty","Den skyldige"],tags:[],synopsis:"丹麦电影")
+  XCTAssertTrue(TMDBMatcher.aliases(for:film,catalog:[known]).contains("罪人"))
+  XCTAssertEqual(TMDBMatcher.score(original,movie:film,catalog:[known]),115)
   XCTAssertEqual(TMDBMatcher.score(remake,movie:film,catalog:[known]),-1)
   XCTAssertNil(TMDBMatcher.exactMatch([remake,original],movie:film,catalog:[]))
   XCTAssertEqual(TMDBMatcher.exactMatch([remake,original],movie:film,catalog:[known])?.id,1)
