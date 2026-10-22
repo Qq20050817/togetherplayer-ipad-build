@@ -5,9 +5,9 @@ enum RouterUSBSubtitleError:LocalizedError {
  case unsupported,unavailable,invalidCatalog,invalidFile
  var errorDescription:String? {
   switch self {
-  case .unsupported:return "当前电影没有可用的 U 盘签名 HTTP 地址，请先选择路由器 U 盘影片。"
+  case .unsupported:return "当前影片没有可识别的路由器 U 盘 HTTP 地址，请从 U 盘影视库选择影片。"
   case .unavailable:return "路由器尚未开放字幕列表，或链接已过期。请刷新影片链接后重试。"
-  case .invalidCatalog:return "路由器返回的字幕列表格式不正确。"
+  case .invalidCatalog:return "路由器有字幕记录，但文件地址与当前影片的目录或链接格式不匹配。"
   case .invalidFile:return "字幕下载失败、超出 5MB，或内容不是有效的字幕文件。"
   }
  }
@@ -19,7 +19,7 @@ struct RouterUSBSubtitleOption:Identifiable {
  var id:String {url.absoluteString}
 }
 
-/// This reader accepts only signed, same-origin, same-directory subtitle URLs.
+/// This reader accepts signed /media/usb-* and unsigned /usb-files/ catalogs.
 /// Both requests are byte-limited so a router without ?subtitles=1 cannot
 /// accidentally transfer a 20-50 GB movie into the iPad.
 enum RouterUSBSubtitleCatalog {
@@ -81,6 +81,7 @@ enum RouterUSBSubtitleCatalog {
     results.append(RouterUSBSubtitleOption(name:record.name,url:file))
    }
   }
+  if !catalog.subtitles.isEmpty && results.isEmpty {throw RouterUSBSubtitleError.invalidCatalog}
   return results.sorted{$0.name.localizedStandardCompare($1.name) == .orderedAscending}
  }
  static func list(for movie:URL) async throws->[RouterUSBSubtitleOption] {
@@ -120,7 +121,7 @@ enum RouterUSBSubtitleCatalog {
   NavigationStack {
    List {
     Section {
-     Text("仅查找当前 U 盘电影同目录、同名开头的 SRT / VTT / ASS / SSA 字幕。选择后只读取字幕内容，不改变播放字幕，也不下载电影。")
+     Text("查找当前 U 盘电影同目录的 SRT / VTT / ASS / SSA 字幕，优先同名字幕，也支持带版本后缀的 ASS 文件。只读取字幕内容，不下载电影。")
       .font(.footnote).foregroundStyle(.secondary)
      if loading {ProgressView("正在读取字幕列表…")}
      else if entries.isEmpty {Text(status).font(.footnote).foregroundStyle(.orange)}
@@ -145,7 +146,7 @@ enum RouterUSBSubtitleCatalog {
    let found=try await RouterUSBSubtitleCatalog.list(for:movie)
    guard !Task.isCancelled else{return}
    entries=found
-   status=found.isEmpty ? "当前目录没有找到匹配的字幕。请确认字幕与电影同目录、文件名前缀一致。" : "共找到 \(found.count) 个字幕"
+   status=found.isEmpty ? "当前影片目录没有可选字幕。请确认文件位于同一文件夹。" : "共找到 \(found.count) 个字幕"
   } catch {
    entries=[]
    status=error.localizedDescription
