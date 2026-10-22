@@ -18,6 +18,20 @@ class UsbSubtitleCatalogTest {
   assertEquals(listOf("Example.Movie.zh.srt"),found.map {it.name})
  }
 
+ @Test fun realChineseFolderAssSidecarIsSelectable() {
+  val movie = "http://usb-media.example:49185/usb-files/高速下载/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.mkv"
+  val manifest = UsbSubtitleCatalog.manifestUrl(movie)
+  assertTrue(manifest!!.contains("%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD"))
+  val json = """{"subtitles":[
+   {"name":"The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass",
+    "url":"/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"}
+  ]}"""
+  val subtitles = UsbSubtitleCatalog.parse(movie,json)
+  assertEquals(1, subtitles.size)
+  assertEquals("The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass",subtitles.single().name)
+  assertTrue(subtitles.single().url.endsWith(".ass"))
+ }
+
  @Test fun signedVideoHasCatalogRepresentation() {
   assertEquals(
    "http://usb-media.example:49185/media/usb-123/Example.Movie.2020.mkv?expires=1800000000&sig=movie-signature&subtitles=1",
