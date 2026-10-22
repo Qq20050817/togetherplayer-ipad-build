@@ -13,8 +13,11 @@ final class TMDBScraperTests:XCTestCase {
   let film=movie("The.Guilty.2018.DANISH.1080p.BluRay.mkv")
   let original=row("罪人","2018",id:1)
   let remake=row("罪人","2021",id:2)
-  XCTAssertEqual(TMDBMatcher.score(remake,movie:film),-1)
-  XCTAssertEqual(TMDBMatcher.exactMatch([remake,original],movie:film)?.id,1)
+  let known=WatchFilm(id:"guilty2018",title:"罪人",year:2018,
+   aliases:["The Guilty","Den skyldige"],tags:[],synopsis:"丹麦电影")
+  XCTAssertEqual(TMDBMatcher.score(remake,movie:film,catalog:[known]),-1)
+  XCTAssertNil(TMDBMatcher.exactMatch([remake,original],movie:film,catalog:[]))
+  XCTAssertEqual(TMDBMatcher.exactMatch([remake,original],movie:film,catalog:[known])?.id,1)
  }
  func testWrongOrAmbiguousTitleRequiresManualConfirmation() {
   let film=movie("Barking.Dogs.Never.Bite.2000.KOREAN.mkv")

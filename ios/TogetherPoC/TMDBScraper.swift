@@ -87,28 +87,33 @@ struct TMDBInfo:Codable {
 }
 
 enum TMDBMatcher {
- static func aliases(for movie:USBMovie)->[String] {
+ static func knownFilm(for movie:USBMovie,catalog:[WatchFilm])->WatchFilm? {
+  guard !movie.isEpisode else{return nil}
+  return FilmTaste.match(movie.name,catalog:catalog)
+ }
+ static func aliases(for movie:USBMovie,catalog:[WatchFilm] = USBFilmMetadata.catalog)->[String] {
   var terms=[movie.posterSearchTitle,FilmTaste.clean(movie.name)]
-  if let film=movie.matchedFilm {terms += [film.title]+film.aliases}
+  if let film=knownFilm(for:movie,catalog:catalog) {terms += [film.title]+film.aliases}
   var unique=Set<String>()
   return terms.filter {
    let key=FilmTaste.key($0)
    return key.count>=3 && key.count<=85 && unique.insert(key).inserted
   }
  }
- static func score(_ candidate:TMDBCandidate,movie:USBMovie)->Int {
-  if let year=(movie.releaseYear ?? movie.matchedFilm?.year) {
+ static func score(_ candidate:TMDBCandidate,movie:USBMovie,catalog:[WatchFilm] = USBFilmMetadata.catalog)->Int {
+  let expectedYear=movie.releaseYear ?? knownFilm(for:movie,catalog:catalog)?.year
+  if let year=expectedYear {
    guard let found=candidate.year,abs(found-year)<=1 else{return -1}
   }
-  let keys=aliases(for:movie).map(FilmTaste.key)
+  let keys=aliases(for:movie,catalog:catalog).map(FilmTaste.key)
   let names=[candidate.shownTitle,candidate.original].map(FilmTaste.key)
   guard names.contains(where:keys.contains) else{return -1}
-  return 100+(candidate.year == (movie.releaseYear ?? movie.matchedFilm?.year) && (movie.releaseYear ?? movie.matchedFilm?.year) != nil ? 15 : 0)
+  return 100+(candidate.year == expectedYear && expectedYear != nil ? 15 : 0)
  }
- static func exactMatch(_ rows:[TMDBCandidate],movie:USBMovie)->TMDBCandidate? {
+ static func exactMatch(_ rows:[TMDBCandidate],movie:USBMovie,catalog:[WatchFilm] = USBFilmMetadata.catalog)->TMDBCandidate? {
   // Without a release year, a remake cannot be identified safely.
-  guard movie.releaseYear != nil || movie.matchedFilm?.year != nil else{return nil}
-  let ranked=rows.map{($0,score($0,movie:movie))}.filter{$0.1>=100}.sorted{$0.1>$1.1}
+  guard movie.releaseYear != nil || knownFilm(for:movie,catalog:catalog)?.year != nil else{return nil}
+  let ranked=rows.map{($0,score($0,movie:movie,catalog:catalog))}.filter{$0.1>=100}.sorted{$0.1>$1.1}
   guard let first=ranked.first else{return nil}
   // Similar titles and remakes must go through manual confirmation.
   guard ranked.count==1 || first.1>ranked[1].1 else{return nil}
