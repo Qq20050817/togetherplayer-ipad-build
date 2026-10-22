@@ -18,6 +18,7 @@ final class TMDBScraperTests:XCTestCase {
   XCTAssertTrue(TMDBMatcher.aliases(for:film,catalog:[known]).contains("罪人"))
   XCTAssertEqual(TMDBMatcher.score(original,movie:film,catalog:[known]),115)
   XCTAssertEqual(TMDBMatcher.score(remake,movie:film,catalog:[known]),-1)
+  XCTAssertFalse(TMDBMatcher.aliases(for:film,catalog:[]).contains("罪人"))
   XCTAssertNil(TMDBMatcher.exactMatch([remake,original],movie:film,catalog:[]))
   XCTAssertEqual(TMDBMatcher.exactMatch([remake,original],movie:film,catalog:[known])?.id,1)
  }
