@@ -113,7 +113,9 @@ enum TMDBMatcher {
   var unique=Set<String>()
   return terms.filter {
    let key=FilmTaste.key($0)
-   return key.count>=3 && key.count<=85 && unique.insert(key).inserted
+   let hasHan=$0.range(of:#"\p{Han}"#,options:.regularExpression) != nil
+   let sufficientLength=key.count>=3 || (hasHan && key.count>=2)
+   return sufficientLength && key.count<=85 && unique.insert(key).inserted
   }
  }
  static func score(_ candidate:TMDBCandidate,movie:USBMovie,catalog:[WatchFilm] = USBFilmMetadata.catalog)->Int {
