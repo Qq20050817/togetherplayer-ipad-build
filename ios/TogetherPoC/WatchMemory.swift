@@ -28,7 +28,7 @@ import Combine
  }
  func refreshCatalog() async {
   guard onlineEnabled,!refreshing,!records.isEmpty else{return}
-  let genres:[String:String]=["喜剧":"4404","悬疑":"4416","爱情":"4412","科幻":"4413","动画":"4402","现实题材":"4406","家庭":"4408"]
+  let genres:[String:String]=["喜剧":"4404","悬疑":"4416","爱情":"4412","科幻":"4413","动画":"4402","现实题材":"4406","家庭":"4410"]
   var weights=[String:Double]()
   for r in records {for t in r.tags {weights[t,default:0]+=r.rating.map{Double($0-3)} ?? 0.25}}
   let chosen=weights.filter{genres[$0.key] != nil && $0.value>0}.sorted{$0.value>$1.value}.prefix(2).compactMap{genres[$0.key]}
@@ -55,7 +55,7 @@ import Combine
      guard !title.isEmpty,!description.isEmpty,year>1900,let link=URL(string:source),link.scheme=="https",link.host=="itunes.apple.com" else{continue}
      if FilmTaste.match(title+" "+String(year),catalog:catalog) != nil {continue}
      let tags=genres.filter{$0.value==genre}.map(\.key)
-     discovered.append(WatchFilm(id:"apple:"+id,title:title,year:year,aliases:[],tags:tags,synopsis:String(description.prefix(1400)),sourceURL:source))
+     discovered.append(WatchFilm(id:"apple:"+id,title:title,year:year,aliases:[],tags:tags,synopsis:String(description.prefix(220)),sourceURL:source))
     }
    } catch {continue}
   }
