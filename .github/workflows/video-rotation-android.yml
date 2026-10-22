@@ -46,7 +46,9 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            cd android && gradle --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.WatchMemoryPersistenceTest,dev.together.poc.VideoRotationInterfaceTest
+            cd android
+            trap 'find app/build/outputs/androidTest-results -name "*.xml" -exec cat {} \; ; mkdir -p rotation-screenshots; adb pull /sdcard/Android/data/dev.together.poc.fluency/files/rotation-90.png rotation-screenshots/ || true' EXIT
+            gradle --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.WatchMemoryPersistenceTest,dev.together.poc.VideoRotationInterfaceTest
             mkdir -p rotation-screenshots
             adb pull /sdcard/Android/data/dev.together.poc.fluency/files/rotation-90.png rotation-screenshots/ || true
       - name: Publish verified APK
@@ -63,7 +65,8 @@ jobs:
         with:
           name: video-rotation-android-validation
           path: |
-            delivery/\n            android/rotation-screenshots/
+            delivery/
+            android/rotation-screenshots/
             android/app/build/reports/tests/
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/

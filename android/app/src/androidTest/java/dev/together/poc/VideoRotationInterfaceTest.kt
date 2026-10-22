@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.*
 import androidx.test.espresso.matcher.ViewMatchers.*
@@ -60,15 +61,17 @@ class VideoRotationInterfaceTest {
    assertTrue("90° bottom-left must be yellow",Color.red(bl)>130 && Color.green(bl)>130 && Color.blue(bl)<100)
    assertTrue("90° bottom-right must be green",Color.green(br)>Color.red(br)+40 && Color.green(br)>Color.blue(br)+40)
    onView(allOf(withContentDescription("全屏"),isDisplayed())).perform(click())
-   onView(withText("导入字幕")).check(doesNotExist())
-   onView(withText("旋转画面")).perform(click())
+   println("ROTATION: rendered quadrant checks passed; entering fullscreen")
+   onView(withText("导入字幕")).inRoot(isDialog()).check(doesNotExist())
+   onView(withText("旋转画面")).inRoot(isDialog()).perform(click())
    scenario.onActivity {assertEquals(2,original!!.quarterTurns);assertSame(native,original!!.getChildAt(0))}
+   println("ROTATION: fullscreen rotation passed")
    pressBack()
    onView(allOf(withContentDescription("旋转画面"),isDisplayed())).perform(click())
    onView(allOf(withContentDescription("旋转画面"),isDisplayed())).perform(click())
    scenario.onActivity {assertEquals(0,original!!.quarterTurns);assertSame(native,original!!.getChildAt(0));assertTrue(native!!.player!!.currentPosition>0)}
    onView(allOf(withContentDescription("字幕"),isDisplayed())).perform(click())
-   onView(withText("导入外挂字幕（SRT / VTT / ASS）")).check(matches(isDisplayed()))
+   onView(withText("导入外挂字幕（SRT / VTT / ASS）")).inRoot(isDialog()).check(matches(isDisplayed()))
    pressBack()
    fixture.delete()
   }
