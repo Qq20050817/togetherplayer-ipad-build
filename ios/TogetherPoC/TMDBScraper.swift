@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Security
+import WebKit
 
 // TMDB API Read Access Token stays in the iPad Keychain and is never bundled in the IPA.
 enum TMDBKeychain {
@@ -105,6 +106,8 @@ enum TMDBMatcher {
   return 100+(candidate.year == (movie.releaseYear ?? movie.matchedFilm?.year) && (movie.releaseYear ?? movie.matchedFilm?.year) != nil ? 15 : 0)
  }
  static func exactMatch(_ rows:[TMDBCandidate],movie:USBMovie)->TMDBCandidate? {
+  // Without a release year, a remake cannot be identified safely.
+  guard movie.releaseYear != nil || movie.matchedFilm?.year != nil else{return nil}
   let ranked=rows.map{($0,score($0,movie:movie))}.filter{$0.1>=100}.sorted{$0.1>$1.1}
   guard let first=ranked.first else{return nil}
   // Similar titles and remakes must go through manual confirmation.
@@ -295,6 +298,20 @@ enum TMDBAPI {
  }
 }
 
+
+@MainActor struct TMDBOfficialLogo:UIViewRepresentable {
+ private let approvedURL=URL(string:"https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg")!
+ func makeUIView(context:Context)->WKWebView {
+  let view=WKWebView(frame:.zero)
+  view.isOpaque=false;view.backgroundColor=.clear
+  view.scrollView.isScrollEnabled=false
+  view.isUserInteractionEnabled=false
+  view.load(URLRequest(url:approvedURL))
+  return view
+ }
+ func updateUIView(_ uiView:WKWebView,context:Context) {}
+}
+
 @MainActor struct TMDBSettingsView:View {
  @ObservedObject var catalog:TMDBCatalogStore
  @Environment(\.dismiss) private var dismiss
@@ -319,6 +336,7 @@ enum TMDBAPI {
      }
     }
     Section("说明与数据来源") {
+     HStack(spacing:12){TMDBOfficialLogo().frame(width:44,height:44);Text("资料与海报来自 TMDB").font(.headline)}
      Text("启用后会联网查询影片名称、海报、简介及演职员。搜索词会发送至 TMDB，结果缓存到本机。资料缺失或有歧义时可手动匹配。")
      Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
       .font(.caption)
