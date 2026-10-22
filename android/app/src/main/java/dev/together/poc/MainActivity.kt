@@ -270,16 +270,20 @@ class MainActivity: Activity() {
  private fun readSubtitleBytes(input: java.io.InputStream): ByteArray {val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192);while(out.size()<=ExternalSubtitle.MAX_BYTES){val count=input.read(buffer,0,minOf(buffer.size,ExternalSubtitle.MAX_BYTES+1-out.size()));if(count<0)break;out.write(buffer,0,count)};return out.toByteArray()}
  private fun clearSubtitle(){importedSubtitleUri=null;loadedSubtitleBytes=null;subtitleGeneration++;external=null;subtitleName="";subtitleDelay=0;subtitleEnabled=false;if(::captions.isInitialized)captions.visibility=View.GONE}
 
- private fun discoverUsbSubtitles(videoUrl:String, force:Boolean=false) {
+ private fun discoverUsbSubtitles(videoUrl:String, force:Boolean=false, onComplete:(()->Unit)?=null) {
   val roomID=engine.room?.optString("roomId") ?: ""
-  if(!force && usbCatalogVideo==videoUrl && usbCatalogRoom==roomID)return
+  if(!force && usbCatalogVideo==videoUrl && usbCatalogRoom==roomID){onComplete?.invoke();return}
   val generation=++usbCatalogGeneration
   usbCatalogVideo=videoUrl;usbCatalogRoom=roomID;usbSubtitles=emptyList()
-  val manifest=UsbSubtitleCatalog.manifestUrl(videoUrl) ?: return
+  val manifest=UsbSubtitleCatalog.manifestUrl(videoUrl) ?: run {onComplete?.invoke();return}
   val request=Request.Builder().url(manifest).header("Accept","application/json").get().build()
   http.newCall(request).enqueue(object: Callback {
    override fun onFailure(call:Call,e:IOException) {
-    if(force)main.post {if(generation==usbCatalogGeneration)requestStatus.text="U盘字幕列表读取失败：请检查网络"}
+    main.post {
+     if(generation!=usbCatalogGeneration || stopped)return@post
+     if(force)requestStatus.text="U盘字幕列表读取失败：请检查网络"
+     onComplete?.invoke()
+    }
    }
    override fun onResponse(call:Call,response:Response) {
     val result=runCatching {
@@ -299,10 +303,11 @@ class MainActivity: Activity() {
      }
     }
     main.post {
-     if(generation!=usbCatalogGeneration || engine.room?.optString("roomId")!=roomID ||
+     if(stopped || generation!=usbCatalogGeneration || engine.room?.optString("roomId")!=roomID ||
          engine.room?.optString("mediaUrl")!=videoUrl)return@post
-     result.onSuccess {usbSubtitles=it;if(force)requestStatus.text=if(it.isEmpty())"未找到与影片同名的U盘字幕" else "找到 ${it.size} 份U盘字幕，请打开字幕菜单选择"}
+     result.onSuccess {usbSubtitles=it;if(force)requestStatus.text=if(it.isEmpty())"当前影片目录暂无可用U盘字幕" else "找到 ${it.size} 份U盘字幕"}
       .onFailure {if(force)requestStatus.text="字幕列表不可用：${it.localizedMessage}"}
+     onComplete?.invoke()
     }
    }
   })
@@ -339,12 +344,25 @@ class MainActivity: Activity() {
  }
  private fun subtitleMenu(){
   main.removeCallbacks(hideControls)
+  val movieUrl=engine.room?.optString("mediaUrl") ?: ""
+  if(UsbSubtitleCatalog.manifestUrl(movieUrl)!=null &&
+      (usbCatalogVideo!=movieUrl || usbSubtitles.isEmpty())) {
+   requestStatus.text="正在查找路由器U盘字幕…"
+   discoverUsbSubtitles(movieUrl,true){showSubtitleMenuItems()}
+   return
+  }
+  showSubtitleMenuItems()
+ }
+ private fun showSubtitleMenuItems(){
   val items=mutableListOf<String>();val actions=mutableListOf<()->Unit>()
   fun option(text:String,action:()->Unit){items.add(text);actions.add(action)}
   option("内置字幕 / 关闭"){selectTrack(androidx.media3.common.C.TRACK_TYPE_TEXT)}
   usbSubtitles.forEach {track->option("U盘字幕：${track.name}"){useUsbSubtitle(track)}}
   if(UsbSubtitleCatalog.manifestUrl(engine.room?.optString("mediaUrl") ?: "")!=null)
-   option("刷新U盘字幕列表"){discoverUsbSubtitles(engine.room?.optString("mediaUrl") ?: "",true)}
+   option("刷新U盘字幕列表"){
+    requestStatus.text="正在刷新U盘字幕…"
+    discoverUsbSubtitles(engine.room?.optString("mediaUrl") ?: "",true){showSubtitleMenuItems()}
+   }
   option("导入外挂字幕（SRT / VTT / ASS）"){importSubtitle()}
    if(loadedSubtitleBytes!=null) option("字幕乱码？选择文字编码"){subtitleEncodingMenu()}
   if(external!=null) {
