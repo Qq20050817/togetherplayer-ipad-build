@@ -55,7 +55,7 @@ jobs:
           if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
             if [ "$GITHUB_REF_NAME" = "fix/android-local-source-reconnect-seek-20261023" ]; then
               filename=TogetherPlayer-Android-0.6.60.1-LocalSourceRecovery.apk
-              printf 'Source SHA: %s\\nAndroid: 0.6.60.1\\nScope: retain local source after signed URL renewal; recover local seek-buffer stall.\\nValidation: CI and emulator; dual-device runtime check pending.\\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+              printf 'Source SHA: %s\nAndroid: 0.6.60.1\nScope: retain local source after signed URL renewal; recover local seek-buffer stall.\nValidation: CI and emulator; dual-device runtime check pending.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
             elif [ "$GITHUB_REF_NAME" = "feat/android-usb-http-library-20261022" ]; then
               filename=TogetherPlayer-Android-0.6.55-USB-HTTP.apk
               printf 'Source SHA: %s\nAndroid: 0.6.55\nScope: iPad-only room selection, Android local media override retained, unsigned USB subtitles.\nValidation: Android CI; dual-device real media still needs on-device verification.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
