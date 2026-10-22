@@ -27,7 +27,7 @@ class WatchMemory(private val context:Context,private val onlineEnabled:Boolean=
  private fun decodeFilm(o:JSONObject)=MemoryFilm(o.getString("id"),o.getString("title"),o.getInt("year"),strings(o.getJSONArray("aliases")),strings(o.getJSONArray("tags")),o.getString("synopsis"),o.optString("sourceURL").takeIf{it.isNotBlank()})
  fun refreshCatalog(force:Boolean=false,done:()->Unit={}) {
   if(!onlineEnabled || refreshing || records.isEmpty())return
-  val genres=mapOf("喜剧" to "4404","悬疑" to "4416","爱情" to "4412","科幻" to "4413","动画" to "4402","现实题材" to "4406","家庭" to "4408")
+  val genres=mapOf("喜剧" to "4404","悬疑" to "4416","爱情" to "4412","科幻" to "4413","动画" to "4402","现实题材" to "4406","家庭" to "4410")
   val weights=mutableMapOf<String,Double>()
   records.forEach{r->r.tags.forEach{weights[it]=(weights[it]?:0.0)+(r.rating?.let{(it-3).toDouble()}?:0.25)}}
   val chosen=weights.filter{it.key in genres && it.value>0}.entries.sortedByDescending{it.value}.take(2).mapNotNull{genres[it.key]}
@@ -50,7 +50,7 @@ class WatchMemory(private val context:Context,private val onlineEnabled:Boolean=
       val url=java.net.URI(source)
       if(name.isBlank() || year<1900 || synopsis.isBlank() || url.scheme!="https" || url.host!="itunes.apple.com")continue
       if(FilmTaste.match(name+" "+year,existing)!=null)continue
-      found.add(MemoryFilm("apple:"+id.getJSONObject("attributes").getString("im:id"),name,year,emptyList(),genres.filterValues{it==genre}.keys.toList(),synopsis.take(1400),source))
+      found.add(MemoryFilm("apple:"+id.getJSONObject("attributes").getString("im:id"),name,year,emptyList(),genres.filterValues{it==genre}.keys.toList(),synopsis.take(220),source))
      }
     }catch(e:Exception){}
    }
