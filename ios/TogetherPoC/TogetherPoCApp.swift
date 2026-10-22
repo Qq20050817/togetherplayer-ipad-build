@@ -76,8 +76,9 @@ import UniformTypeIdentifiers
   let _=InterfaceRenderTrace.record("watch")
   #endif
   GeometryReader {geometry in
+   let compactPhone=UIDevice.current.userInterfaceIdiom == .phone
    let railWidth=min(340,geometry.size.width*0.32)
-   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+12 : 0)
+   let availableWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) && !compactPhone ? railWidth+12 : 0)
    let wide=availableWidth>=900 && availableWidth>geometry.size.height
    let sideWidth=wide ? min(320,availableWidth*0.26) : 0
    let movieWidth=availableWidth-(wide ? sideWidth+48 : 32)
@@ -95,6 +96,7 @@ import UniformTypeIdentifiers
      }
     }
    }.transaction {$0.animation=nil}
+   if !compactPhone {
    PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen || recapOpen) {
     PlotPollPanel(model:model,onClose:{plotPollOpen=false})
    } question:{
@@ -104,7 +106,20 @@ import UniformTypeIdentifiers
      PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true})
     }
    }
-   }.padding(16)
+   }
+   }.padding(compactPhone ? 10 : 16)
+   .overlay {
+    if compactPhone && (plotPollOpen || questionOpen || recapOpen) {
+     ZStack {
+      Color.black.opacity(0.76).ignoresSafeArea()
+      phonePanel
+       .frame(maxWidth:min(480,geometry.size.width-24),maxHeight:max(180,geometry.size.height-24))
+       .background(Color(red:0.065,green:0.075,blue:0.10))
+       .clipShape(RoundedRectangle(cornerRadius:18))
+       .padding(12)
+     }.accessibilityIdentifier("iphone-plot-overlay")
+    }
+   }
 
   }.background(Color(red:0.025,green:0.03,blue:0.04)).preferredColorScheme(.dark)
    .onAppear {chat.visible=true;chat.markRead()}.onDisappear {chat.visible=false}
@@ -134,7 +149,28 @@ import UniformTypeIdentifiers
   }
  }
  private var brand: some View {Button {settings=true} label:{Label("一起看",systemImage:"person.2.fill").font(.title3.bold()).foregroundColor(.white)}.accessibilityLabel("打开房间与片源")}
- private var headerActions: some View {
+ @ViewBuilder private var phonePanel: some View {
+  if recapOpen {
+   FilmBankFinalDrawer(report:model.questionBankRuntime.finalReport,onClose:{recapOpen=false})
+  } else if questionOpen {
+   PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{questionOpen=false;plotPollOpen=true})
+  } else if plotPollOpen {
+   PlotPollPanel(model:model,onClose:{plotPollOpen=false})
+  }
+ }
+ @ViewBuilder private var headerActions: some View {
+  if UIDevice.current.userInterfaceIdiom == .phone {
+   HStack(spacing:8) {
+    if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.font(.caption).buttonStyle(.borderedProminent)}
+    Button {plotPollOpen=true} label:{Label("AI",systemImage:"sparkles").font(.caption.bold()).frame(minWidth:36,minHeight:36)}
+     .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 剧情推理").accessibilityIdentifier("watch-header-plot-ai-button")
+    Menu {
+     ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Label("分享房间",systemImage:"link")}.disabled(!model.isConnected)
+     Button {settings=true} label:{Label("房间设置",systemImage:"gearshape")}
+     Button(role:.destructive) {model.leaveRoom()} label:{Label("离开房间",systemImage:"rectangle.portrait.and.arrow.right")}.disabled(!model.isConnected)
+    } label:{Image(systemName:"ellipsis.circle").font(.title3).frame(width:38,height:36)}.accessibilityLabel("更多房间操作")
+   }.foregroundColor(.white)
+  } else {
   HStack(spacing:12) {
    if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.buttonStyle(.borderedProminent)}
    ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Image(systemName:"link").frame(width:36,height:36)}.disabled(!model.isConnected)
@@ -143,6 +179,7 @@ import UniformTypeIdentifiers
     .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 剧情推理").accessibilityIdentifier("watch-header-plot-ai-button")
    Button {model.leaveRoom()} label:{Label("离开房间",systemImage:"rectangle.portrait.and.arrow.right").font(.caption.bold()).padding(10)}.background(Color(red:0.95,green:0.17,blue:0.34)).clipShape(RoundedRectangle(cornerRadius:12)).disabled(!model.isConnected)
   }.foregroundColor(.white)
+  }
  }
  private func watchCard(height: CGFloat) -> some View {
   VStack(alignment:.leading,spacing:12) {
@@ -167,7 +204,9 @@ import UniformTypeIdentifiers
      }.padding(10).background(Color.cyan.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius:10))
       .accessibilityIdentifier("watch-plot-auto-question")
     }
-    HStack {TrackControls(model:model,subtitles:model.externalSubtitles);Spacer();Button {plotPollOpen=true} label:{Label("AI 剧情推理",systemImage:"sparkles").font(.caption.bold())}.buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("watch-plot-ai-button");Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
+    ScrollView(.horizontal,showsIndicators:false) {
+     HStack(spacing:10) {TrackControls(model:model,subtitles:model.externalSubtitles);Spacer(minLength:8);Button {plotPollOpen=true} label:{Label("AI 剧情推理",systemImage:"sparkles").font(.caption.bold())}.buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("watch-plot-ai-button");Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
+    }.scrollIndicators(.hidden)
     if !model.sourceNotice.isEmpty {HStack(alignment:.top) {Text(model.sourceNotice).font(.caption).foregroundColor(.orange);Spacer();Button(model.sourceResetLabel) {model.restoreRoomSource()}.font(.caption).buttonStyle(AnimatedAppButtonStyle(.bordered))}}
     if !model.roomNotice.isEmpty {Text(model.roomNotice).font(.caption).foregroundColor(.orange)}
     if !model.durationWarning.isEmpty {Text(model.durationWarning).font(.caption).foregroundColor(.orange)}
@@ -208,7 +247,9 @@ import UniformTypeIdentifiers
  private var actions: some View {
   VStack(alignment:.leading,spacing:12) {
    Text("一起做什么").font(.headline)
-   HStack {Button("P2P 直连测试") {p2pDiagnosticsOpen=true}.accessibilityIdentifier("watch-p2p-diagnostics");Button {sidebar=0} label:{Label("聊天交流",systemImage:"text.bubble.fill")};Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("发表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
+   ScrollView(.horizontal,showsIndicators:false) {
+    HStack {Button("P2P 直连测试") {p2pDiagnosticsOpen=true}.accessibilityIdentifier("watch-p2p-diagnostics");Button {sidebar=0} label:{Label("聊天交流",systemImage:"text.bubble.fill")};Menu {ForEach(["😂","😱","😭","🤯","❤️","👀"],id:\.self) {emoji in Button(emoji) {model.react(emoji)}}} label:{Label("发表情",systemImage:"face.smiling")}.disabled(!model.isConnected)}
+   }
    HStack {ShareLink(item:"一起看电影\n房间：\(model.roomID)\n服务地址：\(model.server)") {Label("分享房间",systemImage:"link")}.disabled(!model.isConnected);Button {settings=true} label:{Label("房间设置",systemImage:"gearshape")}}
   }.font(.caption).buttonStyle(AnimatedAppButtonStyle(.bordered)).padding(14).frame(maxWidth:.infinity,alignment:.leading).background(Color.white.opacity(0.035)).clipShape(RoundedRectangle(cornerRadius:20))
  }
@@ -308,30 +349,43 @@ import UniformTypeIdentifiers
    }.scrollIndicators(.hidden)
   }
  }
+ private var categoryPicker:some View {
+  Picker("影片",selection:$category) {
+   Text("播放列表").tag(0);Text("我的收藏").tag(1);Text("历史记录").tag(2)
+  }.pickerStyle(.segmented).frame(maxWidth:380)
+ }
+ private var libraryToolbarActions:some View {
+  HStack(spacing:8) {
+   Button("TMDB 设置"){tmdbSettings=true}.font(.caption)
+   Button {
+    guard !scrapingAll else{return}
+    scrapingAll=true;scrapedCount=0
+    Task {
+     for movie in usbCatalog.movies {
+      if Task.isCancelled {break}
+      await tmdb.lookup(movie,force:true)
+      scrapedCount+=1
+     }
+     scrapingAll=false
+    }
+   } label:{Label("刮削全部",systemImage:"sparkles").font(.caption)}
+   .disabled(!tmdb.configured || scrapingAll || usbCatalog.movies.isEmpty)
+   Button {Task {await usbCatalog.refresh(force:true)}} label:{
+    Label("刷新U盘",systemImage:"arrow.clockwise").font(.caption)
+   }.disabled(usbCatalog.loading).accessibilityIdentifier("usb-playlist-refresh")
+  }
+ }
  var body:some View {
   VStack(alignment:.leading,spacing:12) {
-   HStack(spacing:10) {
-    Picker("影片",selection:$category) {
-     Text("播放列表").tag(0);Text("我的收藏").tag(1);Text("历史记录").tag(2)
-    }.pickerStyle(.segmented).frame(maxWidth:380)
-    Spacer(minLength:0)
-    Button("TMDB 设置"){tmdbSettings=true}.font(.caption)
-    Button {
-     guard !scrapingAll else{return}
-     scrapingAll=true;scrapedCount=0
-     Task {
-      for movie in usbCatalog.movies {
-       if Task.isCancelled {break}
-       await tmdb.lookup(movie,force:true)
-       scrapedCount+=1
-      }
-      scrapingAll=false
-     }
-    } label:{Label("刮削全部",systemImage:"sparkles").font(.caption)}
-    .disabled(!tmdb.configured || scrapingAll || usbCatalog.movies.isEmpty)
-    Button {Task {await usbCatalog.refresh(force:true)}} label:{
-     Label("刷新U盘",systemImage:"arrow.clockwise").font(.caption)
-    }.disabled(usbCatalog.loading).accessibilityIdentifier("usb-playlist-refresh")
+   if UIDevice.current.userInterfaceIdiom == .phone {
+    categoryPicker
+    ScrollView(.horizontal,showsIndicators:false) {libraryToolbarActions.padding(.vertical,4)}
+   } else {
+    HStack(spacing:10) {
+     categoryPicker
+     Spacer(minLength:0)
+     libraryToolbarActions
+    }
    }
    if scrapingAll {Text("刮削进度：\(scrapedCount)/\(usbCatalog.movies.count)").font(.caption).foregroundStyle(.cyan)}
    HStack(spacing:8) {
@@ -679,8 +733,9 @@ struct FullscreenToolStyle:ButtonStyle {
   let _=InterfaceRenderTrace.record("fullscreen")
   #endif
   GeometryReader {geometry in
+  let compactPhone=UIDevice.current.userInterfaceIdiom == .phone
   let railWidth=min(340,geometry.size.width*0.30)
-  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) ? railWidth+10 : 0)
+  let playbackWidth=geometry.size.width-((questionOpen || plotPollOpen || recapOpen) && !compactPhone ? railWidth+10 : 0)
   HStack(spacing:questionOpen || plotPollOpen || recapOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
@@ -728,6 +783,7 @@ struct FullscreenToolStyle:ButtonStyle {
     HStack {
      Text(model.playbackTitle).lineLimit(1).accessibilityIdentifier("fullscreen-movie-title")
      Spacer()
+     if !compactPhone {
      Image(systemName:"sun.max.fill").accessibilityHidden(true)
      Slider(value:Binding(get:{screenBrightness},set:{level in
       UIScreen.main.brightness=CGFloat(level)
@@ -740,10 +796,17 @@ struct FullscreenToolStyle:ButtonStyle {
       .font(.caption.monospacedDigit())
       .accessibilityIdentifier("fullscreen-brightness-readback")
      FullscreenDeviceStatus()
+     }
      if model.plotPollWaiting && !questionOpen {Button("待回答") {questionOpen=true}.buttonStyle(.borderedProminent)}
-     Button {plotPollOpen=true} label:{Label("AI 推理",systemImage:"sparkles").font(.caption.bold())}
-      .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("fullscreen-plot-ai-button")
-     Button("退出全屏") {dismiss()}
+     if compactPhone {
+      Button {plotPollOpen=true} label:{Image(systemName:"sparkles").font(.headline)}
+       .buttonStyle(.borderedProminent).tint(.indigo).accessibilityLabel("AI 推理").accessibilityIdentifier("fullscreen-plot-ai-button")
+      Button {dismiss()} label:{Image(systemName:"xmark.circle.fill").font(.headline)}.accessibilityLabel("退出全屏")
+     } else {
+      Button {plotPollOpen=true} label:{Label("AI 推理",systemImage:"sparkles").font(.caption.bold())}
+       .buttonStyle(.borderedProminent).tint(.indigo).accessibilityIdentifier("fullscreen-plot-ai-button")
+      Button("退出全屏") {dismiss()}
+     }
     }
      .padding(12)
      .background(Color.black.opacity(0.65))
@@ -814,6 +877,7 @@ struct FullscreenToolStyle:ButtonStyle {
      questionOpen=false;plotHintVisible=false
     }
    }
+   if !compactPhone {
    PlotSideRail(width:railWidth,settingsOpen:plotPollOpen,questionOpen:questionOpen || recapOpen) {
     PlotPollPanel(model:model,onClose:{plotPollOpen=false}).padding(.vertical,10)
    } question:{
@@ -823,8 +887,30 @@ struct FullscreenToolStyle:ButtonStyle {
      PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{plotPollOpen=true},fullscreen:true).padding(.vertical,10)
     }
    }
+   }
+  }
+  .overlay {
+   if compactPhone && (plotPollOpen || questionOpen || recapOpen) {
+    ZStack {
+     Color.black.opacity(0.80).ignoresSafeArea()
+     phonePanel
+      .frame(maxWidth:min(510,geometry.size.width-24),maxHeight:max(170,geometry.size.height-24))
+      .background(Color(red:0.065,green:0.075,blue:0.10))
+      .clipShape(RoundedRectangle(cornerRadius:18))
+      .padding(12)
+    }.accessibilityIdentifier("iphone-fullscreen-plot-overlay")
+   }
   }
 
+  }
+ }
+ @ViewBuilder private var phonePanel: some View {
+  if recapOpen {
+   FilmBankFinalDrawer(report:model.questionBankRuntime.finalReport,onClose:{recapOpen=false},fullscreen:true)
+  } else if questionOpen {
+   PlotQuestionDrawer(model:model,onClose:{questionOpen=false},onSettings:{questionOpen=false;plotPollOpen=true},fullscreen:true)
+  } else if plotPollOpen {
+   PlotPollPanel(model:model,onClose:{plotPollOpen=false})
   }
  }
  private var tools:some View {
@@ -1039,7 +1125,7 @@ struct RoomActionStyle:ButtonStyle {
        usbMoviePicker=false
       },close:{usbMoviePicker=false})
      }
-     Text("仅 iPad 房主选片。安卓端加入房间后自动加载相同片源。").font(.caption).foregroundStyle(.secondary)
+     Text("房主可选择 U 盘影片并同步房间；安卓端可保留自己的本地片源。").font(.caption).foregroundStyle(.secondary)
      DisclosureGroup("设置房间影片") {
       VStack(alignment:.leading,spacing:14) {
        TextField("影片名称",text:$model.movieTitle).textFieldStyle(.roundedBorder).accessibilityIdentifier("room-movie-title")
