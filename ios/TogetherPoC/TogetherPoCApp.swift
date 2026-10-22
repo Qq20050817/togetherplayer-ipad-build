@@ -566,7 +566,10 @@ struct SubtitleHeightKey:PreferenceKey {
   }
  }
  private var subtitleMenu: some View {
-  Button {showingSubtitles=true} label:{Label("字幕",systemImage:"captions.bubble")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-menu" : "subtitle-menu").popover(isPresented:$showingSubtitles) {
+  Button {
+   if model.routerSubtitleOptions.isEmpty && !model.routerSubtitleScanning {model.refreshRouterSubtitles()}
+   showingSubtitles=true
+  } label:{Label("字幕",systemImage:"captions.bubble")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-menu" : "subtitle-menu").popover(isPresented:$showingSubtitles) {
    ScrollView {
     VStack(alignment:.leading,spacing:12) {
      importButton
