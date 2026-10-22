@@ -13,3 +13,9 @@ Subtitle import is now a subtitle-menu action. iPad dismisses the subtitle popov
 Validation workflow: native rotation geometry and memory tests, iPad real UI import/navigation/fullscreen checks, Android full unit tests plus memory persistence and actual decoded four-quadrant video rotation screenshot checks. APK/IPA publication is gated on passing the checks. Physical devices and two-device room playback remain unverified until installed.
 
 Rollback: use the preceding platform installer without clearing application data. Watch memory lives in an independent archive and survives source deletion; uninstalling or clearing app data can erase it. No application data, deployed service or existing branch is deleted.
+
+## Verified iPad delivery, 2026-10-22
+
+Source: `73d2c0bb1b9c07578c147c75783753c2dfeb77f3`. [CI 39793047407](https://github.com/Qq20050817/togetherplayer-ipad-build/actions/runs/39793047407) passed the physical-device Release compilation, eight native unit tests and two simulator UI tests. The UI checks cover history surviving app relaunch, rotation shared with fullscreen, subtitle import inside the subtitle menu, and the real document picker opening/cancelling. A final optional simctl screenshot timed out after successful tests; test attachments remain in xcresult and this did not affect packaging.
+
+[Unsigned IPA](https://github.com/Qq20050817/togetherplayer-ipad-build/releases/download/video-rotation-ipad-0.6.61-39793047407/TogetherPlayer-iPad-0.6.61-unsigned.ipa), 17,355,819 bytes; SHA-256 `50b3f8e97d2048be52269292818d87b887a2e9c7f64b6202225869f3f2a77875`. Package checks verified version 0.6.61 / build121 and bundled film catalog. Device-compatible signing and physical iPad playback remain to be checked. Android combined delivery is tracked separately; its previous watch-memory-only release must not be substituted for this build.
