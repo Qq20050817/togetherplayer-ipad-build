@@ -923,7 +923,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     guard let self,!Task.isCancelled,self.currentOriginalURL==movie else {return}
     self.routerSubtitleOptions=options
     self.routerSubtitleScanning=false
-    self.routerSubtitleStatus=options.isEmpty ? "同目录未找到匹配字幕，可检查字幕文件名。" : "已找到 \(options.count) 份 U 盘字幕"
+    self.routerSubtitleStatus=options.isEmpty ? "当前影片目录没有可选字幕，请确认字幕文件位于同一文件夹。" : "已找到 \(options.count) 份 U 盘字幕"
    } catch {
     guard let self,!Task.isCancelled,self.currentOriginalURL==movie else {return}
     self.routerSubtitleOptions=[]
