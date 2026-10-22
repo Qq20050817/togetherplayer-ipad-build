@@ -70,6 +70,7 @@ import UniformTypeIdentifiers
  @State private var sidebar=0
  @StateObject private var usbCatalog=USBCatalogStore()
  @StateObject private var posters=USBPosterStore()
+ @StateObject private var tmdb=TMDBCatalogStore()
  var body: some View {
   #if DEBUG
   let _=InterfaceRenderTrace.record("watch")
@@ -88,7 +89,7 @@ import UniformTypeIdentifiers
      layout {
       VStack(spacing:12) {
        watchCard(height:wide ? min(movieWidth * CGFloat(9.0/16.0),max(300,geometry.size.height-360)) : movieWidth * CGFloat(9.0/16.0))
-       MediaLibraryPanel(model:model,library:model.library,usbCatalog:usbCatalog,posters:posters)
+       MediaLibraryPanel(model:model,library:model.library,usbCatalog:usbCatalog,posters:posters,tmdb:tmdb)
       }.frame(maxWidth:.infinity)
       VStack(spacing:12) {sidePanel(height:wide ? max(330,geometry.size.height-290) : 300);actions}.frame(width:wide ? sideWidth : nil)
      }
@@ -224,6 +225,11 @@ import UniformTypeIdentifiers
  @ObservedObject var library: MediaLibrary
  @ObservedObject var usbCatalog: USBCatalogStore
  @ObservedObject var posters: USBPosterStore
+ @ObservedObject var tmdb: TMDBCatalogStore
+ @State private var tmdbSettings=false
+ @State private var detailMovie:USBMovie?
+ @State private var scrapingAll=false
+ @State private var scrapedCount=0
  @State private var category=0
  @State private var adding=false
  @State private var search=""
@@ -232,7 +238,7 @@ import UniformTypeIdentifiers
    guard let url=movie.mediaURL?.absoluteString else{return false}
    let saved=library.items.first {$0.url==url}
    return (category==0 || (category==1 && saved?.favorite==true) || (category==2 && saved?.lastPlayed != nil))
-     && (search.isEmpty || movie.displayTitle.localizedStandardContains(search) || movie.path.localizedStandardContains(search))
+     && (search.isEmpty || tmdb.title(for:movie).localizedStandardContains(search) || movie.path.localizedStandardContains(search))
   }
   if category==2 {
    return items.sorted {a,b in
@@ -277,18 +283,20 @@ import UniformTypeIdentifiers
        Button {
         if let item=movie.savedMedia {model.playLibraryItem(item)}
        } label:{
-        USBPosterTile(movie:movie,posters:posters,width:138,height:174)
+        USBPosterTile(movie:movie,posters:posters,tmdb:tmdb,width:138,height:174)
          .overlay(alignment:.bottomTrailing) {
           Image(systemName:"play.circle.fill").font(.title2).foregroundStyle(.white)
            .shadow(color:.black,radius:4).padding(8)
          }
        }
        .disabled(!model.isRoomHost || !model.isConnected)
-       Text(movie.displayTitle).font(.caption.bold()).lineLimit(2).frame(width:138,alignment:.leading)
+       Text(tmdb.title(for:movie)).font(.caption.bold()).lineLimit(2).frame(width:138,alignment:.leading)
        HStack {
         Text(ByteCountFormatter.string(fromByteCount:movie.size,countStyle:.file))
          .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         Spacer()
+        Button {detailMovie=movie} label:{Image(systemName:"info.circle")}
+         .accessibilityLabel("查看影片资料")
         Button {favorite(movie)} label:{
          Image(systemName:isFavorite(movie) ? "heart.fill" : "heart")
           .foregroundStyle(isFavorite(movie) ? .pink : .secondary)
@@ -307,10 +315,25 @@ import UniformTypeIdentifiers
      Text("播放列表").tag(0);Text("我的收藏").tag(1);Text("历史记录").tag(2)
     }.pickerStyle(.segmented).frame(maxWidth:380)
     Spacer(minLength:0)
+    Button("TMDB 设置"){tmdbSettings=true}.font(.caption)
+    Button {
+     guard !scrapingAll else{return}
+     scrapingAll=true;scrapedCount=0
+     Task {
+      for movie in usbCatalog.movies {
+       if Task.isCancelled {break}
+       await tmdb.lookup(movie,force:true)
+       scrapedCount+=1
+      }
+      scrapingAll=false
+     }
+    } label:{Label("刮削全部",systemImage:"sparkles").font(.caption)}
+    .disabled(!tmdb.configured || scrapingAll || usbCatalog.movies.isEmpty)
     Button {Task {await usbCatalog.refresh(force:true)}} label:{
      Label("刷新U盘",systemImage:"arrow.clockwise").font(.caption)
     }.disabled(usbCatalog.loading).accessibilityIdentifier("usb-playlist-refresh")
    }
+   if scrapingAll {Text("刮削进度：\(scrapedCount)/\(usbCatalog.movies.count)").font(.caption).foregroundStyle(.cyan)}
    HStack(spacing:8) {
     Image(systemName:"magnifyingglass").foregroundStyle(.secondary)
     TextField("搜索 U 盘电影、剧集或片名",text:$search)
@@ -372,6 +395,8 @@ import UniformTypeIdentifiers
   }.padding(14).background(Color.white.opacity(0.035))
    .clipShape(RoundedRectangle(cornerRadius:20))
    .sheet(isPresented:$adding) {AddMediaSheet(library:library)}
+   .sheet(isPresented:$tmdbSettings){TMDBSettingsView(catalog:tmdb)}
+   .sheet(item:$detailMovie){TMDBDetailView(movie:$0,catalog:tmdb)}
    .task {await usbCatalog.refresh()}
  }
 }
