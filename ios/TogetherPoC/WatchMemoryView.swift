@@ -81,7 +81,7 @@ struct WatchMemoryView:View {
       }.foregroundStyle(.primary)
      }
     }
-   }.navigationTitle("观影档案与推荐").task {await memory.refreshCatalog();ai.refreshIfNeeded()}
+   }.accessibilityIdentifier("watch-memory-list").navigationTitle("观影档案与推荐").task {await memory.refreshCatalog();ai.refreshIfNeeded()}
     .toolbar {ToolbarItem(placement:.confirmationAction){Button("完成"){dismiss()}}}
     .sheet(item:$editing){record in WatchFeedbackView(memory:memory,record:record)}
     .sheet(isPresented:$connecting){PlotAuthorizationView(intelligence:intelligence,auth:auth)}
