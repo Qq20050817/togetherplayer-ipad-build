@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014, feat/android-usb-http-library-20261022]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014, feat/android-usb-http-library-20261022, fix/android-local-source-reconnect-seek-20261023]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
