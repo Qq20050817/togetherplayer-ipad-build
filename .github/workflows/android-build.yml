@@ -7,7 +7,7 @@ on:
         default: false
         description: Verify independent 4K Main10 decoder only
   push:
-    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014, feat/android-usb-http-library-20261022]
+    branches: [main, fix/fullscreen-brightness-swipe-20261012, release/v0.6.1-fullscreen-exit-20261013 , feat/plot-polls-local-ai-20261013, fix/plot-seamless-autoprompt-20261013, fix/android-local-mov-container-fallback-20261014, fix/android-playback-recovery-20261014, fix/android-full-plot-question-20261014, feat/android-usb-http-library-20261022, fix/android-local-source-reconnect-seek-20261023]
     paths: ['android/**', '.github/workflows/android-build.yml']
 permissions:
   contents: read
@@ -53,7 +53,10 @@ jobs:
         run: |
           mkdir -p android-delivery/screenshots
           if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
-            if [ "$GITHUB_REF_NAME" = "feat/android-usb-http-library-20261022" ]; then
+            if [ "$GITHUB_REF_NAME" = "fix/android-local-source-reconnect-seek-20261023" ]; then
+              filename=TogetherPlayer-Android-0.6.60.1-LocalSourceRecovery.apk
+              printf 'Source SHA: %s\nAndroid: 0.6.60.1\nScope: retain local source after signed URL renewal; recover local seek-buffer stall.\nValidation: CI and emulator; dual-device runtime check pending.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+            elif [ "$GITHUB_REF_NAME" = "feat/android-usb-http-library-20261022" ]; then
               filename=TogetherPlayer-Android-0.6.55-USB-HTTP.apk
               printf 'Source SHA: %s\nAndroid: 0.6.55\nScope: iPad-only room selection, Android local media override retained, unsigned USB subtitles.\nValidation: Android CI; dual-device real media still needs on-device verification.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
             else
@@ -168,3 +171,36 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "TogetherPlayer Android 0.6.55 · USB HTTP viewer" \
             --notes "Direct APK, no ZIP. Android joins room and loads the iPad owner's HTTP movie automatically; local video and alternative HTTP sources remain selectable per device, with no Android room-media publication. CI and emulator tests pass; dual-device actual media needs confirmation. Existing router/media services unchanged."
+
+  release-local-source-recovery:
+    name: Publish direct Android local-source recovery APK
+    needs: android-build
+    if: ${{ success() && github.ref_name == 'fix/android-local-source-reconnect-seek-20261023' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check tested APK identity and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified release-files
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name TogetherPlayer-Android-phone --dir verified
+          report="$(find verified -type f -name BUILD.txt -print -quit)"
+          test -n "$report"
+          archive_dir="$(dirname "$report")"
+          grep -Fx "Source SHA: $GITHUB_SHA" "$report"
+          grep -Fx 'Android: 0.6.60.1' "$report"
+          (cd "$archive_dir" && sha256sum -c SHA256SUMS.txt)
+          test -s "$archive_dir/TogetherPlayer-Android-0.6.60.1-LocalSourceRecovery.apk"
+          cp "$archive_dir/TogetherPlayer-Android-0.6.60.1-LocalSourceRecovery.apk" "$archive_dir/BUILD.txt" "$archive_dir/SHA256SUMS.txt" release-files/
+      - name: Publish immutable preview without replacing existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="android-local-source-0.6.60.1-$GITHUB_RUN_ID"
+          gh release create "$tag" release-files/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Android 0.6.60.1 local file recovery preview' --notes 'Preserve selected Android local film after signed HTTP link renewal and restore playback after seek buffering. Existing services unchanged. GitHub CI passed; real iPad plus Android synchronization requires verification.'
