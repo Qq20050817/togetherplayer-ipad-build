@@ -85,20 +85,30 @@ def html_page(items):
     return ("\n".join(parts) + "</ul></html>").encode()
 
 def subtitle_catalog(root, file):
+    """Offer same-directory text subtitles, prioritizing matching film stems.
+
+    Release tags like "[BD] v2.ass" often differ from the video filename.
+    Only explicit, bounded subtitle manifests are exposed. Directory traversal,
+    symlinks, unrelated folders and files larger than 5 MiB stay blocked.
+    """
     if file.suffix.lower() not in MOVIES:
         return []
-    prefix = file.stem.casefold() + "."
-    options = []
+    stem = file.stem.casefold()
+    ranked = []
     for item in file.parent.iterdir():
-        if len(options) >= 24:
-            break
-        if not item.name.casefold().startswith(prefix) or item.suffix.lower() not in SUBS:
+        if item.suffix.lower() not in SUBS:
             continue
         rel = item.relative_to(root).as_posix()
         checked = resolve_file(root, rel)
-        if checked is not None and 0 < checked.stat().st_size <= 5*1024*1024:
-            options.append({"name": item.name, "url": PREFIX + quote(rel, safe="/")})
-    return sorted(options, key=lambda x: x["name"].casefold())
+        if checked is None or not 0 < checked.stat().st_size <= 5*1024*1024:
+            continue
+        subtitle_stem = item.stem.casefold()
+        matching = (subtitle_stem == stem or
+                    subtitle_stem.startswith(tuple(stem + sep for sep in (".", " ", "_", "-"))))
+        ranked.append((0 if matching else 1, item.name.casefold(),
+                       {"name": item.name, "url": PREFIX + quote(rel, safe="/")}))
+    ranked.sort(key=lambda row: (row[0], row[1]))
+    return [row[2] for row in ranked[:24]]
 
 def handle(handler, path, query, body, config, byte_range):
     if path not in ("/usb-library", "/usb-library/", "/usb-library.json") and not path.startswith(PREFIX):
