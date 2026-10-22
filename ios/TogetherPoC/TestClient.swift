@@ -333,6 +333,21 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   self.messageSender=messageSender
   self.movieSelectionStore=movieSelectionStore ?? RoomMovieSelectionStore.applicationDefault()
   do {self.rememberedMovie=try self.movieSelectionStore.load()} catch {localMoviePersistenceStatus="保存的本机影片记录暂不可读取，请重新选择一次。"}
+  watchMemory.chatGPT.connect(auth:plotIntelligence.auth,creditsAllowed:{[weak self] in self?.plotIntelligence.creditsDisabled == true})
+  #if DEBUG
+  if ProcessInfo.processInfo.environment["TOGETHER_WATCH_AI_TEST"]=="1" {
+   watchMemory.chatGPT.automatic=false
+   watchMemory.record("罪人")
+   watchMemory.chatGPT.enabled=true
+   watchMemory.chatGPT.configure(allowed:{true},provider:{_,input,canSend in
+    guard canSend(),let root=(try? JSONSerialization.jsonObject(with:Data(input.utf8))) as? [String:Any],
+     let film=(root["candidates"] as? [[String:Any]])?.first,let id=film["id"] as? String else{throw CancellationError()}
+    let item:[String:Any]=["filmID":id,"synopsis":"人物在事件中面对选择，故事围绕线索展开。","reason":"这部影片提供了相近的叙事体验。","connection":"根据你已看过的罪人进行探索推荐，尚未评分不代表喜欢。","watchedIDs":["guilty2018"]]
+    let data=try JSONSerialization.data(withJSONObject:["recommendations":[item]])
+    return (String(decoding:data,as:UTF8.self),"Offline UI fixture")
+   })
+  }
+  #endif
   plotIntelligence.displayPosition={ [weak self] in self?.plotDisplayPosition() }
   plotIntelligence.frame={ [weak self] in
    // Offline local analysis should not require a live room transport.

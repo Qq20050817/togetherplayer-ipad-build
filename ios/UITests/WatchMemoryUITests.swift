@@ -6,6 +6,7 @@ import XCTest
   openSettings(app)
   let open=app.buttons["watch-memory-open"];XCTAssertTrue(open.waitForExistence(timeout:10));open.tap()
   let field=app.textFields["补记以前看过的电影（可带年份）"];XCTAssertTrue(field.waitForExistence(timeout:10));field.tap();field.typeText("The Guilty");app.buttons["记录"].tap()
+  for _ in 0..<3 {if app.staticTexts["为你推荐"].exists {break};app.swipeUp()}
   XCTAssertTrue(app.staticTexts["为你推荐"].waitForExistence(timeout:10))
   let attachment=XCTAttachment(screenshot:app.screenshot());attachment.name="watch-memory-recommendation-cards";attachment.lifetime = .keepAlways;add(attachment)
   app.buttons["完成"].firstMatch.tap()

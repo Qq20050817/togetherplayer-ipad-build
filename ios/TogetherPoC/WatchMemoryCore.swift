@@ -38,7 +38,7 @@ enum FilmTaste {
   let matches=catalog.filter{film in ([film.title]+film.aliases).contains{alias in let k=key(alias);return s==k || s==k+String(film.year) || (k.count>=4 && s.hasPrefix(k+String(film.year)))}}
   return matches.count==1 ? matches[0] : nil
  }
- static func suggestions(_ records:[WatchRecord],catalog:[WatchFilm],dismissed:Set<String>)->[FilmSuggestion] {
+ static func suggestions(_ records:[WatchRecord],catalog:[WatchFilm],dismissed:Set<String>,limit:Int=6)->[FilmSuggestion] {
   guard !records.isEmpty else{return []}
   let seen=Set(records.map(\.id))
   var weights=[String:Double]()
@@ -79,7 +79,7 @@ enum FilmTaste {
    if a.score==b.score {return a.suggestion.id<b.suggestion.id}
    return a.score>b.score
   }
-  return ranked.prefix(6).map{$0.suggestion}
+  return ranked.prefix(max(0,limit)).map{$0.suggestion}
  }
 
 }

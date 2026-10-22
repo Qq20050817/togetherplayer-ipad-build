@@ -6,6 +6,7 @@ import Combine
  @Published private(set) var dismissed=Set<String>()
  @Published private(set) var storageError=""
  @Published var automaticTitle=""
+ let chatGPT:WatchChatGPTRecommendations
  private let defaults:UserDefaults
  private let onlineEnabled:Bool
  private let storageKey="watch-memory-v1"
@@ -16,11 +17,17 @@ import Combine
  private var lastRefreshSignature=""
  private var lastRefreshAt:Date?
  init(defaults:UserDefaults = .standard,onlineEnabled:Bool=true) {
+  #if DEBUG
+  self.onlineEnabled=onlineEnabled && ProcessInfo.processInfo.environment["TOGETHER_WATCH_AI_TEST"] != "1"
+  #else
   self.onlineEnabled=onlineEnabled
+  #endif
   self.defaults=defaults
+  chatGPT=WatchChatGPTRecommendations(defaults:defaults)
   if let url=Bundle.main.url(forResource:"film-catalog",withExtension:"json"),
      let data=try? Data(contentsOf:url),let films=try? JSONDecoder().decode([WatchFilm].self,from:data) {catalog=films} else {catalog=[]}
   if let data=defaults.data(forKey:"watch-catalog-cache-v1"),let cached=try? JSONDecoder().decode([WatchFilm].self,from:data) {catalog += cached.filter{f in !catalog.contains{$0.id==f.id}}}
+  chatGPT.memory=self
   if let data=defaults.data(forKey:storageKey) {
    do {let archive=try JSONDecoder().decode(Archive.self,from:data);records=archive.records;dismissed=archive.dismissed}
    catch {storageError="观影档案读取失败，原始数据已保留。";return}
@@ -88,7 +95,7 @@ import Combine
  func restoreSuggestions() {dismissed=[];save()}
  private func save() {
   guard storageError.isEmpty else{return}
-  do {defaults.set(try JSONEncoder().encode(Archive(records:records,dismissed:dismissed)),forKey:storageKey)}
+  do {defaults.set(try JSONEncoder().encode(Archive(records:records,dismissed:dismissed)),forKey:storageKey);chatGPT.profileChanged()}
   catch {storageError="观影档案保存失败，请保留当前页面。"}
  }
 }
