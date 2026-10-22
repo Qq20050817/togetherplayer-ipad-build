@@ -33,11 +33,13 @@ class VideoRotationInterfaceTest {
    var original:VideoRotationLayout?=null
    var native:PlayerView?=null
    var rendered=false
+   var originalPlayer:androidx.media3.common.Player?=null
    val context=instrumentation.targetContext
    val fixture=File(context.cacheDir,"rotation-pattern.mp4")
    instrumentation.context.assets.open("rotation-pattern.mp4").use{input->fixture.outputStream().use{input.copyTo(it)}}
    scenario.onActivity {a->
     original=layer(a.window.decorView);assertNotNull(original);native=original!!.getChildAt(0) as PlayerView
+    originalPlayer=native!!.player
     native!!.player!!.addListener(object:androidx.media3.common.Player.Listener {override fun onRenderedFirstFrame(){rendered=true}})
     native!!.player!!.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(fixture)));native!!.player!!.prepare();native!!.player!!.play()
    }
@@ -48,7 +50,7 @@ class VideoRotationInterfaceTest {
    android.os.SystemClock.sleep(800)
    val area=IntArray(4)
    scenario.onActivity {
-    assertEquals(1,original!!.quarterTurns);assertSame(native,original!!.getChildAt(0))
+    assertEquals(1,original!!.quarterTurns);native=original!!.getChildAt(0) as PlayerView;assertSame(originalPlayer,native!!.player)
     original!!.getLocationOnScreen(area);area[2]=original!!.width;area[3]=original!!.height
    }
    assertTrue("Video layout must have nonzero dimensions",area[2]>0 && area[3]>0)
@@ -72,18 +74,20 @@ class VideoRotationInterfaceTest {
    }
    val bytes=java.io.ByteArrayOutputStream();screenshot!!.compress(Bitmap.CompressFormat.PNG,100,bytes)
    File(context.getExternalFilesDir(null),"rotation-90.png").writeBytes(bytes.toByteArray())
-   val evidence=if(correct)"" else " ROTATION_IMAGE="+android.util.Base64.encodeToString(bytes.toByteArray(),android.util.Base64.NO_WRAP)
+   val crop=java.io.ByteArrayOutputStream()
+   Bitmap.createBitmap(screenshot!!,area[0],area[1],area[2],area[3]).compress(Bitmap.CompressFormat.PNG,100,crop)
+   val evidence=if(correct)"" else " ROTATION_IMAGE="+android.util.Base64.encodeToString(crop.toByteArray(),android.util.Base64.NO_WRAP)
    assertTrue("90-degree video quadrants must be blue/red/yellow/green; area="+area.joinToString()+", samples="+colors.joinToString{Integer.toHexString(it)}+evidence,correct)
    onView(allOf(withContentDescription("全屏"),isDisplayed())).perform(click())
    println("ROTATION: rendered quadrant checks passed; entering fullscreen")
    onView(withText("导入字幕")).inRoot(isDialog()).check(doesNotExist())
    onView(withText("旋转画面")).inRoot(isDialog()).perform(click())
-   scenario.onActivity {assertEquals(2,original!!.quarterTurns);assertSame(native,original!!.getChildAt(0))}
+   scenario.onActivity {assertEquals(2,original!!.quarterTurns);native=original!!.getChildAt(0) as PlayerView;assertSame(originalPlayer,native!!.player)}
    println("ROTATION: fullscreen rotation passed")
    pressBack()
    onView(allOf(withContentDescription("旋转画面"),isDisplayed())).perform(click())
    onView(allOf(withContentDescription("旋转画面"),isDisplayed())).perform(click())
-   scenario.onActivity {assertEquals(0,original!!.quarterTurns);assertSame(native,original!!.getChildAt(0));assertTrue(native!!.player!!.currentPosition>0)}
+   scenario.onActivity {assertEquals(0,original!!.quarterTurns);native=original!!.getChildAt(0) as PlayerView;assertSame(originalPlayer,native!!.player);assertTrue(native!!.player!!.currentPosition>0)}
    onView(allOf(withContentDescription("字幕"),isDisplayed())).perform(click())
    onView(withText("导入外挂字幕（SRT / VTT / ASS）")).inRoot(isDialog()).check(matches(isDisplayed()))
    pressBack()
@@ -91,4 +95,3 @@ class VideoRotationInterfaceTest {
   }
  }
 }
-

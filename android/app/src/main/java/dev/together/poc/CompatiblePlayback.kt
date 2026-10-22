@@ -21,6 +21,12 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private val changed:(Boolean)->Unit,private val failed:(String)->Unit):ForwardingPlayer(native) {
  private val main=Handler(Looper.getMainLooper())
  private var layout:VLCVideoLayout?=null
+ private var rotatedVideoOutput=false
+ fun setRotatedVideoOutput(rotated:Boolean){
+  if(rotatedVideoOutput==rotated)return
+  rotatedVideoOutput=rotated
+  if(compatibleActive){vlc?.detachViews();rebindVideoOutput()}
+ }
  private var core:LibVLC?=null
  private var vlc:VLCPlayer?=null
  private var source:Media?=null
@@ -54,7 +60,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private fun rebindVideoOutput(){
   val p=vlc ?: return;val view=layout ?: return
   if(!compatibleActive || source==null || !view.isAttachedToWindow || p.vlcVout.areViewsAttached())return
-  p.detachViews();p.attachViews(view,null,true,false)
+  p.detachViews();p.attachViews(view,null,true,rotatedVideoOutput)
   applySubtitleSelection()
  }
  private fun applySubtitleSelection(){
@@ -84,7 +90,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      }}
     })
    }}
-   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,false)
+   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,rotatedVideoOutput)
    p.setEventListener {event->
     if(token!=epoch || !compatibleActive)return@setEventListener
     when(event.type){

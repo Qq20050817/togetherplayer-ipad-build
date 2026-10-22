@@ -80,7 +80,35 @@ class MainActivity: Activity() {
  private var loadedSubtitleBytes:ByteArray?=null
  private lateinit var videoRotationLayer:VideoRotationLayout
  private var videoRotationTurns=0
- private fun rotateVideo(){videoRotationTurns=VideoRotation.next(videoRotationTurns);videoRotationLayer.quarterTurns=videoRotationTurns;Toast.makeText(this,"画面 "+VideoRotation.degrees(videoRotationTurns)+"°",Toast.LENGTH_SHORT).show();if(fullscreenDialog!=null)revealControls()}
+ private var nativeRotationTexture=false
+ private var nativeSubtitleOverlay:View?=null
+ private fun nativePictureView():PlayerView {
+  nativeRotationTexture=videoRotationTurns!=0
+  return (if(nativeRotationTexture)layoutInflater.inflate(R.layout.player_view_rotatable,videoRotationLayer,false) as PlayerView else PlayerView(this)).apply {useController=false;isClickable=false}
+ }
+ private fun attachNativeSubtitleOverlay(view:PlayerView){
+  nativeSubtitleOverlay?.let{(it.parent as? android.view.ViewGroup)?.removeView(it)}
+  nativeSubtitleOverlay=view.subtitleView
+  view.subtitleView?.let{overlay->(overlay.parent as? android.view.ViewGroup)?.removeView(overlay);videoBox.addView(overlay,1,FrameLayout.LayoutParams(-1,-1));overlay.isClickable=false}
+ }
+ private fun rotateVideo(){
+  videoRotationTurns=VideoRotation.next(videoRotationTurns)
+  val texture=videoRotationTurns!=0
+  if(texture!=nativeRotationTexture){
+   nativeVideoView?.let {old->
+    val replacement=nativePictureView().apply {visibility=old.visibility}
+    val index=videoRotationLayer.indexOfChild(old)
+    videoRotationLayer.addView(replacement,index,FrameLayout.LayoutParams(-1,-1))
+    attachNativeSubtitleOverlay(replacement)
+    PlayerView.switchTargetView(player,old,replacement)
+    videoRotationLayer.removeView(old);nativeVideoView=replacement
+   }
+  }
+  playback.setRotatedVideoOutput(texture)
+  videoRotationLayer.quarterTurns=videoRotationTurns
+  Toast.makeText(this,if(texture)"画面 "+VideoRotation.degrees(videoRotationTurns)+"° · HDR显示取决于设备，恢复原方向可还原原显示方式" else "画面 0°",Toast.LENGTH_SHORT).show()
+  if(fullscreenDialog!=null)revealControls()
+ }
  private val watchMemory by lazy {WatchMemory(this)}
  private val watchCoverage=WatchCoverage()
  private var watchRecordedSource=""
@@ -184,8 +212,8 @@ class MainActivity: Activity() {
   icon(tabs,R.drawable.ic_logout,"离开房间",44,0xfff73861.toInt()) {if(connected)send(JSONObject().put("type","ROOM_LEAVE"))else clearRoom()}
   root.addView(watch,LinearLayout.LayoutParams(-1,0,1f));root.addView(settings,LinearLayout.LayoutParams(-1,0,1f))
   watchBody=LinearLayout(this);watch.addView(watchBody,LinearLayout.LayoutParams(-1,0,1f));videoColumn=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL};chatColumn=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff090e10.toInt())};watchBody.addView(videoColumn);watchBody.addView(chatColumn)
-  videoBox=FrameLayout(this).apply {setBackgroundColor(android.graphics.Color.BLACK)};videoColumn.addView(videoBox);videoRotationLayer=VideoRotationLayout(this).apply {quarterTurns=videoRotationTurns};videoBox.addView(videoRotationLayer,FrameLayout.LayoutParams(-1,-1));nativeVideoView=PlayerView(this).apply {player=this@MainActivity.player;useController=false;isClickable=false};videoRotationLayer.addView(nativeVideoView,FrameLayout.LayoutParams(-1,-1));independentVideoView=org.videolan.libvlc.util.VLCVideoLayout(this).apply {visibility=View.GONE};videoRotationLayer.addView(independentVideoView,FrameLayout.LayoutParams(-1,-1));playback.bind(independentVideoView!!)
-  nativeVideoView?.subtitleView?.let{overlay->(overlay.parent as? android.view.ViewGroup)?.removeView(overlay);videoBox.addView(overlay,FrameLayout.LayoutParams(-1,-1));overlay.isClickable=false}
+  videoBox=FrameLayout(this).apply {setBackgroundColor(android.graphics.Color.BLACK)};videoColumn.addView(videoBox);videoRotationLayer=VideoRotationLayout(this).apply {quarterTurns=videoRotationTurns};videoBox.addView(videoRotationLayer,FrameLayout.LayoutParams(-1,-1));nativeVideoView=nativePictureView().apply {player=this@MainActivity.player};videoRotationLayer.addView(nativeVideoView,FrameLayout.LayoutParams(-1,-1));independentVideoView=org.videolan.libvlc.util.VLCVideoLayout(this).apply {visibility=View.GONE};videoRotationLayer.addView(independentVideoView,FrameLayout.LayoutParams(-1,-1));playback.bind(independentVideoView!!)
+  nativeVideoView?.let{attachNativeSubtitleOverlay(it)};playback.setRotatedVideoOutput(videoRotationTurns!=0)
 
   val titlePanel=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(8),dp(16));background=android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xc9000000.toInt(),0x00000000))};watchHeading=titlePanel;videoBox.addView(titlePanel,FrameLayout.LayoutParams(-1,-2,android.view.Gravity.TOP))
   val heading=row(titlePanel).apply {gravity=android.view.Gravity.CENTER_VERTICAL};roomTitle=label(heading,"选择影片，开始一起看").apply {layoutParams=LinearLayout.LayoutParams(0,-2,1f);textSize=15f;setTypeface(typeface,android.graphics.Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END}
