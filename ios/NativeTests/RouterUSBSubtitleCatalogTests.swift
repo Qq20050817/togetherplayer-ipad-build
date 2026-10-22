@@ -11,12 +11,13 @@ final class RouterUSBSubtitleCatalogTests:XCTestCase {
   XCTAssertEqual(URLComponents(url:endpoint,resolvingAgainstBaseURL:false)?.queryItems?.first?.value,"1")
   let rows:[String:Any]=["subtitles":[
    ["name":"电影.zh.srt","url":"/usb-files/%E9%AB%98%E6%B8%85/%E7%94%B5%E5%BD%B1.zh.srt"],
+   ["name":"电影 [BD] v2.ass","url":"/usb-files/%E9%AB%98%E6%B8%85/%E7%94%B5%E5%BD%B1%20%5BBD%5D%20v2.ass"],
    ["name":"电影.zh.srt","url":"http://another.example:49185/usb-files/高清/电影.zh.srt"],
    ["name":"skip.srt","url":"/usb-files/other/skip.srt"],
    ["name":"bad.exe","url":"/usb-files/高清/bad.exe"]
   ]]
   let result=try RouterUSBSubtitleCatalog.decodeCatalog(JSONSerialization.data(withJSONObject:rows),movie:film)
-  XCTAssertEqual(result.map(\.name),["电影.zh.srt"])
+  XCTAssertEqual(Set(result.map(\.name)),Set(["电影.zh.srt","电影 [BD] v2.ass"]))
  }
  func testSignedMovieGetsManifestQueryWithoutChangingSignature() {
   let url=RouterUSBSubtitleCatalog.catalogURL(for:movie)
@@ -47,6 +48,9 @@ final class RouterUSBSubtitleCatalogTests:XCTestCase {
  func testInvalidCatalogRejected() {
   XCTAssertThrowsError(try RouterUSBSubtitleCatalog.decodeCatalog(Data("not json".utf8),movie:movie))
   XCTAssertThrowsError(try RouterUSBSubtitleCatalog.decodeCatalog(Data(#"{"subtitles":"bad"}"#.utf8),movie:movie))
+  let wrongFolder = #"{"subtitles":[{"name":"outside.ass","url":"/media/usb-mount/other/outside.ass?expires=12345&sig=validtoken"}]}"#
+  XCTAssertThrowsError(try RouterUSBSubtitleCatalog.decodeCatalog(Data(wrongFolder.utf8),movie:movie))
+  XCTAssertNoThrow(try RouterUSBSubtitleCatalog.decodeCatalog(Data(#"{"subtitles":[]}"#.utf8),movie:movie))
  }
  func testSubtitleFilenameKeepsUnicodeSpacesAndTime() throws {
   let json=#"{"subtitles":[{"name":"movie 简体中文.srt","url":"/media/usb-mount/movie%20%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87.srt?expires=12345&sig=validtoken"}]}"#
