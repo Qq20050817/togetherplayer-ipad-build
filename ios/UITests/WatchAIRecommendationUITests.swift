@@ -12,8 +12,17 @@ import XCTest
   return element.exists && element.isHittable
  }
  private func openMemory(_ app:XCUIApplication) {
-  let room=app.buttons["打开房间与片源"];XCTAssertTrue(room.waitForExistence(timeout:20));room.tap()
-  let open=app.buttons["watch-memory-open"];XCTAssertTrue(open.waitForExistence(timeout:10));open.tap()
+  // Navigate using the stable top-level tab. The movie header opens a nested
+  // sheet, whose first-launch presentation can race with the simulator after
+  // app relaunch and swallow a tap on watch-memory-open.
+  let room=app.buttons["房间与片源"].firstMatch
+  XCTAssertTrue(room.waitForExistence(timeout:30));room.tap()
+  let open=app.buttons["watch-memory-open"].firstMatch
+  XCTAssertTrue(open.waitForExistence(timeout:20))
+  XCTAssertTrue(open.isHittable)
+  open.tap()
+  let list=app.descendants(matching:.any).matching(identifier:"watch-memory-list").firstMatch
+  XCTAssertTrue(list.waitForExistence(timeout:20))
  }
  func testGenerateAndReopenSavedCardsUsingOfflineFixture() {
   let app=XCUIApplication();app.launchEnvironment["TOGETHER_UI_TEST"]="1";app.launchEnvironment["TOGETHER_WATCH_AI_TEST"]="1";app.launch()
