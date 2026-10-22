@@ -145,7 +145,7 @@ import UniformTypeIdentifiers
  }
  private func watchCard(height: CGFloat) -> some View {
   VStack(alignment:.leading,spacing:12) {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat).frame(height:height)
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,rotationTurns:model.videoRotationTurns).frame(height:height)
     .overlay(alignment:.topLeading) {
      VStack(alignment:.leading,spacing:8) {
       Text(model.playbackTitle).font(.headline).lineLimit(1)
@@ -153,7 +153,7 @@ import UniformTypeIdentifiers
      }.padding(16).shadow(color:.black,radius:4)
     }
     .overlay(alignment:.topTrailing) {
-     HStack {Button {sidebar=0} label:{Image(systemName:"text.bubble")}.accessibilityLabel("显示聊天");Button {fullscreen=true} label:{Image(systemName:"arrow.up.left.and.arrow.down.right")}.accessibilityLabel("全屏观影")}.font(.title3).padding(16).shadow(color:.black,radius:4)
+     HStack {VideoRotationButton(model:model);Button {sidebar=0} label:{Image(systemName:"text.bubble")}.accessibilityLabel("显示聊天");Button {fullscreen=true} label:{Image(systemName:"arrow.up.left.and.arrow.down.right")}.accessibilityLabel("全屏观影")}.font(.title3).padding(16).shadow(color:.black,radius:4)
     }
    VStack(alignment:.leading,spacing:12) {
     PlaybackControls(model:model)
@@ -391,6 +391,7 @@ import UniformTypeIdentifiers
  @ObservedObject var subtitles: ExternalSubtitles
  let chat: ChatEngine
  var bottomInset: Double=0
+ var rotationTurns:Int=0
  @State private var captionHeight:CGFloat=0
  #if DEBUG
  @State private var canvasIdentity=UUID()
@@ -400,10 +401,15 @@ import UniformTypeIdentifiers
   let _=InterfaceRenderTrace.record("canvas")
   #endif
   GeometryReader {geometry in
-   let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:player.currentItem?.presentationSize ?? .zero)
+   let presentation=VideoRotation.presentation(player.currentItem?.presentationSize ?? .zero,turns:rotationTurns)
+   let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:presentation)
+   let render=VideoRotation.renderingSize(picture:picture,turns:rotationTurns)
    ZStack(alignment:.bottom) {
     Color.black
-    StableVideo(player:player).equatable().allowsHitTesting(false)
+    StableVideo(player:player).equatable()
+     .frame(width:render.width,height:render.height)
+     .rotationEffect(.degrees(Double(VideoRotation.degrees(rotationTurns))))
+     .frame(width:geometry.size.width,height:geometry.size.height).clipped().allowsHitTesting(false)
     if let original=subtitles.originalPGSFrame {
      OriginalPGSBitmapOverlay(frame:original,container:geometry.size,picture:picture)
     }
@@ -507,10 +513,10 @@ struct SubtitleHeightKey:PreferenceKey {
  var modalChanged: (Bool) -> Void = {_ in}
  var body: some View {
   VStack(alignment:.leading,spacing:8) {
-   if compact {HStack(spacing:6) {audioMenu;subtitleMenu;importButton;adjustButton}.buttonStyle(FullscreenToolStyle())}
+   if compact {HStack(spacing:6) {audioMenu;subtitleMenu;adjustButton}.buttonStyle(FullscreenToolStyle())}
    else {ViewThatFits(in:.horizontal) {
-    HStack {audioMenu;subtitleMenu;importButton;adjustButton;Spacer()}
-    VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {importButton;adjustButton}}
+    HStack {audioMenu;subtitleMenu;adjustButton;Spacer()}
+    VStack(alignment:.leading) {HStack {audioMenu;subtitleMenu};HStack {adjustButton}}
    }}
    if showsVoice {VoiceDanmakuPanel(voice:model.voice,connected:model.isConnected,busyChanged:{voiceBusy=$0})}
    if subtitles.available && !compact {
@@ -535,9 +541,11 @@ struct SubtitleHeightKey:PreferenceKey {
   }
  }
  private var subtitleMenu: some View {
-  Button {showingSubtitles=true} label:{Label("字幕",systemImage:"captions.bubble")}.popover(isPresented:$showingSubtitles) {
+  Button {showingSubtitles=true} label:{Label("字幕",systemImage:"captions.bubble")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-menu" : "subtitle-menu").popover(isPresented:$showingSubtitles) {
    ScrollView {
     VStack(alignment:.leading,spacing:12) {
+     importButton
+     Divider()
      Button {model.chooseSubtitle(-1);showingSubtitles=false} label:{Label("自动（内置）",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -1 ? "checkmark" : "captions.bubble")}
      Button {model.chooseSubtitle(-2);showingSubtitles=false} label:{Label("关闭字幕",systemImage:!subtitles.enabled && model.selectedSubtitleIndex == -2 ? "checkmark" : "captions.bubble")}
      ForEach(model.subtitleLabels.indices,id:\.self) {index in Button {model.chooseSubtitle(index);showingSubtitles=false} label:{Label(model.subtitleLabels[index],systemImage:!subtitles.enabled && model.selectedSubtitleIndex==index ? "checkmark" : "captions.bubble")}}
@@ -564,7 +572,7 @@ struct SubtitleHeightKey:PreferenceKey {
   }
  }
  private var adjustButton:some View {Button {adjustingSubtitles=true} label:{Label("字幕调整",systemImage:"slider.horizontal.3")}.accessibilityIdentifier(compact ? "fullscreen-subtitle-adjustments" : "subtitle-adjustments")}
- private var importButton: some View {Button {subtitles.beginSelection();importing=true} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier(compact ? "fullscreen-import-subtitle" : "import-subtitle")}
+ private var importButton: some View {Button {showingSubtitles=false;DispatchQueue.main.asyncAfter(deadline:.now()+0.25){subtitles.beginSelection();importing=true}} label:{Label("导入字幕",systemImage:"doc.badge.plus")}.accessibilityIdentifier(compact ? "fullscreen-import-subtitle" : "import-subtitle")}
 }
 struct PlaybackTransportStyle:ButtonStyle {
  func makeBody(configuration:Configuration)->some View {
@@ -651,7 +659,7 @@ struct FullscreenToolStyle:ButtonStyle {
   HStack(spacing:questionOpen || plotPollOpen || recapOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0)
+   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0,rotationTurns:model.videoRotationTurns)
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {
@@ -796,6 +804,7 @@ struct FullscreenToolStyle:ButtonStyle {
  }
  private var tools:some View {
   ScrollView(.horizontal,showsIndicators:false) {HStack(spacing:6) {
+   VideoRotationButton(model:model,compact:true)
    TrackControls(model:model,subtitles:model.externalSubtitles,showsVoice:false,compact:true,modalChanged:{controls.setBusy("tracks",$0)})
    Button {composing=true} label:{Label("发弹幕",systemImage:"text.bubble.fill")}.accessibilityLabel("发弹幕").disabled(!model.isConnected)
    Button {plotPollOpen=true} label:{Label("剧情推理",systemImage:"theatermasks.fill")}.accessibilityLabel("剧情推理")
@@ -1224,3 +1233,14 @@ struct StableVideo: View, Equatable {
  static func record(_ name:String) {onRender?(name)}
 }
 #endif
+
+@MainActor struct VideoRotationButton:View {
+ @ObservedObject var model:TestClient
+ var compact=false
+ var body:some View {
+  Button {model.rotateVideo()} label:{
+   if compact {Label("画面 "+String(VideoRotation.degrees(model.videoRotationTurns))+"°",systemImage:"rotate.right")} else {Image(systemName:"rotate.right")}
+  }.accessibilityLabel("旋转画面").accessibilityValue(String(VideoRotation.degrees(model.videoRotationTurns))+"°")
+   .accessibilityIdentifier(compact ? "fullscreen-rotate-video" : "rotate-video")
+ }
+}

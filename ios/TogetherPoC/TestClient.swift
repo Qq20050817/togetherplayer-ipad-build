@@ -13,6 +13,8 @@ import CoreMedia
  @Published var offsetSeconds=UserDefaults.standard.string(forKey:"timelineOffset") ?? "0"
  @Published var localMediaURL=""
  @Published var localFileName=""
+ @Published private(set) var videoRotationTurns=0
+ func rotateVideo(){videoRotationTurns=VideoRotation.next(videoRotationTurns)}
  let watchMemory=WatchMemory()
  private var watchCoverage=WatchCoverage()
  private var watchRecordedSource=""
