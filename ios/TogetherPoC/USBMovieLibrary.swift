@@ -95,9 +95,38 @@ enum USBMovieLibrary {
  }
 }
 
+// Reuse the film identities already shipped for watch history. This keeps
+// localized titles and cover matching independent of file URLs.
+enum USBFilmMetadata {
+ static let catalog:[WatchFilm] = {
+  guard let url=Bundle.main.url(forResource:"film-catalog",withExtension:"json"),
+   let data=try? Data(contentsOf:url),
+   let films=try? JSONDecoder().decode([WatchFilm].self,from:data) else {return []}
+  return films
+ }()
+ static func film(for movie:USBMovie)->WatchFilm? {
+  guard !movie.isEpisode else{return nil}
+  return FilmTaste.match(movie.name,catalog:catalog)
+ }
+}
+
+enum USBArtworkMatch {
+ static func key(_ raw:String)->String {FilmTaste.key(raw)}
+ static func accepts(movie:USBMovie,title:String,releaseDate:String?)->Bool {
+  let aliases=[movie.posterSearchTitle]+(movie.matchedFilm.map{[$0.title]+$0.aliases} ?? [])
+  let candidate=key(title)
+  guard !candidate.isEmpty,aliases.contains(where:{key($0)==candidate}) else{return false}
+  if let expected=movie.releaseYear {
+   guard let date=releaseDate,let found=Int(date.prefix(4)),abs(found-expected)<=1 else{return false}
+  }
+  return true
+ }
+}
+
 // A router file is a transient catalog entry, not a locally downloaded movie.
 // Presentation metadata never alters its original play URL or room identity.
 extension USBMovie {
+ var matchedFilm:WatchFilm? {USBFilmMetadata.film(for:self)}
  var mediaURL: URL? { USBMovieLibrary.playableURL(url) }
  var isEpisode: Bool {
   let s = (name + " " + path).lowercased()
@@ -112,6 +141,7 @@ extension USBMovie {
   return Int(s[range])
  }
  var displayTitle: String {
+  if let film=matchedFilm {return "\(film.title) (\(film.year))"}
   let base=URL(fileURLWithPath:name).deletingPathExtension().lastPathComponent
   // Common release suffixes must not show up as the film's public title.
   let clean=base.replacingOccurrences(of:"_",with:" ").replacingOccurrences(of:".",with:" ")
@@ -163,41 +193,46 @@ extension USBMovie {
 
 @MainActor final class USBPosterStore: ObservableObject {
  @Published private(set) var covers:[String:URL]=[:]
- private var lookedUp:Set<String>=[]
+ private var inFlight=Set<String>()
+ private var attempts:[String:Date]=[:]
+
  func cover(for movie:USBMovie) async {
-  guard lookedUp.insert(movie.id).inserted else{return}
+  guard covers[movie.id]==nil,!inFlight.contains(movie.id) else{return}
+  if let last=attempts[movie.id],Date().timeIntervalSince(last)<900 {return}
+  inFlight.insert(movie.id)
+  attempts[movie.id]=Date()
+  defer {inFlight.remove(movie.id)}
   let title=movie.posterSearchTitle
-  guard title.count>=3,title.count<=70,
-        title.range(of:#"[A-Za-z\p{Han}]"#,options:.regularExpression) != nil else{return}
-  var comps=URLComponents(string:"https://itunes.apple.com/search")
-  comps?.queryItems=[
-   URLQueryItem(name:"term",value:title),
-   URLQueryItem(name:"entity",value:movie.isEpisode ? "tvSeason" : "movie"),
-   URLQueryItem(name:"country",value:"US"),
-   URLQueryItem(name:"limit",value:"8")
-  ]
-  guard let url=comps?.url else{return}
-  var request=URLRequest(url:url,cachePolicy:.returnCacheDataElseLoad,timeoutInterval:8)
-  request.setValue("application/json",forHTTPHeaderField:"Accept")
-  guard let (data,response)=try? await URLSession.shared.data(for:request),
-        (response as? HTTPURLResponse)?.statusCode==200,
-        data.count<=512_000,
-        let index=try? JSONDecoder().decode(ITunesPosterResults.self,from:data) else{return}
-  func norm(_ value:String)->String {
-   value.lowercased().unicodeScalars.filter {
-    CharacterSet.alphanumerics.contains($0)
-   }.map {String($0)}.joined()
+  guard (3...80).contains(title.count),
+   title.range(of:#"[A-Za-z\p{Han}]"#,options:.regularExpression) != nil else{return}
+  let alias=movie.matchedFilm?.aliases.first ?? title
+  let searches:[(String,String)]=movie.matchedFilm == nil
+   ? [("CN",title),("US",title)]
+   : [("CN",title),("HK",title),("US",alias),("KR",alias),("DK",alias)]
+  for (country,term) in searches where !Task.isCancelled {
+   var comps=URLComponents(string:"https://itunes.apple.com/search")
+   comps?.queryItems=[
+    URLQueryItem(name:"term",value:term),
+    URLQueryItem(name:"entity",value:movie.isEpisode ? "tvSeason" : "movie"),
+    URLQueryItem(name:"country",value:country),
+    URLQueryItem(name:"limit",value:"20")
+   ]
+   guard let url=comps?.url else{continue}
+   var request=URLRequest(url:url,cachePolicy:.returnCacheDataElseLoad,timeoutInterval:7)
+   request.setValue("application/json",forHTTPHeaderField:"Accept")
+   guard let (data,response)=try? await URLSession.shared.data(for:request),
+    (response as? HTTPURLResponse)?.statusCode==200,
+    data.count<=512_000,
+    let index=try? JSONDecoder().decode(ITunesPosterResults.self,from:data) else{continue}
+   if let row=index.results.first(where:{entry in
+    USBArtworkMatch.accepts(movie:movie,title:entry.trackName ?? entry.collectionName ?? "",
+     releaseDate:entry.releaseDate)
+   }),let artwork=row.artworkUrl100,artwork.hasPrefix("https://"),
+    let posterURL=URL(string:artwork),["https"].contains(posterURL.scheme?.lowercased() ?? "") {
+    covers[movie.id]=posterURL
+    return
+   }
   }
-  let expected=norm(title)
-  guard let row=index.results.first(where: {result in
-   let candidate=norm(result.trackName ?? result.collectionName ?? "")
-   guard !expected.isEmpty,candidate==expected else{return false}
-   if let year=movie.releaseYear,let released=result.releaseDate,
-      let otherYear=Int(released.prefix(4)) {return abs(year-otherYear)<=1}
-   return true
-  }),let artwork=row.artworkUrl100,artwork.hasPrefix("https://"),
-       let posterURL=URL(string:artwork) else{return}
-  covers[movie.id]=posterURL
  }
  private struct ITunesPosterResults:Decodable {
   let results:[Poster]
