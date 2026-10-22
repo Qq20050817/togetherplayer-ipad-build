@@ -16,9 +16,9 @@ object FilmTaste {
   if(records.isEmpty())return emptyList()
   val seen=records.map{it.id}.toSet();val weights=mutableMapOf<String,Double>()
   records.forEach{r->val w=r.rating?.let{(it-3).toDouble()}?:0.25;r.tags.toSet().forEach{weights[it]=(weights[it]?:0.0)+w}}
-  return catalog.filter{f->f.id !in seen && f.id !in dismissed && records.none{key(clean(it.title))==key(f.title)}}.map{f->
+  return catalog.filter{f->f.id !in seen && f.id !in dismissed && records.none{(it.id.startsWith("title:") && key(clean(it.title))==key(f.title))}}.map{f->
    val shared=f.tags.filter{(weights[it]?:0.0)>0}.sortedByDescending{weights[it]?:0.0}
-   val related=records.filter{(it.rating?:3)>=3 && it.tags.intersect(f.tags.toSet()).isNotEmpty()}.sortedByDescending{it.rating?:3}.take(2)
+   val related=records.filter{(it.rating?:3)>=3 && it.tags.intersect(shared.toSet()).isNotEmpty()}.sortedByDescending{it.rating?:3}.take(2)
    val liked=related.filter{(it.rating?:0)>=4}
    val names=related.joinToString("、"){"《"+it.title+"》"}
    val connection=if(shared.isEmpty())"这是一部探索推荐，现有观影记录尚未提供明确的相似偏好。" else "与你记录中的"+shared.take(3).joinToString("、")+"有关"+if(names.isEmpty())"。" else "；参考了"+names+"。"
