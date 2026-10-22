@@ -1,0 +1,730 @@
+[
+  {
+    "id": "guilty2018",
+    "title": "罪人",
+    "year": 2018,
+    "aliases": [
+      "The Guilty",
+      "Den skyldige"
+    ],
+    "tags": [
+      "悬疑",
+      "反转",
+      "低血腥",
+      "丹麦"
+    ],
+    "synopsis": "一名接线警员接到求救电话，只能通过声音拼凑正在发生的事件。"
+  },
+  {
+    "id": "hardday2014",
+    "title": "走到尽头",
+    "year": 2014,
+    "aliases": [
+      "A Hard Day",
+      "끝까지 간다"
+    ],
+    "tags": [
+      "悬疑",
+      "黑色幽默",
+      "韩国",
+      "快节奏"
+    ],
+    "synopsis": "一名警察在意外发生后试图掩盖真相，随后卷入接连失控的麻烦。"
+  },
+  {
+    "id": "extreme2019",
+    "title": "极限职业",
+    "year": 2019,
+    "aliases": [
+      "Extreme Job"
+    ],
+    "tags": [
+      "喜剧",
+      "生活化",
+      "韩国",
+      "轻松"
+    ],
+    "synopsis": "缉毒小组开炸鸡店掩护调查，却意外把生意做得风生水起。"
+  },
+  {
+    "id": "lucky2016",
+    "title": "幸运钥匙",
+    "year": 2016,
+    "aliases": [
+      "Luck Key",
+      "럭키"
+    ],
+    "tags": [
+      "喜剧",
+      "误会",
+      "韩国",
+      "轻松"
+    ],
+    "synopsis": "失忆的职业杀手与落魄演员因为更衣柜钥匙交换了生活。"
+  },
+  {
+    "id": "barking2000",
+    "title": "绑架门口狗",
+    "year": 2000,
+    "aliases": [
+      "Barking Dogs Never Bite"
+    ],
+    "tags": [
+      "黑色幽默",
+      "韩国",
+      "生活化"
+    ],
+    "synopsis": "一栋公寓里围绕狗叫声发生的事件，把几位住户和管理员联系起来。"
+  },
+  {
+    "id": "memories2003",
+    "title": "杀人回忆",
+    "year": 2003,
+    "aliases": [
+      "Memories of Murder"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "现实题材",
+      "压抑"
+    ],
+    "synopsis": "小城警察面对连环案件，在线索和困境中不断寻找真相。"
+  },
+  {
+    "id": "mother2009",
+    "title": "母亲",
+    "year": 2009,
+    "aliases": [
+      "Mother",
+      "마더"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "家庭",
+      "压抑"
+    ],
+    "synopsis": "一位母亲为被指控的儿子寻找证据，并触及小镇的隐秘。"
+  },
+  {
+    "id": "parasite2019",
+    "title": "寄生虫",
+    "year": 2019,
+    "aliases": [
+      "Parasite"
+    ],
+    "tags": [
+      "黑色幽默",
+      "韩国",
+      "现实题材",
+      "悬疑"
+    ],
+    "synopsis": "贫困家庭逐渐进入富裕人家的生活，两个家庭的关系随之变化。"
+  },
+  {
+    "id": "decision2022",
+    "title": "分手的决心",
+    "year": 2022,
+    "aliases": [
+      "Decision to Leave"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "爱情",
+      "慢节奏"
+    ],
+    "synopsis": "调查坠亡案的刑警对死者妻子产生复杂感情，案件与情感互相牵动。"
+  },
+  {
+    "id": "burning2018",
+    "title": "燃烧",
+    "year": 2018,
+    "aliases": [
+      "Burning"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "现实题材",
+      "慢节奏"
+    ],
+    "synopsis": "年轻人重逢旧识后结识一位神秘男子，平静日常逐渐充满疑问。"
+  },
+  {
+    "id": "paprika2006",
+    "title": "红辣椒",
+    "year": 2006,
+    "aliases": [
+      "Paprika",
+      "パプリカ"
+    ],
+    "tags": [
+      "动画",
+      "梦境",
+      "科幻",
+      "悬疑"
+    ],
+    "synopsis": "能够进入梦境的设备失窃，治疗师与刑警卷入现实和梦境交错的事件。"
+  },
+  {
+    "id": "perfect1997",
+    "title": "未麻的部屋",
+    "year": 1997,
+    "aliases": [
+      "Perfect Blue"
+    ],
+    "tags": [
+      "动画",
+      "悬疑",
+      "心理",
+      "压抑"
+    ],
+    "synopsis": "转型演员的偶像遭遇跟踪与职业压力，现实感开始动摇。"
+  },
+  {
+    "id": "tokyo2003",
+    "title": "东京教父",
+    "year": 2003,
+    "aliases": [
+      "Tokyo Godfathers"
+    ],
+    "tags": [
+      "动画",
+      "喜剧",
+      "温情",
+      "生活化"
+    ],
+    "synopsis": "三个无家可归的人在圣诞夜发现婴儿，踏上寻找其父母的旅程。"
+  },
+  {
+    "id": "girl2006",
+    "title": "穿越时空的少女",
+    "year": 2006,
+    "aliases": [
+      "The Girl Who Leapt Through Time"
+    ],
+    "tags": [
+      "动画",
+      "爱情",
+      "生活化",
+      "科幻"
+    ],
+    "synopsis": "女高中生发现自己能穿越时间，起初用它解决日常小事。"
+  },
+  {
+    "id": "about2013",
+    "title": "时空恋旅人",
+    "year": 2013,
+    "aliases": [
+      "About Time"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "生活化",
+      "温情"
+    ],
+    "synopsis": "拥有时间旅行能力的年轻人尝试经营爱情，也重新理解家庭和日常。"
+  },
+  {
+    "id": "notting1999",
+    "title": "诺丁山",
+    "year": 1999,
+    "aliases": [
+      "Notting Hill"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "误会",
+      "轻松"
+    ],
+    "synopsis": "伦敦书店老板偶遇知名女演员，两人的生活由此交织。"
+  },
+  {
+    "id": "harry1989",
+    "title": "当哈利遇到莎莉",
+    "year": 1989,
+    "aliases": [
+      "When Harry Met Sally"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "互怼",
+      "生活化"
+    ],
+    "synopsis": "两位性格不同的男女多年间反复相遇，讨论友情和爱情的边界。"
+  },
+  {
+    "id": "bridget2001",
+    "title": "BJ单身日记",
+    "year": 2001,
+    "aliases": [
+      "Bridget Jones's Diary"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "误会",
+      "生活化"
+    ],
+    "synopsis": "一位伦敦单身女性记录生活、工作与感情中的尴尬和期待。"
+  },
+  {
+    "id": "proposal2009",
+    "title": "假结婚",
+    "year": 2009,
+    "aliases": [
+      "The Proposal"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "互怼",
+      "误会"
+    ],
+    "synopsis": "强势上司为解决居留问题，要求助手配合一场假订婚。"
+  },
+  {
+    "id": "set2018",
+    "title": "牵线",
+    "year": 2018,
+    "aliases": [
+      "Set It Up"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "互怼",
+      "轻松"
+    ],
+    "synopsis": "两位忙碌的助理决定撮合各自的上司，好为自己争取生活时间。"
+  },
+  {
+    "id": "love2014",
+    "title": "爱你，罗茜",
+    "year": 2014,
+    "aliases": [
+      "Love Rosie"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "误会",
+      "生活化"
+    ],
+    "synopsis": "青梅竹马在成长和迁徙中多次错过，仍持续分享彼此的人生。"
+  },
+  {
+    "id": "love2011",
+    "title": "疯狂愚蠢的爱",
+    "year": 2011,
+    "aliases": [
+      "Crazy Stupid Love"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "误会",
+      "生活化"
+    ],
+    "synopsis": "婚姻遇到危机的中年男子接受约会指导，身边人的感情也交织起来。"
+  },
+  {
+    "id": "palm2020",
+    "title": "棕榈泉",
+    "year": 2020,
+    "aliases": [
+      "Palm Springs"
+    ],
+    "tags": [
+      "爱情",
+      "喜剧",
+      "科幻",
+      "黑色幽默"
+    ],
+    "synopsis": "参加婚礼的两个人被困在重复的一天里，逐渐探索彼此与生活。"
+  },
+  {
+    "id": "exit2019",
+    "title": "极限逃生",
+    "year": 2019,
+    "aliases": [
+      "Exit",
+      "엑시트"
+    ],
+    "tags": [
+      "喜剧",
+      "韩国",
+      "快节奏",
+      "轻松"
+    ],
+    "synopsis": "城市遭遇毒气事故，一对旧识利用攀岩经验寻找逃生路线。"
+  },
+  {
+    "id": "midnight2017",
+    "title": "青年警察",
+    "year": 2017,
+    "aliases": [
+      "Midnight Runners"
+    ],
+    "tags": [
+      "喜剧",
+      "韩国",
+      "快节奏",
+      "悬疑"
+    ],
+    "synopsis": "两名警校学生目击绑架，在经验不足的情况下追查线索。"
+  },
+  {
+    "id": "miss2014",
+    "title": "奇怪的她",
+    "year": 2014,
+    "aliases": [
+      "Miss Granny"
+    ],
+    "tags": [
+      "喜剧",
+      "韩国",
+      "家庭",
+      "温情"
+    ],
+    "synopsis": "一位老奶奶意外恢复年轻面貌，得到重新体验青春的机会。"
+  },
+  {
+    "id": "scandal2008",
+    "title": "非常主播",
+    "year": 2008,
+    "aliases": [
+      "Scandal Makers"
+    ],
+    "tags": [
+      "喜剧",
+      "韩国",
+      "家庭",
+      "生活化"
+    ],
+    "synopsis": "一名电台主持人的平静生活，被自称其女儿的年轻母亲打乱。"
+  },
+  {
+    "id": "welcome2005",
+    "title": "欢迎来到东莫村",
+    "year": 2005,
+    "aliases": [
+      "Welcome to Dongmakgol"
+    ],
+    "tags": [
+      "喜剧",
+      "韩国",
+      "温情",
+      "战争"
+    ],
+    "synopsis": "不同阵营的士兵来到远离战火的小村庄，与村民共同生活。"
+  },
+  {
+    "id": "knives2019",
+    "title": "利刃出鞘",
+    "year": 2019,
+    "aliases": [
+      "Knives Out"
+    ],
+    "tags": [
+      "悬疑",
+      "黑色幽默",
+      "低血腥",
+      "反转"
+    ],
+    "synopsis": "富豪小说家离世后，侦探在关系复杂的家族成员之间展开调查。"
+  },
+  {
+    "id": "glass2022",
+    "title": "利刃出鞘2",
+    "year": 2022,
+    "aliases": [
+      "Glass Onion",
+      "Glass Onion A Knives Out Mystery"
+    ],
+    "tags": [
+      "悬疑",
+      "黑色幽默",
+      "低血腥",
+      "反转"
+    ],
+    "synopsis": "侦探受邀来到私人小岛，一场推理游戏逐渐触及宾客间的利益。"
+  },
+  {
+    "id": "game1997",
+    "title": "心理游戏",
+    "year": 1997,
+    "aliases": [
+      "The Game"
+    ],
+    "tags": [
+      "悬疑",
+      "反转",
+      "心理",
+      "快节奏"
+    ],
+    "synopsis": "富有的银行家接受一份游戏礼物，随后发现生活处处出现异常。"
+  },
+  {
+    "id": "search2018",
+    "title": "网络谜踪",
+    "year": 2018,
+    "aliases": [
+      "Searching"
+    ],
+    "tags": [
+      "悬疑",
+      "低血腥",
+      "家庭",
+      "反转"
+    ],
+    "synopsis": "女儿失踪后，父亲从电脑和社交记录里追查自己陌生的一面。"
+  },
+  {
+    "id": "missing2023",
+    "title": "网络谜踪2",
+    "year": 2023,
+    "aliases": [
+      "Missing"
+    ],
+    "tags": [
+      "悬疑",
+      "低血腥",
+      "家庭",
+      "反转"
+    ],
+    "synopsis": "母亲旅行后失联，女儿借助网络工具跨越距离寻找线索。"
+  },
+  {
+    "id": "invisible2016",
+    "title": "看不见的客人",
+    "year": 2016,
+    "aliases": [
+      "The Invisible Guest",
+      "Contratiempo"
+    ],
+    "tags": [
+      "悬疑",
+      "反转",
+      "西班牙",
+      "低血腥"
+    ],
+    "synopsis": "卷入命案的商人与律师梳理当晚经过，试图厘清矛盾证词。"
+  },
+  {
+    "id": "body2012",
+    "title": "女尸谜案",
+    "year": 2012,
+    "aliases": [
+      "The Body",
+      "El cuerpo"
+    ],
+    "tags": [
+      "悬疑",
+      "反转",
+      "西班牙",
+      "心理"
+    ],
+    "synopsis": "停尸房里一具尸体消失，调查把警方带向死者的婚姻关系。"
+  },
+  {
+    "id": "coherence2013",
+    "title": "彗星来的那一夜",
+    "year": 2013,
+    "aliases": [
+      "Coherence"
+    ],
+    "tags": [
+      "悬疑",
+      "科幻",
+      "低血腥",
+      "心理"
+    ],
+    "synopsis": "朋友聚餐时遭遇停电，屋外的异常现象逐渐改变众人的关系。"
+  },
+  {
+    "id": "source2011",
+    "title": "源代码",
+    "year": 2011,
+    "aliases": [
+      "Source Code"
+    ],
+    "tags": [
+      "悬疑",
+      "科幻",
+      "快节奏",
+      "爱情"
+    ],
+    "synopsis": "军人反复进入一段列车行程的最后几分钟，寻找爆炸案的线索。"
+  },
+  {
+    "id": "truman1998",
+    "title": "楚门的世界",
+    "year": 1998,
+    "aliases": [
+      "The Truman Show"
+    ],
+    "tags": [
+      "喜剧",
+      "科幻",
+      "现实题材",
+      "温情"
+    ],
+    "synopsis": "生活在海边小城的普通男子，逐渐注意到日常世界中的异常。"
+  },
+  {
+    "id": "grand2014",
+    "title": "布达佩斯大饭店",
+    "year": 2014,
+    "aliases": [
+      "The Grand Budapest Hotel"
+    ],
+    "tags": [
+      "喜剧",
+      "黑色幽默",
+      "快节奏",
+      "温情"
+    ],
+    "synopsis": "酒店礼宾与年轻门童卷入遗产风波，经历一连串荒诞冒险。"
+  },
+  {
+    "id": "chef2014",
+    "title": "落魄大厨",
+    "year": 2014,
+    "aliases": [
+      "Chef"
+    ],
+    "tags": [
+      "喜剧",
+      "生活化",
+      "家庭",
+      "温情"
+    ],
+    "synopsis": "离开餐厅的厨师开着餐车上路，在烹饪和旅途中修复亲子关系。"
+  },
+  {
+    "id": "intern2015",
+    "title": "实习生",
+    "year": 2015,
+    "aliases": [
+      "The Intern"
+    ],
+    "tags": [
+      "喜剧",
+      "生活化",
+      "温情",
+      "轻松"
+    ],
+    "synopsis": "退休老人进入互联网公司实习，与创业者和年轻同事逐渐建立友谊。"
+  },
+  {
+    "id": "little2006",
+    "title": "阳光小美女",
+    "year": 2006,
+    "aliases": [
+      "Little Miss Sunshine"
+    ],
+    "tags": [
+      "喜剧",
+      "黑色幽默",
+      "家庭",
+      "温情"
+    ],
+    "synopsis": "一个问题不断的家庭开车陪小女儿参加比赛，旅途中矛盾接连发生。"
+  },
+  {
+    "id": "groundhog1993",
+    "title": "土拨鼠之日",
+    "year": 1993,
+    "aliases": [
+      "Groundhog Day"
+    ],
+    "tags": [
+      "喜剧",
+      "爱情",
+      "科幻",
+      "生活化"
+    ],
+    "synopsis": "气象主播发现同一天不断重来，尝试用不同方式应对重复的生活。"
+  },
+  {
+    "id": "tucker2010",
+    "title": "双宝斗恶魔",
+    "year": 2010,
+    "aliases": [
+      "Tucker and Dale vs Evil"
+    ],
+    "tags": [
+      "喜剧",
+      "黑色幽默",
+      "误会",
+      "血腥"
+    ],
+    "synopsis": "两个乡下朋友的度假之旅，被一群误解他们的大学生不断打断。"
+  },
+  {
+    "id": "shaun2004",
+    "title": "僵尸肖恩",
+    "year": 2004,
+    "aliases": [
+      "Shaun of the Dead"
+    ],
+    "tags": [
+      "喜剧",
+      "黑色幽默",
+      "血腥",
+      "生活化"
+    ],
+    "synopsis": "生活失意的青年在僵尸危机中，试图带着亲友寻找安全地点。"
+  },
+  {
+    "id": "chaser2008",
+    "title": "追击者",
+    "year": 2008,
+    "aliases": [
+      "The Chaser"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "压抑",
+      "血腥"
+    ],
+    "synopsis": "前警察为寻找失踪女子追查线索，逐渐意识到事态的严重性。"
+  },
+  {
+    "id": "unforgiven2010",
+    "title": "不可饶恕",
+    "year": 2010,
+    "aliases": [
+      "No Mercy"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "反转",
+      "压抑"
+    ],
+    "synopsis": "法医参与一起案件调查，却因家人受威胁陷入两难。"
+  },
+  {
+    "id": "oldboy2003",
+    "title": "老男孩",
+    "year": 2003,
+    "aliases": [
+      "Oldboy"
+    ],
+    "tags": [
+      "悬疑",
+      "韩国",
+      "反转",
+      "血腥"
+    ],
+    "synopsis": "被囚禁多年的男子突然获释，开始追寻自己遭遇的原因。"
+  }
+]

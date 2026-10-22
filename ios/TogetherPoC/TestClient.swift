@@ -13,6 +13,9 @@ import CoreMedia
  @Published var offsetSeconds=UserDefaults.standard.string(forKey:"timelineOffset") ?? "0"
  @Published var localMediaURL=""
  @Published var localFileName=""
+ let watchMemory=WatchMemory()
+ private var watchCoverage=WatchCoverage()
+ private var watchRecordedSource=""
  let chatDraft=ChatDraftState()
  let roster=RoomRosterState()
  var members:[RoomMember] {
@@ -1397,7 +1400,18 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    }
   }
  }
+ private func tickWatchMemory() {
+  guard let url=currentOriginalURL else{return}
+  let source=url.absoluteString
+  guard source != watchRecordedSource else{return}
+  let story:Double? = questionBankRuntime.finalReport.isEmpty ? nil : questionBankRuntime.storyEndAtMs.map{Double($0)/1000}
+  if watchCoverage.sample(source:source,position:adapter.position/1000,duration:adapter.duration/1000,
+   playing:adapter.player.rate>0 && !adapter.isSeeking,now:ProcessInfo.processInfo.systemUptime,storyEnd:story) {
+   watchMemory.record(playbackTitle);watchMemory.automaticTitle=playbackTitle;watchRecordedSource=source
+  }
+ }
  private func tick() {
+  tickWatchMemory()
   if localVideoTest {ticks += 1;monitorLocalPlaybackRecovery();if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
   if socket != nil {

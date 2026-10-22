@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
   TabView {
    WatchScreen(model:model,chat:chat).tabItem {Label("观影",systemImage:"play.rectangle")}.badge(unread)
    RoomScreen(model:model).tabItem {Label("房间与片源",systemImage:"person.2")}
-  }.onReceive(chat.$unread.removeDuplicates()) {unread=$0}
+  }.overlay(alignment:.bottom) {WatchMemoryBanner(memory:model.watchMemory)}.onReceive(chat.$unread.removeDuplicates()) {unread=$0}
   .background {P2PWebRTCSurface(transport:model.p2pTransport).frame(width:1,height:1).allowsHitTesting(false)}.preferredColorScheme(.dark).tint(.blue).buttonStyle(PlaybackTransportStyle()).onAppear {
    UIApplication.shared.isIdleTimerDisabled=true
    #if DEBUG
@@ -954,6 +954,7 @@ struct RoomActionStyle:ButtonStyle {
 @MainActor struct RoomScreen: View {
  @ObservedObject var model: TestClient
  @StateObject private var baidu=BaiduBrowserModel()
+ @State private var watchMemoryPresented=false
  @State private var usbMoviePicker=false
  private enum Picker:Identifiable,Equatable {
   case baidu,library,cleanup(URL,URL?)
@@ -967,6 +968,12 @@ struct RoomActionStyle:ButtonStyle {
  var body: some View {
   ScrollView {
    VStack(alignment:.leading,spacing:14) {
+    roomCard("观影档案与推荐",icon:"sparkles") {
+     Button {watchMemoryPresented=true} label:{Label("查看已看电影与个性化推荐",systemImage:"heart.text.square").frame(maxWidth:.infinity,alignment:.leading)}
+      .accessibilityIdentifier("watch-memory-open")
+      .sheet(isPresented:$watchMemoryPresented){WatchMemoryView(memory:model.watchMemory,currentTitle:model.playbackTitle)}
+     Text("看完自动记住，删除片源后仍保留；推荐附无剧透简介与喜好关联。").font(.caption).foregroundStyle(.secondary)
+    }
     roomCard("房间管理",icon:"house.fill") {
      HStack(spacing:12) {
       Button {model.register(join:false)} label:{Label("创建房间",systemImage:"plus.circle.fill").frame(maxWidth:.infinity)}.buttonStyle(RoomActionStyle(primary:true))
