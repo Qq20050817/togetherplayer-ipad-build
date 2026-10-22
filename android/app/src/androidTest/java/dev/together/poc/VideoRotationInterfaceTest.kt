@@ -94,4 +94,49 @@ class VideoRotationInterfaceTest {
    fixture.delete()
   }
  }
+
+ @Test fun compatibilityDecoderRotatesActualVideo() {
+  val instrumentation=InstrumentationRegistry.getInstrumentation()
+  val context=instrumentation.targetContext
+  val fixture=File(context.cacheDir,"rotation-compatible.mp4")
+  instrumentation.context.assets.open("rotation-pattern.mp4").use{input->fixture.outputStream().use{input.copyTo(it)}}
+  ActivityScenario.launch(MainActivity::class.java).use {scenario->
+   var original:VideoRotationLayout?=null
+   var compatible:CompatiblePlayback?=null
+   val uri=android.net.Uri.fromFile(fixture).toString()
+   scenario.onActivity {a->
+    original=layer(a.window.decorView);assertNotNull(original)
+    val native=(original!!.getChildAt(0) as PlayerView).player!!
+    native.setMediaItem(MediaItem.fromUri(uri));native.prepare()
+    val field=a.javaClass.getDeclaredField("playback");field.isAccessible=true;compatible=field.get(a) as CompatiblePlayback
+    assertTrue(compatible!!.activateCompatibility(uri,0));compatible!!.playWhenReady=true
+   }
+   var playing=false
+   for(attempt in 0..100){scenario.onActivity{playing=compatible!!.isPlaying};if(playing)break;android.os.SystemClock.sleep(200)}
+   assertTrue("Compatibility decoder must display and play actual video",playing)
+   onView(allOf(withContentDescription("旋转画面"),isDisplayed())).perform(click())
+   val area=IntArray(4)
+   scenario.onActivity {assertEquals(1,original!!.quarterTurns);original!!.getLocationOnScreen(area);area[2]=original!!.width;area[3]=original!!.height}
+   val h=minOf(area[3].toDouble(),area[2]*16.0/9);val w=h*9/16
+   val x=area[0]+(area[2]-w)/2;val y=area[1]+(area[3]-h)/2
+   var correct=false;var colors=IntArray(4);var screenshot:Bitmap?=null
+   for(attempt in 0..30){
+    val shot=instrumentation.uiAutomation.takeScreenshot();screenshot=shot
+    fun pixel(fx:Double,fy:Double)=shot.getPixel((x+w*fx).toInt(),(y+h*fy).toInt())
+    colors=intArrayOf(pixel(0.3,0.35),pixel(0.7,0.35),pixel(0.3,0.65),pixel(0.7,0.65))
+    val(tl,tr,bl,br)=colors
+    correct=Color.blue(tl)>Color.red(tl)+40 && Color.blue(tl)>Color.green(tl)+40 &&
+     Color.red(tr)>Color.blue(tr)+40 && Color.red(tr)>Color.green(tr)+40 &&
+     Color.red(bl)>130 && Color.green(bl)>130 && Color.blue(bl)<100 &&
+     Color.green(br)>Color.red(br)+40 && Color.green(br)>Color.blue(br)+40
+    if(correct)break
+    android.os.SystemClock.sleep(250)
+   }
+   val bytes=java.io.ByteArrayOutputStream()
+   Bitmap.createBitmap(screenshot!!,area[0],area[1],area[2],area[3]).compress(Bitmap.CompressFormat.PNG,100,bytes)
+   val evidence=if(correct)"" else " ROTATION_IMAGE="+android.util.Base64.encodeToString(bytes.toByteArray(),android.util.Base64.NO_WRAP)
+   assertTrue("Compatibility rotation pixels: "+colors.joinToString{Integer.toHexString(it)}+evidence,correct)
+  }
+  fixture.delete()
+ }
 }
