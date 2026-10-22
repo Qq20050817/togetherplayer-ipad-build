@@ -46,11 +46,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            cd android
-            trap 'find app/build/outputs/androidTest-results -name "*.xml" -exec cat {} \; ; mkdir -p rotation-screenshots; adb pull /sdcard/Android/data/dev.together.poc.fluency/files/rotation-90.png rotation-screenshots/ || true' EXIT
-            gradle --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.WatchMemoryPersistenceTest,dev.together.poc.VideoRotationInterfaceTest
-            mkdir -p rotation-screenshots
-            adb pull /sdcard/Android/data/dev.together.poc.fluency/files/rotation-90.png rotation-screenshots/ || true
+            cd android && (gradle --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.WatchMemoryPersistenceTest,dev.together.poc.VideoRotationInterfaceTest; result=$?; find app/build/outputs/androidTest-results -name '*.xml' -exec cat {} \;; mkdir -p rotation-screenshots; adb pull /sdcard/Android/data/dev.together.poc.fluency/files/rotation-90.png rotation-screenshots/ || true; exit "$result")
       - name: Publish verified APK
         env:
           GH_TOKEN: ${{ github.token }}
