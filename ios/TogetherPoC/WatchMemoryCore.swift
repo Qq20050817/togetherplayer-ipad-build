@@ -46,9 +46,9 @@ enum FilmTaste {
    let w=r.rating.map{Double($0-3)} ?? 0.25
    for t in Set(r.tags) {weights[t,default:0]+=w}
   }
-  return catalog.filter{film in !seen.contains(film.id) && !dismissed.contains(film.id) && !records.contains{key(clean($0.title))==key(film.title)}}.map{film -> (Double,FilmSuggestion) in
+  return catalog.filter{film in !seen.contains(film.id) && !dismissed.contains(film.id) && !records.contains{($0.id.hasPrefix("title:") && key(clean($0.title))==key(film.title))}}.map{film -> (Double,FilmSuggestion) in
    let shared=film.tags.filter{(weights[$0] ?? 0)>0}.sorted{(weights[$0] ?? 0)>(weights[$1] ?? 0)}
-   let related=records.filter{($0.rating ?? 3)>=3 && !Set($0.tags).intersection(film.tags).isEmpty}.sorted{($0.rating ?? 3)>($1.rating ?? 3)}.prefix(2)
+   let related=records.filter{($0.rating ?? 3)>=3 && !Set($0.tags).intersection(shared).isEmpty}.sorted{($0.rating ?? 3)>($1.rating ?? 3)}.prefix(2)
    let liked=related.filter{($0.rating ?? 0)>=4}
    let names=related.map{"《"+$0.title+"》"}.joined(separator:"、")
    let connection=shared.isEmpty ? "这是一部探索推荐，现有观影记录尚未提供明确的相似偏好。" : "与你记录中的"+shared.prefix(3).joined(separator:"、")+"有关"+(names.isEmpty ? "。" : "；参考了"+names+"。")
