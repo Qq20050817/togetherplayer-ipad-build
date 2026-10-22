@@ -26,11 +26,9 @@ jobs:
         run: |
           curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
           echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
-      - name: Generate four-quadrant rotation video fixture
+      - name: Decode bundled four-quadrant rotation video fixture
         run: |
-          mkdir -p android/app/src/androidTest/assets
-          if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y ffmpeg; fi
-          ffmpeg -y -hide_banner -loglevel error -f lavfi -i 'color=c=red:s=640x360:r=24:d=30,drawbox=x=320:y=0:w=320:h=180:color=green:t=fill,drawbox=x=0:y=180:w=320:h=180:color=blue:t=fill,drawbox=x=320:y=180:w=320:h=180:color=yellow:t=fill' -c:v libx264 -preset ultrafast -pix_fmt yuv420p android/app/src/androidTest/assets/rotation-pattern.mp4
+          base64 --decode android/app/src/androidTest/assets/rotation-pattern.mp4.base64 > android/app/src/androidTest/assets/rotation-pattern.mp4
       - name: Unit tests and APK build
         working-directory: android
         run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
