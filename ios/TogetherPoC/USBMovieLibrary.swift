@@ -43,10 +43,13 @@ enum USBMovieLibrary {
  @State private var error=""
  @State private var search=""
  @StateObject private var posters=USBPosterStore()
+ @StateObject private var tmdb=TMDBCatalogStore()
+ @State private var tmdbSettings=false
+ @State private var detailMovie:USBMovie?
 
  private var filtered:[USBMovie] {
   guard !search.isEmpty else {return movies}
-  return movies.filter{$0.name.localizedStandardContains(search)||$0.path.localizedStandardContains(search)}
+  return movies.filter{$0.name.localizedStandardContains(search)||$0.path.localizedStandardContains(search)||tmdb.title(for:$0).localizedStandardContains(search)}
  }
 
  var body:some View {
@@ -62,15 +65,18 @@ enum USBMovieLibrary {
       if let url=USBMovieLibrary.playableURL(movie.url) {
        Button {select(movie,url)} label:{
         HStack(alignment:.center,spacing:12) {
-         USBPosterTile(movie:movie,posters:posters,width:60,height:82)
+         USBPosterTile(movie:movie,posters:posters,tmdb:tmdb,width:60,height:82)
          VStack(alignment:.leading,spacing:5) {
-          Text(movie.displayTitle).font(.subheadline.bold()).lineLimit(2)
+          Text(tmdb.title(for:movie)).font(.subheadline.bold()).lineLimit(2)
           Text(movie.isEpisode ? "电视剧 / 动画剧集" : "电影").font(.caption2).foregroundStyle(.cyan)
           Text(ByteCountFormatter.string(fromByteCount:movie.size,countStyle:.file))
            .font(.caption).foregroundStyle(.secondary)
+          if let info=tmdb.info(for:movie) {Text(info.genres.prefix(2).joined(separator:" / ")).font(.caption2).foregroundStyle(.secondary)}
          }
         }.padding(.vertical,4)
        }.accessibilityIdentifier("usb-movie-option")
+       Button {detailMovie=movie} label:{Image(systemName:"info.circle")}
+        .accessibilityLabel("查看影片资料")
       }
      }
     } header:{Text("电影（\(filtered.count)）")}
@@ -80,9 +86,12 @@ enum USBMovieLibrary {
    .navigationTitle("U盘影视库")
    .toolbar {
     ToolbarItem(placement:.topBarLeading){Button("刷新"){Task {await refresh()}}.disabled(loading)}
+    ToolbarItem(placement:.topBarTrailing){Button("TMDB"){tmdbSettings=true}}
     ToolbarItem(placement:.topBarTrailing){Button("关闭",action:close)}
    }
    .task {await refresh()}
+   .sheet(isPresented:$tmdbSettings){TMDBSettingsView(catalog:tmdb)}
+   .sheet(item:$detailMovie){TMDBDetailView(movie:$0,catalog:tmdb)}
   }.preferredColorScheme(.dark)
  }
 
@@ -248,6 +257,7 @@ extension USBMovie {
 @MainActor struct USBPosterTile:View {
  let movie:USBMovie
  @ObservedObject var posters:USBPosterStore
+ @ObservedObject var tmdb:TMDBCatalogStore
  var width:CGFloat=138
  var height:CGFloat=180
  var body:some View {
@@ -255,7 +265,7 @@ extension USBMovie {
    RoundedRectangle(cornerRadius:12).fill(
     LinearGradient(colors:movie.isEpisode ? [.indigo,.purple,.black] : [.blue,.teal,.black],
      startPoint:.topLeading,endPoint:.bottomTrailing))
-   if let art=posters.covers[movie.id] {
+   if let art=tmdb.cover(for:movie) ?? posters.covers[movie.id] {
     AsyncImage(url:art) {phase in
      if let image=phase.image {image.resizable().scaledToFill()}
      else {placeholder}
@@ -265,13 +275,16 @@ extension USBMovie {
   .frame(width:width,height:height)
   .clipped().clipShape(RoundedRectangle(cornerRadius:12))
   .overlay(RoundedRectangle(cornerRadius:12).stroke(.white.opacity(0.12)))
-  .task(id:movie.id) {await posters.cover(for:movie)}
-  .accessibilityLabel(movie.displayTitle)
+  .task(id:movie.id+"-"+String(tmdb.generation)) {
+   await tmdb.lookup(movie)
+   if tmdb.cover(for:movie)==nil {await posters.cover(for:movie)}
+  }
+  .accessibilityLabel(tmdb.title(for:movie))
  }
  private var placeholder:some View {
   VStack(spacing:10) {
    Image(systemName:movie.isEpisode ? "play.tv" : "film.stack").font(.system(size:32)).foregroundStyle(.white.opacity(0.8))
-   Text(movie.displayTitle).font(.caption.bold()).multilineTextAlignment(.center)
+   Text(tmdb.title(for:movie)).font(.caption.bold()).multilineTextAlignment(.center)
     .foregroundStyle(.white).lineLimit(4).padding(.horizontal,8)
   }.frame(maxWidth:.infinity,maxHeight:.infinity)
  }
