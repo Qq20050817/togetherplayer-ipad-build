@@ -32,16 +32,18 @@ class VideoRotationInterfaceTest {
   ActivityScenario.launch(MainActivity::class.java).use {scenario->
    var original:VideoRotationLayout?=null
    var native:PlayerView?=null
+   var rendered=false
    val context=instrumentation.targetContext
    val fixture=File(context.cacheDir,"rotation-pattern.mp4")
    instrumentation.context.assets.open("rotation-pattern.mp4").use{input->fixture.outputStream().use{input.copyTo(it)}}
    scenario.onActivity {a->
     original=layer(a.window.decorView);assertNotNull(original);native=original!!.getChildAt(0) as PlayerView
+    native!!.player!!.addListener(object:androidx.media3.common.Player.Listener {override fun onRenderedFirstFrame(){rendered=true}})
     native!!.player!!.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(fixture)));native!!.player!!.prepare();native!!.player!!.play()
    }
    var playing=false
-   for(attempt in 0..25){scenario.onActivity{playing=native!!.player!!.isPlaying};if(playing)break;android.os.SystemClock.sleep(200)}
-   assertTrue("Actual video fixture must start",playing)
+   for(attempt in 0..25){scenario.onActivity{playing=native!!.player!!.isPlaying && rendered};if(playing)break;android.os.SystemClock.sleep(200)}
+   assertTrue("Actual video fixture must render its first frame",playing)
    onView(allOf(withContentDescription("旋转画面"),isDisplayed())).perform(click())
    android.os.SystemClock.sleep(800)
    val area=IntArray(4)
@@ -49,17 +51,29 @@ class VideoRotationInterfaceTest {
     assertEquals(1,original!!.quarterTurns);assertSame(native,original!!.getChildAt(0))
     original!!.getLocationOnScreen(area);area[2]=original!!.width;area[3]=original!!.height
    }
-   val screenshot=instrumentation.uiAutomation.takeScreenshot()
-   File(context.getExternalFilesDir(null),"rotation-90.png").outputStream().use{screenshot.compress(Bitmap.CompressFormat.PNG,100,it)}
+   assertTrue("Video layout must have nonzero dimensions",area[2]>0 && area[3]>0)
    val pictureHeight=minOf(area[3].toDouble(),area[2]*16.0/9)
    val pictureWidth=pictureHeight*9/16
    val x=area[0]+(area[2]-pictureWidth)/2;val y=area[1]+(area[3]-pictureHeight)/2
-   fun pixel(fx:Double,fy:Double)=screenshot.getPixel((x+pictureWidth*fx).toInt(),(y+pictureHeight*fy).toInt())
-   val tl=pixel(0.3,0.35);val tr=pixel(0.7,0.35);val bl=pixel(0.3,0.65);val br=pixel(0.7,0.65)
-   assertTrue("90° top-left must be blue",Color.blue(tl)>Color.red(tl)+40 && Color.blue(tl)>Color.green(tl)+40)
-   assertTrue("90° top-right must be red",Color.red(tr)>Color.blue(tr)+40 && Color.red(tr)>Color.green(tr)+40)
-   assertTrue("90° bottom-left must be yellow",Color.red(bl)>130 && Color.green(bl)>130 && Color.blue(bl)<100)
-   assertTrue("90° bottom-right must be green",Color.green(br)>Color.red(br)+40 && Color.green(br)>Color.blue(br)+40)
+   var screenshot:Bitmap?=null
+   var colors=IntArray(4)
+   var correct=false
+   for(attempt in 0..20) {
+    val shot=instrumentation.uiAutomation.takeScreenshot();screenshot=shot
+    fun pixel(fx:Double,fy:Double)=shot.getPixel((x+pictureWidth*fx).toInt(),(y+pictureHeight*fy).toInt())
+    colors=intArrayOf(pixel(0.3,0.35),pixel(0.7,0.35),pixel(0.3,0.65),pixel(0.7,0.65))
+    val(tl,tr,bl,br)=colors
+    correct=Color.blue(tl)>Color.red(tl)+40 && Color.blue(tl)>Color.green(tl)+40 &&
+     Color.red(tr)>Color.blue(tr)+40 && Color.red(tr)>Color.green(tr)+40 &&
+     Color.red(bl)>130 && Color.green(bl)>130 && Color.blue(bl)<100 &&
+     Color.green(br)>Color.red(br)+40 && Color.green(br)>Color.blue(br)+40
+    if(correct)break
+    android.os.SystemClock.sleep(250)
+   }
+   val bytes=java.io.ByteArrayOutputStream();screenshot!!.compress(Bitmap.CompressFormat.PNG,100,bytes)
+   File(context.getExternalFilesDir(null),"rotation-90.png").writeBytes(bytes.toByteArray())
+   val evidence=if(correct)"" else " ROTATION_IMAGE="+android.util.Base64.encodeToString(bytes.toByteArray(),android.util.Base64.NO_WRAP)
+   assertTrue("90-degree video quadrants must be blue/red/yellow/green; area="+area.joinToString()+", samples="+colors.joinToString{Integer.toHexString(it)}+evidence,correct)
    onView(allOf(withContentDescription("全屏"),isDisplayed())).perform(click())
    println("ROTATION: rendered quadrant checks passed; entering fullscreen")
    onView(withText("导入字幕")).inRoot(isDialog()).check(doesNotExist())
@@ -77,3 +91,4 @@ class VideoRotationInterfaceTest {
   }
  }
 }
+
