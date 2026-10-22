@@ -92,13 +92,21 @@ enum TMDBMatcher {
   return FilmTaste.match(movie.name,catalog:catalog)
  }
  static func aliases(for movie:USBMovie,catalog:[WatchFilm] = USBFilmMetadata.catalog)->[String] {
-  var terms=[movie.posterSearchTitle,FilmTaste.clean(movie.name)]
+  // posterSearchTitle uses the app-wide catalog via matchedFilm. Using it here
+  // would silently bypass the explicit catalog parameter and auto-match
+  // unrelated remakes even when callers requested an empty catalog.
+  let cleanName=FilmTaste.clean(movie.name)
+  let rawStem=cleanName.replacingOccurrences(
+   of:#"(?i)[\s._\-\[\(]+(?:19|20)\d{2}\b.*$"#,with:"",options:.regularExpression)
+   .trimmingCharacters(in:.whitespacesAndNewlines)
+  let sourceTitle=movie.isEpisode ? movie.posterSearchTitle : (rawStem.isEmpty ? cleanName : rawStem)
+  var terms=[sourceTitle,cleanName]
   if let film=knownFilm(for:movie,catalog:catalog) {terms += [film.title]+film.aliases}
   // A release filename may use an English alias while TMDB's zh-CN result
   // only contains the Chinese title. Bridge aliases only for an exact year
   // and a unique catalog entry, so remakes cannot silently be conflated.
   if !movie.isEpisode,let year=movie.releaseYear {
-   let titleKey=FilmTaste.key(movie.posterSearchTitle)
+   let titleKey=FilmTaste.key(sourceTitle)
    let filenameKey=FilmTaste.key(FilmTaste.clean(movie.name))
    let verified=catalog.filter {film in
     guard film.year==year else{return false}
