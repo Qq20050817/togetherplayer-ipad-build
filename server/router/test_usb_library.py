@@ -38,6 +38,7 @@ class USBMediaTests(unittest.TestCase):
         self.file = folder / "测试影片.mkv"
         self.file.write_bytes(b"0123456789ABCDEF")
         (folder / "测试影片.zh.srt").write_bytes(b"subtitle text")
+        (folder / "测试影片 [BD] v2.ass").write_bytes(b"[Script Info]\nTitle: Example")
         (folder / "another.srt").write_bytes(b"unrelated")
         (self.base / ".volume-identity").write_text("test")
         self.config = {"root": str(self.base), "uuid": "test"}
@@ -71,8 +72,10 @@ class USBMediaTests(unittest.TestCase):
         result = self.request(self.url + "?subtitles=1")
         self.assertEqual(result.status, 200)
         tracks = json.loads(result.wfile.getvalue())["subtitles"]
-        self.assertEqual([t["name"] for t in tracks], ["测试影片.zh.srt"])
-        self.assertEqual(self.request(tracks[0]["url"]).wfile.getvalue(), b"subtitle text")
+        self.assertEqual([t["name"] for t in tracks], ["测试影片 [BD] v2.ass", "测试影片.zh.srt", "another.srt"])
+        self.assertEqual(self.request(tracks[0]["url"]).wfile.getvalue(), b"[Script Info]\nTitle: Example")
+        self.assertEqual(self.request(tracks[1]["url"]).wfile.getvalue(), b"subtitle text")
+        self.assertEqual(self.request(tracks[2]["url"]).wfile.getvalue(), b"unrelated")
 
     def test_traversal_and_other_files(self):
         self.assertEqual(self.request("/usb-files/../secret.mkv").status, 404)
