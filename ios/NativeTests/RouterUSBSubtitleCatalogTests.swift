@@ -25,6 +25,14 @@ final class RouterUSBSubtitleCatalogTests:XCTestCase {
   let result=try RouterUSBSubtitleCatalog.decodeCatalog(Data(manifest.utf8),movie:film)
   XCTAssertEqual(result.map(\.name),["The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"])
  }
+ func testRealRouterUSBManifestAllowsEllipsisInBasename() throws {
+  // Observed room URL and subtitle manifest for the current film.
+  let film=URL(string:"http://router.example:49185/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The%20T...1%5D%20v2.mkv")!
+  let manifest=#"{"subtitles":[{"name":"The T...1] v2.ass","url":"/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The%20T...1%5D%20v2.ass"},{"name":"../escape.ass","url":"/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/escape.ass"},{"name":"other.ass","url":"/usb-files/outside/other.ass"}]}"#
+  let found=try RouterUSBSubtitleCatalog.decodeCatalog(Data(manifest.utf8),movie:film)
+  XCTAssertEqual(found.map(\.name),["The T...1] v2.ass"])
+  XCTAssertEqual(found.first?.url.lastPathComponent,"The T...1] v2.ass")
+ }
  func testSignedMovieAcceptsRouterAdvertisedUnsignedSibling() throws {
   let signed=URL(string:"https://router.example/media/usb-mount/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.mkv?expires=12345&sig=validtoken")!
   let manifest=#"{"subtitles":[{"name":"The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass","url":"/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"},{"name":"evil.ass","url":"https://other.example/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/evil.ass"},{"name":"evil2.ass","url":"/media/usb-mount/other/evil2.ass?expires=12345&sig=validtoken"}]}"#
