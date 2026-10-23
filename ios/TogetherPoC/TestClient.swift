@@ -595,8 +595,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   lastStepTarget=nil;clearOptimisticPlayback();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil)
   mkvRemux.stop();remuxAudioLabelsByDisplayName=[:];remuxAudioTrackSummary=[]
   Task {
-   guard g==mediaLoadGeneration else {return}
-   do {
+   let retryStarted=Date()
+   var retryCount=0
+   while g==mediaLoadGeneration {
+    do {
     let playbackURL: URL
     if useAtmos {playbackURL=try await atmosServer.prepareURL()}
     else if needsRemux {
@@ -614,9 +616,22 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     if needsRemux {requestStatus="兼容片源已准备，正在读取播放信息。"}
     installMedia(playbackURL,originalURL:url,allowRemuxRetry:!useAtmos && !needsRemux)
     if localVideoTest && localPlayIntent {adapter.play()}
-   } catch {
-    guard g==mediaLoadGeneration else {return}
-    requestStatus=useAtmos ? "Atmos本机清单加载失败，可点恢复官方自适应音轨。" : ((error as? MKVRemux.Failure)?.errorDescription ?? MKVRemux.safeFailure(error).errorDescription ?? "本机片源准备失败")
+    return
+    } catch {
+     guard g==mediaLoadGeneration else {return}
+     let remote=["http","https"].contains(url.scheme?.lowercased() ?? "")
+     let temporary=needsRemux && !useAtmos && remote && MKVRemux.isTransientNetworkFailure(error)
+     guard temporary && Date().timeIntervalSince(retryStarted)<45*60 else {
+      requestStatus=useAtmos ? "Atmos本机清单加载失败，可点恢复官方自适应音轨。" : ((error as? MKVRemux.Failure)?.errorDescription ?? MKVRemux.safeFailure(error).errorDescription ?? "本机片源准备失败")
+      return
+     }
+     // Back off to one probe per minute: OpenWrt may be under heavy load
+     // while the USB disk, DHCPv6 and DDNS are recovering after reboot.
+     let delay=min(60,3 * (1 << min(retryCount,4)))
+     retryCount += 1
+     requestStatus="片源暂时无法读取，等待网络恢复后自动重试（第\(retryCount)次，\(delay)秒后）"
+     try? await Task.sleep(nanoseconds:UInt64(delay)*1_000_000_000)
+    }
    }
   }
  }

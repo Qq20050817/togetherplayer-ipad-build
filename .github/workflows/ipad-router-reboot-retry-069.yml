@@ -1,0 +1,59 @@
+name: Verify iPad router-reboot HTTP recovery 0.6.69
+on:
+  push:
+    branches: [fix/ipad-router-reboot-source-retry-069-20261024]
+    paths:
+      - 'ios/**'
+      - 'server/router/**'
+      - '.github/workflows/ipad-router-reboot-retry-069.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: router-reboot-ipad-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-test:
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Router USB endpoint regression tests
+        run: python3 -m unittest discover -s server/router -p 'test_usb_library.py' -v
+      - name: Generate iPad project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Resolve pinned video dependencies
+        run: |
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
+          python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
+      - name: Build physical iPad application
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee router-reboot-device-build.log
+      - name: Test automatic source retry and preserved USB subtitles
+        run: |
+          set -o pipefail
+          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath router-reboot-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/MediaPreparationTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests -only-testing:TogetherPoCCoreTests/USBPlaylistCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee router-reboot-tests.log
+      - name: Package and verify unsigned IPA
+        run: |
+          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.69-Router-Recovery-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 - <<'PY'
+          import plistlib, zipfile
+          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.69-Router-Recovery-unsigned.ipa') as z:
+              i = plistlib.loads(z.read('Payload/TogetherPoC.app/Info.plist'))
+              assert i['CFBundleShortVersionString'] == '0.6.69'
+              assert str(i['CFBundleVersion']) == '129'
+          PY
+          shasum -a 256 delivery/*.ipa > delivery/SHA256SUMS.txt
+          printf 'Source: %s\nCI: https://github.com/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > delivery/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-router-reboot-069-validation
+          path: |
+            delivery/
+            router-reboot-*.log
+            router-reboot-tests.xcresult

@@ -153,6 +153,32 @@ final class MediaPreparationTests: XCTestCase {
   try await Task.sleep(nanoseconds:20_000_000)
   XCTAssertEqual(starts,2)
  }
+ @MainActor func testTemporaryNetworkFailureRetriesWithoutReselectingTheMovie() async throws {
+  UserDefaults.standard.removeObject(forKey:"credentials")
+  var starts=0
+  let playlist=URL(fileURLWithPath:"/nonexistent-router-recovery-fixture.m3u8")
+  let model=TestClient(compatibilityPreparation:{_,_ in
+   starts += 1
+   if starts==1 {throw MKVRemux.Failure.temporary("片源暂时无法访问")}
+   return playlist
+  })
+  let fixture=roomFixture()
+  model.receive(["type":"WELCOME","room":fixture],t4:0)
+  XCTAssertTrue(model.useBaiduSource(URL(string:"https://pan.baidu.com/movie.mkv")!,file:file))
+  for _ in 0..<160 {
+   if starts>=2 {break}
+   try await Task.sleep(nanoseconds:25_000_000)
+  }
+  XCTAssertEqual(starts,2,"A transient prepare failure must retry the same film automatically")
+  XCTAssertEqual((model.adapter.player.currentItem?.asset as? AVURLAsset)?.url,playlist)
+ }
+ @MainActor func testRebootRetryClassificationRejectsPermanentSourceErrors() {
+  let source=URL(string:"https://example.org/media.mkv")!
+  XCTAssertTrue(MKVRemux.isTransientNetworkFailure(MKVRemux.Failure.temporary("offline")))
+  XCTAssertFalse(MKVRemux.isTransientNetworkFailure(MKVRemux.Failure.preparation))
+  XCTAssertFalse(MKVRemux.isTransientNetworkFailure(PrismCoreError.originRefused(status:403,url:source)))
+  XCTAssertTrue(MKVRemux.isTransientNetworkFailure(PrismCoreError.originRateLimited(status:429,retryAfter:5,url:source)))
+ }
  @MainActor func testFailureClassificationNeverExposesAccountURL() {
   let secret=URL(string:"https://pan.baidu.com/video?access_token=PRIVATE_SECRET")!
   let cases: [(Error,String)]=[

@@ -25,9 +25,10 @@ struct MKVAudioTrackPresentation: Equatable {
  private(set) var uniquePGSStreamIndex:Int?
  enum Failure: LocalizedError {
   case replaced, preparation
-  case diagnostic(String)
+  case diagnostic(String), temporary(String)
   var errorDescription: String? {
    if case .diagnostic(let message)=self {return message}
+   if case .temporary(let message)=self {return message}
    return "本机片源准备失败（原因未分类）；可在房间设置中重试。"
   }
  }
@@ -190,7 +191,20 @@ struct MKVAudioTrackPresentation: Equatable {
   case .ffmpeg(let code,_,_): reason="封装处理失败（FFmpeg \(code)）；请保留此错误码。"
   case .unknown: reason="原因未分类；可在房间设置中手动重试。"
   }
-  return .diagnostic("本机片源准备失败："+reason)
+  let message="本机片源准备失败："+reason
+  return isTransientNetworkFailure(error) ? .temporary(message) : .diagnostic(message)
+ }
+ // A reboot or IPv6 renumbering can make the same remote file briefly
+ // unreachable. Never keep retrying a missing file or an unauthorized URL.
+ static func isTransientNetworkFailure(_ error: Error) -> Bool {
+  if let failure=error as? Failure,case .temporary=failure {return true}
+  switch PrismCoreError.classify(error) {
+  case .originUnreachable(let status,_,_):
+   guard let status else {return true}
+   return status == 408 || status == 425 || status == 429 || (500...599).contains(status)
+  case .originRateLimited, .startupBudgetExpired: return true
+  default: return false
+  }
  }
  static func needed(url: URL,fileName: String?=nil) -> Bool {
   if let fileName=fileName {return (fileName as NSString).pathExtension.lowercased()=="mkv"}
