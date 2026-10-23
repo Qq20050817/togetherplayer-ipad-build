@@ -1,0 +1,65 @@
+name: Verify iPad USB literal ellipsis subtitle filenames 0.6.68
+on:
+  push:
+    branches: [fix/ipad-usb-dotted-name-068-20261023]
+    paths:
+      - 'ios/**'
+      - 'server/router/**'
+      - '.github/workflows/ipad-usb-dotted-name-068.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: usb-dotted-name-ipad-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-test:
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test router same-directory subtitles and traversal protection
+        run: |
+          python3 -m unittest discover -s server/router -p 'test_usb_library.py' -v
+      - name: Generate iPad project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Resolve pinned video dependencies
+        run: |
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
+          python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
+      - name: Build physical iPad application
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee usb-dotted-name-device-build.log
+      - name: Verify same-folder ASS and mixed URL catalog
+        run: |
+          set -o pipefail
+          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath usb-dotted-name-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests -only-testing:TogetherPoCCoreTests/USBPlaylistCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee usb-dotted-name-tests.log
+      - name: Package and verify unsigned IPA
+        run: |
+          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.68-USB-ASS-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 - <<'PY'
+          import plistlib, zipfile
+          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.68-USB-ASS-unsigned.ipa') as z:
+              i = plistlib.loads(z.read('Payload/TogetherPoC.app/Info.plist'))
+              assert i['CFBundleShortVersionString'] == '0.6.68'
+              assert str(i['CFBundleVersion']) == '128'
+          PY
+          shasum -a 256 delivery/*.ipa > delivery/SHA256SUMS.txt
+          printf 'Source: %s\nCI: https://github.com/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > delivery/BUILD.txt
+      - name: Publish tested unsigned IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create usb-dotted-name-ipad-0.6.68-${{ github.run_id }} delivery/* --target "$GITHUB_SHA" --prerelease --title 'TogetherPlayer iPad 0.6.68 · U盘字幕地址兼容修复' --notes 'Fixes actual live filename The T...1] v2.ass being rejected because the old client blocked any adjacent dots. Keeps strict basename, same-origin and same-folder checks to reject traversal. Also retains signed/direct USB alias support. Swift native tests and simulator checks. Unsigned IPA requires signing; real iPad playback acceptance still required. No router or production service changes.'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-usb-dotted-name-066-validation
+          path: |
+            delivery/
+            usb-dotted-name-*.log
+            usb-dotted-name-tests.xcresult
