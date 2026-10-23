@@ -480,7 +480,7 @@ class MainActivity: Activity() {
    notice.text=when(r.optString("pauseReason")){"buffering"->"等待对方缓冲";"disconnected"->"等待对方重连";"ended"->"播放完毕，点播放重播";else->""}
    val url=r.getString("mediaUrl");if(type=="WELCOME")restoreSavedLocalMovieBinding(r);discoverUsbSubtitles(url);obj.optJSONArray("members")?.let {applyMembers(it)}
    if(BaiduMediaReference.parse(url)!=null) {
-    if(url!=loadedURL || (type=="WELCOME" && hasBaiduMatch() && playback.playerError==null && playback.playbackState==Player.STATE_IDLE)) {
+    if(url!=loadedURL || (type=="WELCOME" && hasBaiduMatch() && PlaybackTapRecoveryPolicy.needsReloadAfterWelcome(playback.playbackState,playback.playerError!=null))) {
      loadedURL=url;titleField.setText(r.optString("title"))
      if(hasBaiduMatch())loadMedia(if(localFileUri.isNotBlank())localFileUri else baiduURL,r.getDouble("position")+engine.timelineOffset)
      else {playback.pause();playback.clearMediaItems();clearSubtitle();requestStatus.text="房间已切换到文件匹配模式，请选择本地同一文件，或授权百度网盘并选择转存的同一文件。"}
@@ -490,7 +490,7 @@ class MainActivity: Activity() {
      loadedURL=url;media.setText(url);titleField.setText(r.optString("title"))
      playback.pause();playback.clearMediaItems()
      requestStatus.text="本地影片读取授权已失效，请点“选择本地影片”重新授权；已阻止自动切回 HTTP"
-    }else if(url!=loadedURL || (type=="WELCOME" && playback.playerError==null && playback.playbackState==Player.STATE_IDLE) ||
+    }else if(url!=loadedURL || (type=="WELCOME" && PlaybackTapRecoveryPolicy.needsReloadAfterWelcome(playback.playbackState,playback.playerError!=null)) ||
     (type=="WELCOME" && localFileUri.isNotBlank() && localSourceRoomID==r.optString("roomId") && localSourceRoom==url &&
      playback.currentMediaItem?.localConfiguration?.uri?.toString()!=localFileUri)) {
     if(baiduSourceID.isNotBlank()){baiduSourceID="";baiduSourceRoom="";baiduURL="";activeLocalSource="";localSource.text.clear()}
