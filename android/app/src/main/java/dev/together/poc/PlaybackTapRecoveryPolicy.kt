@@ -21,6 +21,7 @@ internal object PlaybackTapRecoveryPolicy {
   // source, even if the room continues to be marked "playing".
   val cannotAdvance=broken || playerState==Player.STATE_BUFFERING
   if(roomState=="playing" && cannotAdvance)return Action.RELOAD_LOCAL_PLAYER
+  if(roomState=="paused" && waitingForBuffer && cannotAdvance)return Action.RELOAD_LOCAL_PLAYER
   if(roomState=="paused" && broken)return Action.RELOAD_AND_PLAY_ROOM
   if(roomState=="playing" && stalled)return Action.WAKE_PLAYER
   return Action.TOGGLE_ROOM
