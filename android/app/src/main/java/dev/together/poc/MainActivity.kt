@@ -74,7 +74,7 @@ class MainActivity: Activity() {
  private var playerRebuildCount=0
  private var networkRecoveryGeneration=0
  private var networkRecoveryScheduled=false
- private var localBufferStartedAt=0L;private var localBufferRetryCount=0
+ private var localBufferStartedAt=0L;private var localBufferRetryCount=0;private var savedLocalPermissionMissing=false
  private lateinit var watchBody: LinearLayout;private lateinit var videoColumn: LinearLayout;private lateinit var chatColumn: LinearLayout;private lateinit var progress: SeekBar;private lateinit var timeLabel: TextView;private lateinit var pauseButton: ImageButton
  private lateinit var volumeSlider: SeekBar;private var lastAudibleVolume=1f;private lateinit var durationLabel: TextView;private lateinit var mediaBadge: TextView;private lateinit var networkHealthLabel:TextView;private var memberSummary="";private var onlineMembers=0
  private var importedSubtitleUri:android.net.Uri?=null
@@ -478,7 +478,7 @@ class MainActivity: Activity() {
    engine.receive(r);isHost=r.getString("hostId")==credentials?.optString("userId");if(p2pFastUntil>0&&(r.optString("roomId")!=p2pRoomID||r.optLong("version")>p2pFastVersion))p2pFastUntil=0.0;p2pGate.serverState(r.optLong("version"));val id=r.getString("roomId");if(chatRoom!=id){chatRoom=id;filmRecap.clear();outbox.clear();chat.reset(id);renderChat()}
    roomTitle.text=r.optString("title").ifBlank {"一起看电影"};settingWait=true;waitToggle.isChecked=r.optBoolean("waitForPeer");waitToggle.isEnabled=isHost;settingWait=false
    notice.text=when(r.optString("pauseReason")){"buffering"->"等待对方缓冲";"disconnected"->"等待对方重连";"ended"->"播放完毕，点播放重播";else->""}
-   val url=r.getString("mediaUrl");discoverUsbSubtitles(url);obj.optJSONArray("members")?.let {applyMembers(it)}
+   val url=r.getString("mediaUrl");if(type=="WELCOME")restoreSavedLocalMovieBinding(r);discoverUsbSubtitles(url);obj.optJSONArray("members")?.let {applyMembers(it)}
    if(BaiduMediaReference.parse(url)!=null) {
     if(url!=loadedURL || (type=="WELCOME" && hasBaiduMatch() && playback.playerError==null && playback.playbackState==Player.STATE_IDLE)) {
      loadedURL=url;titleField.setText(r.optString("title"))
@@ -486,7 +486,11 @@ class MainActivity: Activity() {
      else {playback.pause();playback.clearMediaItems();clearSubtitle();requestStatus.text="房间已切换到文件匹配模式，请选择本地同一文件，或授权百度网盘并选择转存的同一文件。"}
     }
     notice.text=if(usingVariant())"已确认同一剪辑的另一画质，等待时长核对及房主播放。" else if(hasBaiduMatch())if(localFileUri.isNotBlank())"本地同一文件已匹配；等待双方准备好后由房主播放。" else "百度同一文件已匹配；等待双方准备好后由房主播放。" else "等待百度选片：${r.optString("title")}；也可选择本地同一文件"
-   }else if(url!=loadedURL || (type=="WELCOME" && playback.playerError==null && playback.playbackState==Player.STATE_IDLE) ||
+   }else if(savedLocalPermissionMissing && localSourceRoomID==r.optString("roomId") && localSourceRoom==url) {
+     loadedURL=url;media.setText(url);titleField.setText(r.optString("title"))
+     playback.pause();playback.clearMediaItems()
+     requestStatus.text="本地影片读取授权已失效，请点“选择本地影片”重新授权；已阻止自动切回 HTTP"
+    }else if(url!=loadedURL || (type=="WELCOME" && playback.playerError==null && playback.playbackState==Player.STATE_IDLE) ||
     (type=="WELCOME" && localFileUri.isNotBlank() && localSourceRoomID==r.optString("roomId") && localSourceRoom==url &&
      playback.currentMediaItem?.localConfiguration?.uri?.toString()!=localFileUri)) {
     if(baiduSourceID.isNotBlank()){baiduSourceID="";baiduSourceRoom="";baiduURL="";activeLocalSource="";localSource.text.clear()}
@@ -496,7 +500,7 @@ class MainActivity: Activity() {
      if(variantRoomID==r.optString("roomId") && RoomMediaIdentity.sameHttpMovie(variantMediaURL,url))variantMediaURL=url
      localSourceRoom=url
     }else if(localFileUri.isNotBlank() || activeLocalSource.isNotBlank()){
-     localFileUri="";localFileName="";activeLocalSource="";localSourceRoom="";localSourceRoomID=""
+     localFileUri="";localFileName="";activeLocalSource="";localSourceRoom="";localSourceRoomID="";clearSavedLocalMovieBinding()
      variantRoomID="";variantMediaURL="";variantDuration=0.0
      if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片"
      requestStatus.text="房间切换了影片，请重新选择这台手机的本地文件"
@@ -862,7 +866,51 @@ class MainActivity: Activity() {
    }
   },{clearBaiduSource()}).show()
  }
- private fun playbackSource(url: String):String {
+ private fun clearSavedLocalMovieBinding(){
+   getPreferences(0).edit().remove("localMovie.room").remove("localMovie.media")
+    .remove("localMovie.uri").remove("localMovie.name").apply()
+   savedLocalPermissionMissing=false
+  }
+  private fun rememberLocalMovieBinding(){
+   if(localFileUri.isBlank() || localSourceRoomID.isBlank() || localSourceRoom.isBlank())return
+   getPreferences(0).edit().putString("localMovie.room",localSourceRoomID)
+    .putString("localMovie.media",localSourceRoom).putString("localMovie.uri",localFileUri)
+    .putString("localMovie.name",localFileName).apply()
+  }
+  private fun restoreSavedLocalMovieBinding(room: JSONObject){
+   if(localFileUri.isNotBlank() || activeLocalSource.isNotBlank())return
+   val prefs=getPreferences(0)
+   val uri=prefs.getString("localMovie.uri",null)?.takeIf{it.isNotBlank()} ?: return
+   val storedRoom=prefs.getString("localMovie.room","").orEmpty()
+   val storedMedia=prefs.getString("localMovie.media","").orEmpty()
+   val currentRoom=room.optString("roomId")
+   val currentMedia=room.optString("mediaUrl")
+   val permitted=contentResolver.persistedUriPermissions.any{it.isReadPermission && it.uri.toString()==uri}
+   when(LocalMovieRestorePolicy.decide(storedRoom,storedMedia,currentRoom,currentMedia,permitted)){
+    LocalMovieRestorePolicy.Action.IGNORE->return
+    LocalMovieRestorePolicy.Action.MOVIE_CHANGED->{clearSavedLocalMovieBinding();return}
+    LocalMovieRestorePolicy.Action.RESELECT->{
+     savedLocalPermissionMissing=true;localSourceRoomID=currentRoom;localSourceRoom=currentMedia
+     if(::localFileLabel.isInitialized)localFileLabel.text="本地影片需重新授权"
+     requestStatus.text="手机曾使用本地影片，读取授权已失效，请重新选择文件"
+    }
+    LocalMovieRestorePolicy.Action.RESTORE->{
+     savedLocalPermissionMissing=false;localFileUri=uri
+     localFileName=prefs.getString("localMovie.name","本地影片").orEmpty()
+     localSourceRoomID=currentRoom;localSourceRoom=currentMedia
+     BaiduMediaReference.parse(currentMedia)?.let {baiduSourceID=it.value;baiduSourceRoom=currentRoom}
+     if(::localFileLabel.isInitialized)localFileLabel.text="已恢复本地影片：$localFileName"
+     if(storedMedia!=currentMedia)rememberLocalMovieBinding()
+    }
+   }
+  }
+  private fun playbackSourceKind():String=when(playback.currentMediaItem?.localConfiguration?.uri?.scheme?.lowercase()){
+   "content","file"->"本地文件"
+   "http","https"->"HTTP网络"
+   null->"未加载"
+   else->"其他"
+  }
+  private fun playbackSource(url: String):String {
   if(localSourceRoomID==engine.room?.optString("roomId") && localSourceRoom==url){
    if(localFileUri.isNotBlank())return localFileUri
    if(activeLocalSource.isNotEmpty())return activeLocalSource
@@ -1004,10 +1052,11 @@ class MainActivity: Activity() {
     result.onSuccess {(name,target,roomReference)->
      variantRoomID=if(confirmedVariant)expectedRoom else "";variantMediaURL=if(confirmedVariant)expectedMedia else "";variantDuration=if(confirmedVariant)current.optDouble("duration",0.0)else 0.0
      localFileUri=uri.toString();localFileName=name;localFileLabel.text="本地影片：$name";activeLocalSource="";localSource.text.clear();baiduURL=""
-     localBufferStartedAt=0L;localBufferRetryCount=0
+     localBufferStartedAt=0L;localBufferRetryCount=0;savedLocalPermissionMissing=false
      if(roomReference!=null){baiduSourceID=roomReference.value;baiduSourceRoom=expectedRoom;localSourceRoom=roomReference.value;localSourceRoomID=expectedRoom}
      else {baiduSourceID="";baiduSourceRoom="";localSourceRoom=current.optString("mediaUrl");localSourceRoomID=expectedRoom}
-     if(isHost && target==null && roomReference!=null){enqueue(JSONObject().put("type","ROOM_MEDIA").put("data",JSONObject().put("mediaUrl",roomReference.value).put("title",name.take(160))))}
+     rememberLocalMovieBinding()
+      if(isHost && target==null && roomReference!=null){enqueue(JSONObject().put("type","ROOM_MEDIA").put("data",JSONObject().put("mediaUrl",roomReference.value).put("title",name.take(160))))}
      else loadMedia(localFileUri,start)
      requestStatus.text=if(confirmedVariant)"已确认同一剪辑的压缩／转码版，正在核对影片时长。" else if(roomReference!=null)"本地同一文件已匹配；影片只从这台设备读取。" else "本地影片已应用；文件只从这台设备读取。"
     }.onFailure {
@@ -1065,7 +1114,7 @@ class MainActivity: Activity() {
   if(cleanupRunning || stopped || localFileUri!=plan.source.toString() || selection!=localSelectionGeneration){requestStatus.text="影片已变化，未删除任何文件";return}
   cleanupRunning=true;voice.disable();localSelectionGeneration++;pendingLocalMovie=null
   playback.pause();playback.clearMediaItems();clearSubtitle();loadedURL="";playbackNeedsRecovery=false;playbackRecovery.reset()
-  localFileUri="";localFileName="";localSourceRoom="";localSourceRoomID="";baiduSourceID="";baiduSourceRoom="";baiduURL="";variantRoomID="";variantMediaURL="";variantDuration=0.0
+  localFileUri="";localFileName="";localSourceRoom="";localSourceRoomID="";clearSavedLocalMovieBinding();baiduSourceID="";baiduSourceRoom="";baiduURL="";variantRoomID="";variantMediaURL="";variantDuration=0.0
   localFileLabel.text="未选择本地影片";requestStatus.text="正在清理…"
   Thread {
    val result=WatchedFileCleanup(contentResolver).remove(plan,files)
@@ -1079,13 +1128,13 @@ class MainActivity: Activity() {
  private fun clearLocalMovie(){
   variantRoomID="";variantMediaURL="";variantDuration=0.0
   localSelectionGeneration++;pendingLocalMovie=null
-  if(localFileUri.isBlank() && activeLocalSource.isBlank()){requestStatus.text="当前没有本机替代片源";return}
-  localFileUri="";localFileName="";activeLocalSource="";localSource.text.clear();if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";val r=engine.room
+  if(localFileUri.isBlank() && activeLocalSource.isBlank() && !savedLocalPermissionMissing){requestStatus.text="当前没有本机替代片源";return}
+  localFileUri="";localFileName="";activeLocalSource="";localSource.text.clear();clearSavedLocalMovieBinding();if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";val r=engine.room
   if(r==null){requestStatus.text="本地影片已清除";return}
   if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){baiduSourceID="";baiduSourceRoom="";playback.pause();playback.clearMediaItems();clearSubtitle();loadedURL="";requestStatus.text="本地影片已清除；当前房间仍需重新选择同一文件。"}
   else {localSourceRoom="";localSourceRoomID="";loadMedia(r.optString("mediaUrl"),r.optDouble("position")+engine.timelineOffset);requestStatus.text="本地影片已清除，已恢复房间片源。"}
  }
- private fun applyLocalSource(){val r=engine.room ?: return;if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){requestStatus.text="当前房间使用文件匹配，请点“选择本地影片”或使用自己的百度授权选片";return};try {localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource=if(localSource.text.isBlank())"" else MediaSources.resolve(localSource.text.toString());localSourceRoom=r.getString("mediaUrl");localSourceRoomID=r.getString("roomId");loadMedia(playbackSource(localSourceRoom),r.getDouble("position")+engine.timelineOffset);requestStatus.text="已应用本机片源；链接不分享"}catch(e: Exception){requestStatus.text="本机链接无效"}}
+ private fun applyLocalSource(){val r=engine.room ?: return;if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){requestStatus.text="当前房间使用文件匹配，请点“选择本地影片”或使用自己的百度授权选片";return};try {localFileUri="";localFileName="";clearSavedLocalMovieBinding();if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource=if(localSource.text.isBlank())"" else MediaSources.resolve(localSource.text.toString());localSourceRoom=r.getString("mediaUrl");localSourceRoomID=r.getString("roomId");loadMedia(playbackSource(localSourceRoom),r.getDouble("position")+engine.timelineOffset);requestStatus.text="已应用本机片源；链接不分享"}catch(e: Exception){requestStatus.text="本机链接无效"}}
  private fun setRoomMedia(){requestStatus.text="仅 iPad 房主可设置房间影片"}
  private fun enqueue(obj: JSONObject){if(queued.size>=8){requestStatus.text="请等待操作完成";return};queued.addLast(obj);flush()}
  private fun flush(){if(!connected || !clock.ready || inFlight!=null || queued.isEmpty() || (!isHost && queued.first().optString("type")!="INSTANT_CONTROL"))return;val op=queued.removeFirst();inFlight=op;flightSequence=++sequence;val command=JSONObject(op.toString()).put("sequence",sequence).put("baseVersion",engine.version);send(command);sendP2PHint(command)}
@@ -1159,8 +1208,8 @@ class MainActivity: Activity() {
  }
 
  private fun showReaction(emoji: String){if(emoji !in listOf("😂","😱","😭","🤯","❤️","👀"))return;val v=TextView(this).apply {text=emoji;textSize=34f};videoBox.addView(v,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL));v.animate().translationY(-dp(80).toFloat()).alpha(0f).setDuration(3000).withEndAction {videoBox.removeView(v)}.start()}
- private fun clearRoom(){stopP2P();httpHealth.reset("");plotDrawer?.dismiss();filmRecap.clear();instantControls=false;optimisticPlaying=null;optimisticUntil=0.0;plotPoll=null;variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();usbCatalogGeneration++;usbCatalogVideo="";usbCatalogRoom="";usbSubtitles=emptyList();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
- private fun diagnostic(event: String,details: JSONObject=JSONObject()){if(!connected)return;send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("diagnostic",true).put("event",event).put("details",details).put("clientVersion",clientVersion).put("positionMs",playback.currentPosition).put("version",engine.version).put("playbackRate",playback.playbackParameters.speed).put("bufferedPositionMs",playback.bufferedPosition).put("playbackState",playback.playbackState)))}
+ private fun clearRoom(){stopP2P();httpHealth.reset("");plotDrawer?.dismiss();filmRecap.clear();instantControls=false;optimisticPlaying=null;optimisticUntil=0.0;plotPoll=null;variantRoomID="";variantMediaURL="";variantDuration=0.0;voice.disable();localSelectionGeneration++;pendingLocalMovie=null;clearSavedLocalMovieBinding();baiduSourceID="";baiduSourceRoom="";baiduURL="";localFileUri="";localFileName="";if(::localFileLabel.isInitialized)localFileLabel.text="未选择本地影片";activeLocalSource="";localSourceRoom="";localSourceRoomID="";localSource.text.clear();generation++;connected=false;ws?.cancel();credentials=null;getPreferences(0).edit().remove("credentials").apply();engine.resetSession();usbCatalogGeneration++;usbCatalogVideo="";usbCatalogRoom="";usbSubtitles=emptyList();clearSubtitle();danmakuPending.clear();playback.clearMediaItems();loadedURL="";queued.clear();inFlight=null;outbox.clear();chatRoom="";chat.reset("");renderChat();roomInput.setText("");presence.text="未连接";memberSummary="";onlineMembers=0;presence.setTextColor(0xff9cabb5.toInt());notice.text="";roomTitle.text="选择影片，开始一起看";status.text="已离开房间";requestStatus.text="";isHost=false}
+ private fun diagnostic(event: String,details: JSONObject=JSONObject()){if(!connected)return;send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("diagnostic",true).put("event",event).put("details",details).put("clientVersion",clientVersion).put("positionMs",playback.currentPosition).put("version",engine.version).put("playbackRate",playback.playbackParameters.speed).put("bufferedPositionMs",playback.bufferedPosition).put("playbackState",playback.playbackState).put("sourceKind",playbackSourceKind()).put("localBindingActive",localFileUri.isNotBlank())))}
  private fun checkPlaybackRecovery() {
   val room=engine.room
   val shouldPlay=foreground && connected && room!=null && engine.target()?.second=="playing" &&
@@ -1223,7 +1272,7 @@ class MainActivity: Activity() {
   requestStatus.text="手机本地影片缓冲过久，正在恢复（$localBufferRetryCount/2）"
   loadMedia(localFileUri,target,preserveSubtitles=true)
  }
- private val tick=object: Runnable {override fun run(){if(stopped)return;updatePlaybackUI();notice.visibility=if(notice.text.isBlank())View.GONE else View.VISIBLE;requestStatus.visibility=if(requestStatus.text.isBlank())View.GONE else View.VISIBLE;presence.visibility=if(presence.text.isBlank())View.GONE else View.VISIBLE;chat.tick(clock.localNow());val typingLabel=if(chat.typingName.isBlank())"" else "${chat.typingName} 正在输入…";if(typing.text.toString()!=typingLabel)typing.text=typingLabel;if(foreground && connected){val variantState=variantCheck();val locallyPending=instantControls && clock.localNow()<optimisticUntil && (inFlight!=null || queued.isNotEmpty());val p2pEarly=clock.localNow()<p2pFastUntil&&engine.version==p2pFastVersion&&plotPoll?.optBoolean("waitingForAnswers")!=true;val error=if(locallyPending||p2pEarly)null else if(variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE)engine.tick() else {playback.pause();null};if(speedHoldID!=null && engine.target()?.second=="paused")setSpeedHold(false);checkPlaybackRecovery();recoverStuckLocalBuffer();if(usingVariant())notice.text=when(variantState){MovieVariantPolicy.DurationCheck.WAITING->"等待原版与转码版的影片时长；暂不进入同步。";MovieVariantPolicy.DurationCheck.DIFFERENT->"影片时长不一致，请确认剪辑版本或校准时间差。";else->"同一剪辑的另一画质已确认，影片时长核对通过。"};ticks++;flush();if(ticks%10==0){send(JSONObject().put("type","SYNC"));val ready=variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE && (BaiduMediaReference.parse(engine.room?.optString("mediaUrl") ?: "")==null || hasBaiduMatch()) && RecoveryBufferPolicy.ready(playback.playbackState==Player.STATE_READY || playback.playbackState==Player.STATE_ENDED,(playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0),playback.currentPosition,playback.duration,engine.room?.optBoolean("autoResume")==true && localFileUri.isBlank());send(JSONObject().put("type","PLAYER_STATUS").put("data",JSONObject().put("sourceId",if(hasBaiduMatch())baiduSourceID else "").put("ready",ready).put("buffering",playback.playbackState==Player.STATE_BUFFERING).put("position",(playback.currentPosition-engine.timelineOffset).coerceAtLeast(0.0)).put("duration",if(usingVariant() && isHost)if(variantDuration>0)variantDuration+engine.timelineOffset else 0.0 else playback.duration.coerceAtLeast(0).toDouble())));val target=engine.target();send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("clientVersion",clientVersion).put("serverTimeMs",if(clock.ready)clock.serverNow() else JSONObject.NULL).put("ready",ready).put("timelineOffsetMs",engine.timelineOffset).put("executeAtMs",engine.room?.optDouble("executeAt",0.0) ?: 0.0).put("resyncCount",engine.resyncCount).put("positionMs",playback.currentPosition).put("expectedMs",target?.first).put("errorMs",if(error!=null)target!!.first-playback.currentPosition else JSONObject.NULL).put("rttMs",clock.rtt).put("version",engine.version).put("playing",playback.isPlaying).put("buffering",!ready).put("playbackRate",playback.playbackParameters.speed)));val bufferedSeconds=((playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0)/1000);status.text="$clientVersion ${if(isHost)"HOST" else "GUEST"} room=${credentials?.optString("roomId")} v=${engine.version}\n位置 ${playback.currentPosition/1000}s 误差 ${error?.toInt()}ms RTT ${clock.rtt.toInt()}ms\n视频 ${playback.videoFormat?.sampleMimeType ?: "等待"} 音频 ${playback.audioFormat?.sampleMimeType ?: "等待"}\n已缓存 ${bufferedSeconds}s · $p2pStatus"};if(ticks%75==0)refreshP2P();if(ticks%150==0)pingBurst()};main.postDelayed(this,100)}}
+ private val tick=object: Runnable {override fun run(){if(stopped)return;updatePlaybackUI();notice.visibility=if(notice.text.isBlank())View.GONE else View.VISIBLE;requestStatus.visibility=if(requestStatus.text.isBlank())View.GONE else View.VISIBLE;presence.visibility=if(presence.text.isBlank())View.GONE else View.VISIBLE;chat.tick(clock.localNow());val typingLabel=if(chat.typingName.isBlank())"" else "${chat.typingName} 正在输入…";if(typing.text.toString()!=typingLabel)typing.text=typingLabel;if(foreground && connected){val variantState=variantCheck();val locallyPending=instantControls && clock.localNow()<optimisticUntil && (inFlight!=null || queued.isNotEmpty());val p2pEarly=clock.localNow()<p2pFastUntil&&engine.version==p2pFastVersion&&plotPoll?.optBoolean("waitingForAnswers")!=true;val error=if(locallyPending||p2pEarly)null else if(variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE)engine.tick() else {playback.pause();null};if(speedHoldID!=null && engine.target()?.second=="paused")setSpeedHold(false);checkPlaybackRecovery();recoverStuckLocalBuffer();if(usingVariant())notice.text=when(variantState){MovieVariantPolicy.DurationCheck.WAITING->"等待原版与转码版的影片时长；暂不进入同步。";MovieVariantPolicy.DurationCheck.DIFFERENT->"影片时长不一致，请确认剪辑版本或校准时间差。";else->"同一剪辑的另一画质已确认，影片时长核对通过。"};ticks++;flush();if(ticks%10==0){send(JSONObject().put("type","SYNC"));val ready=variantState==MovieVariantPolicy.DurationCheck.COMPATIBLE && (BaiduMediaReference.parse(engine.room?.optString("mediaUrl") ?: "")==null || hasBaiduMatch()) && RecoveryBufferPolicy.ready(playback.playbackState==Player.STATE_READY || playback.playbackState==Player.STATE_ENDED,(playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0),playback.currentPosition,playback.duration,engine.room?.optBoolean("autoResume")==true && localFileUri.isBlank());send(JSONObject().put("type","PLAYER_STATUS").put("data",JSONObject().put("sourceId",if(hasBaiduMatch())baiduSourceID else "").put("ready",ready).put("buffering",playback.playbackState==Player.STATE_BUFFERING).put("position",(playback.currentPosition-engine.timelineOffset).coerceAtLeast(0.0)).put("duration",if(usingVariant() && isHost)if(variantDuration>0)variantDuration+engine.timelineOffset else 0.0 else playback.duration.coerceAtLeast(0).toDouble())));val target=engine.target();send(JSONObject().put("type","TELEMETRY").put("data",JSONObject().put("clientVersion",clientVersion).put("serverTimeMs",if(clock.ready)clock.serverNow() else JSONObject.NULL).put("ready",ready).put("timelineOffsetMs",engine.timelineOffset).put("executeAtMs",engine.room?.optDouble("executeAt",0.0) ?: 0.0).put("resyncCount",engine.resyncCount).put("positionMs",playback.currentPosition).put("expectedMs",target?.first).put("errorMs",if(error!=null)target!!.first-playback.currentPosition else JSONObject.NULL).put("rttMs",clock.rtt).put("version",engine.version).put("playing",playback.isPlaying).put("buffering",!ready).put("playbackRate",playback.playbackParameters.speed)));val bufferedSeconds=((playback.bufferedPosition-playback.currentPosition).coerceAtLeast(0)/1000);status.text="$clientVersion ${if(isHost)"HOST" else "GUEST"} room=${credentials?.optString("roomId")} v=${engine.version}\n位置 ${playback.currentPosition/1000}s 误差 ${error?.toInt()}ms RTT ${clock.rtt.toInt()}ms\n视频 ${playback.videoFormat?.sampleMimeType ?: "等待"} 音频 ${playback.audioFormat?.sampleMimeType ?: "等待"}\n已缓存 ${bufferedSeconds}s · $p2pStatus · 片源：${playbackSourceKind()}"};if(ticks%75==0)refreshP2P();if(ticks%150==0)pingBurst()};main.postDelayed(this,100)}}
  private fun disconnectForTest(){generation++;val g=generation;ws?.cancel();connected=false;engine.resetSession();main.postDelayed({if(!stopped && foreground && generation==g)connect()},3000)}
  override fun onDestroy(){stopP2P();p2pTransport.dispose();plotDrawer?.dismiss();voice.close();stopped=true;fullscreenDialog?.dismiss();generation++;main.removeCallbacksAndMessages(null);ws?.cancel();playback.release();baidu.close();http.dispatcher.executorService.shutdown();super.onDestroy()}
 
