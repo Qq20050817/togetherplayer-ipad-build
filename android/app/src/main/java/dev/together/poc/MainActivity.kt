@@ -783,11 +783,34 @@ class MainActivity: Activity() {
  private fun scheduleControlsHide(){main.removeCallbacks(hideControls);if(fullscreenControls?.visibility==View.VISIBLE && !fullscreenTouching && fullscreenFocused && !voice.busy && !draggingProgress)main.postDelayed(hideControls,if(applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE!=0 && intent.getBooleanExtra("uiTestSlow",false))12000 else 10000)}
  private fun revealControls(){fullscreenControls?.visibility=View.VISIBLE;scheduleControlsHide()}
  private fun togglePlayback(){
-  if(engine.room?.optString("state")=="playing" && playbackNeedsRecovery){
-   playbackRecovery.reset();playbackNeedsRecovery=false;playback.pause();playback.play();playbackAction("正在恢复当前影片")
-   return
+  val room=engine.room
+  val playerState=playback.playbackState
+  val action=PlaybackTapRecoveryPolicy.decide(
+   room?.optString("state") ?: "",playerState,playback.playerError!=null,
+   room?.optBoolean("autoResume")==true,playbackNeedsRecovery)
+  when(action){
+   PlaybackTapRecoveryPolicy.Action.RELOAD_LOCAL_PLAYER->{
+    // When Android fails while the room is "playing", never send PAUSE to
+    // the healthy iPad; rebuild this device's selected source only.
+    diagnostic("manualPlayerReload",JSONObject().put("oldState",playerState).put("sourceKind",playbackSourceKind()))
+    retryPlayback()
+    playbackAction("正在恢复手机影片，房间保持原状态")
+    return
+   }
+   PlaybackTapRecoveryPolicy.Action.RELOAD_AND_PLAY_ROOM->{
+    diagnostic("manualPlayerReload",JSONObject().put("oldState",playerState).put("sourceKind",playbackSourceKind()))
+    retryPlayback()
+    control("PLAY")
+    return
+   }
+   PlaybackTapRecoveryPolicy.Action.WAKE_PLAYER->{
+    playbackRecovery.reset();playbackNeedsRecovery=false
+    playback.pause();playback.play();playbackAction("正在恢复当前影片")
+    return
+   }
+   PlaybackTapRecoveryPolicy.Action.TOGGLE_ROOM->Unit
   }
-  control(if(optimisticPlaying ?: (engine.room?.optString("state")=="playing"))"PAUSE" else "PLAY")
+  control(if(optimisticPlaying ?: (room?.optString("state")=="playing"))"PAUSE" else "PLAY")
  }
  private fun composeDanmaku(){main.removeCallbacks(hideControls);val input=EditText(this).apply {hint="发弹幕（同时发送到聊天）";maxLines=3}
   val d=android.app.AlertDialog.Builder(this).setTitle("发弹幕").setView(input).setNegativeButton("取消",null).setPositiveButton("发送",null).create()
@@ -1007,7 +1030,8 @@ class MainActivity: Activity() {
   private fun retryPlayback(){
   val r=engine.room ?: return
   val url=if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){if(!hasBaiduMatch()){requestStatus.text="请先选择同一影片";return};if(localFileUri.isNotBlank())localFileUri else baiduURL}else playbackSource(r.optString("mediaUrl"))
-  requestStatus.text="正在重试播放…";playerRebuildCount=0;loadMedia(url,r.optDouble("position")+engine.timelineOffset,preserveSubtitles=true)
+  val target=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0)
+  requestStatus.text="正在重试播放…";playerRebuildCount=0;loadMedia(url,target,preserveSubtitles=true)
    if(engine.target()?.second=="playing" && plotPoll?.optBoolean("waitingForAnswers")!=true)playback.play()
  }
  private fun loadMedia(url: String,position: Double,preserveSubtitles:Boolean=false){networkRecoveryGeneration++;networkRecoveryScheduled=false;playbackRecovery.reset();playbackNeedsRecovery=false;if(!preserveSubtitles)playerRebuildCount=0;val resolved=resolvedMediaUri(url);decoderRecovery.beginSource(resolved);httpHealth.reset(resolved);videoDecoderName="";if(!preserveSubtitles && playback.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved){clearSubtitle()};playback.pause();val item=MediaItem.fromUri(android.net.Uri.parse(resolved));if(url==baiduURL){val network=androidx.media3.datasource.DefaultHttpDataSource.Factory().setUserAgent("pan.baidu.com");val factory=androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,network));playback.setMediaSource(factory.createMediaSource(item),position.coerceAtLeast(0.0).toLong())}else playback.setMediaItem(item,position.coerceAtLeast(0.0).toLong());playback.prepare()}
