@@ -55,7 +55,7 @@ jobs:
           if test -f android/app/build/outputs/apk/debug/app-debug.apk; then
             if [ "$GITHUB_REF_NAME" = "fix/android-http-play-retry-0605-20261024" ]; then
               filename=TogetherPlayer-Android-0.6.60.5-HttpTapRecovery.apk
-              printf 'Source SHA: %s\\nAndroid: 0.6.60.5\\nScope: preserve local film across reconnect, retry failed HTTP/local ExoPlayer on main play tap without pausing the peer.\\nValidation: CI and emulator; actual network and dual-device playback need acceptance.\\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
+              printf 'Source SHA: %s\nAndroid: 0.6.60.5\nScope: preserve local film across reconnect, retry failed HTTP/local ExoPlayer on main play tap without pausing the peer.\nValidation: CI and emulator; actual network and dual-device playback need acceptance.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
             elif [ "$GITHUB_REF_NAME" = "fix/android-local-buffer-binding-0604-20261023" ]; then
               filename=TogetherPlayer-Android-0.6.60.4-LocalBinding.apk
               printf 'Source SHA: %s\nAndroid: 0.6.60.4\nScope: persist Android local SAF video binding across app restarts; prevent silent HTTP fallback; include source-type diagnostics.\nValidation: CI/emulator; dual-device playback still requires acceptance.\n' "$GITHUB_SHA" > android-delivery/BUILD.txt
