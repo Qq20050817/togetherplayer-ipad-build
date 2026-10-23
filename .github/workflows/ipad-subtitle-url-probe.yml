@@ -1,0 +1,36 @@
+name: Probe iPad subtitle URL normalization
+on:
+  push:
+    branches: [fix/ipad-usb-catalog-url-067-20261023]
+    paths: ['.github/workflows/ipad-subtitle-url-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  swift-url-probe:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - name: Reproduce Foundation USB subtitle URL handling
+        run: |
+          swift -e '
+          import Foundation
+          let movie=URL(string:"http://router.example:49185/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.mkv")!
+          let name="The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"
+          let path="/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"
+          let file=URL(string:path,relativeTo:movie)!.absoluteURL
+          let matching=[file.scheme?.lowercased()==movie.scheme?.lowercased(),
+                        file.host?.lowercased()==movie.host?.lowercased(),
+                        file.port==movie.port,
+                        file.pathComponents.dropLast()==movie.pathComponents.dropLast(),
+                        ["srt","vtt","ass","ssa"].contains(file.pathExtension.lowercased()),
+                        (URLComponents(url:file,resolvingAgainstBaseURL:false)?.queryItems ?? []).isEmpty,
+                        name==URL(fileURLWithPath:name).lastPathComponent,
+                        file.lastPathComponent==name]
+          print("MOVIE=",movie.absoluteString)
+          print("FILE=",file.absoluteString)
+          print("MOVIE COMPONENTS=",movie.pathComponents)
+          print("FILE COMPONENTS=",file.pathComponents)
+          print("CHECKS=",matching)
+          precondition(matching.allSatisfy { $0 }, "Native Swift Foundation rejects valid same-directory ASS URL")
+          '
