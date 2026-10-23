@@ -27,20 +27,13 @@ final class RouterUSBSubtitleCatalogTests:XCTestCase {
  }
  func testSignedMovieAcceptsRouterAdvertisedUnsignedSibling() throws {
   let signed=URL(string:"https://router.example/media/usb-mount/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.mkv?expires=12345&sig=validtoken")!
-  let manifest=#"{"subtitles":[
-    {"name":"The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass","url":"/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"},
-    {"name":"evil.ass","url":"https://other.example/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/evil.ass"},
-    {"name":"evil2.ass","url":"/media/usb-mount/other/evil2.ass?expires=12345&sig=validtoken"}
-   ]}"#
+  let manifest=#"{"subtitles":[{"name":"The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass","url":"/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"},{"name":"evil.ass","url":"https://other.example/usb-files/%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD/evil.ass"},{"name":"evil2.ass","url":"/media/usb-mount/other/evil2.ass?expires=12345&sig=validtoken"}]}"#
   let result=try RouterUSBSubtitleCatalog.decodeCatalog(Data(manifest.utf8),movie:signed)
   XCTAssertEqual(result.map(\.name),["The.Tunnel.to.Summer.2022.BluRay.REMUX.v2.ass"])
  }
  func testUnsignedMovieAcceptsSignedRouterSubtitleAlias() throws {
   let film=URL(string:"https://router.example/usb-files/高清/film.mkv")!
-  let manifest=#"{"subtitles":[
-   {"name":"film.ass","url":"/media/usb-mount/film.ass?expires=12345&sig=validtoken"},
-   {"name":"unsigned-signed.ass","url":"/media/usb-mount/other.ass"}
-  ]}"#
+  let manifest=#"{"subtitles":[{"name":"film.ass","url":"/media/usb-mount/film.ass?expires=12345&sig=validtoken"},{"name":"unsigned-signed.ass","url":"/media/usb-mount/other.ass"}]}"#
   let result=try RouterUSBSubtitleCatalog.decodeCatalog(Data(manifest.utf8),movie:film)
   XCTAssertEqual(result.map(\.name),["film.ass"])
  }
