@@ -26,4 +26,10 @@ class PlaybackTapRecoveryPolicyTest {
  @Test fun healthyStallWakeDoesNotReopenSource() {
   assertEquals(PlaybackTapRecoveryPolicy.Action.WAKE_PLAYER,action("playing",Player.STATE_READY,stalled=true))
  }
+ @Test fun reconnectReloadsErroredPlayerEvenWhenRoomUrlIsUnchanged() {
+  assertEquals(true,PlaybackTapRecoveryPolicy.needsReloadAfterWelcome(Player.STATE_IDLE,true))
+  assertEquals(true,PlaybackTapRecoveryPolicy.needsReloadAfterWelcome(Player.STATE_READY,true))
+  assertEquals(true,PlaybackTapRecoveryPolicy.needsReloadAfterWelcome(Player.STATE_IDLE,false))
+  assertEquals(false,PlaybackTapRecoveryPolicy.needsReloadAfterWelcome(Player.STATE_READY,false))
+ }
 }
