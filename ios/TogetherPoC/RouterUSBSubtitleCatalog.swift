@@ -82,8 +82,9 @@ enum RouterUSBSubtitleCatalog {
   var results:[RouterUSBSubtitleOption]=[]
   var names=Set<String>()
   for record in catalog.subtitles {
-   guard !record.name.isEmpty,record.name==URL(fileURLWithPath:record.name).lastPathComponent,
-         !record.name.contains("\\"),!record.name.contains(".."),
+   guard !record.name.isEmpty,record.name != ".",record.name != "..",
+         !record.name.contains("/"),!record.name.contains("\\"),
+         record.name==URL(fileURLWithPath:record.name).lastPathComponent,
          let file=URL(string:record.url,relativeTo:movie)?.absoluteURL,
          allowed(file,movie:movie),file.lastPathComponent==record.name else {continue}
    if names.insert(file.absoluteString).inserted {
