@@ -32,6 +32,24 @@ class UsbSubtitleCatalogTest {
   assertTrue(subtitles.single().url.endsWith(".ass"))
  }
 
+ @Test fun signedMovieAcceptsUnsignedUSBASSFromItsManifest() {
+  val json = """{"subtitles":[
+   {"name":"Example.Movie.2020.ass","url":"/usb-files/%E9%AB%98%E6%B8%85/Example.Movie.2020.ass"},
+   {"name":"evil.ass","url":"http://attacker.example/usb-files/高清/evil.ass"},
+   {"name":"bad.exe","url":"/usb-files/高清/bad.exe"}
+  ]}"""
+  val subtitles=UsbSubtitleCatalog.parse(video,json)
+  assertEquals(listOf("Example.Movie.2020.ass"),subtitles.map {it.name})
+ }
+ @Test fun unsignedMovieAcceptsRouterSignedURLAlias() {
+  val movie="http://usb-media.example:49185/usb-files/高清/Example.Movie.mkv"
+  val json = """{"subtitles":[
+   {"name":"Example.Movie.ass","url":"/media/usb-123/Example.Movie.ass?expires=1800000000&sig=valid"},
+   {"name":"bad.ass","url":"/media/usb-123/bad.ass"}
+  ]}"""
+  assertEquals(listOf("Example.Movie.ass"),UsbSubtitleCatalog.parse(movie,json).map {it.name})
+ }
+
  @Test fun signedVideoHasCatalogRepresentation() {
   assertEquals(
    "http://usb-media.example:49185/media/usb-123/Example.Movie.2020.mkv?expires=1800000000&sig=movie-signature&subtitles=1",
