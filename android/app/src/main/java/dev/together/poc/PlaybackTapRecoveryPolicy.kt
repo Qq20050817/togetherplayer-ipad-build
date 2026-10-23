@@ -9,6 +9,11 @@ import androidx.media3.common.Player
 internal object PlaybackTapRecoveryPolicy {
  enum class Action { TOGGLE_ROOM, RELOAD_LOCAL_PLAYER, RELOAD_AND_PLAY_ROOM, WAKE_PLAYER }
 
+ // After a websocket reconnect, even unchanged room URLs need a fresh player
+ // when the previous ExoPlayer instance entered its terminal error state.
+ fun needsReloadAfterWelcome(playerState:Int,hasPlayerError:Boolean):Boolean =
+  playerState==Player.STATE_IDLE || hasPlayerError
+
  fun decide(
   roomState:String,
   playerState:Int,
