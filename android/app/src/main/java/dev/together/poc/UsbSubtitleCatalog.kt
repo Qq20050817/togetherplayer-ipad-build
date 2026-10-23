@@ -37,7 +37,10 @@ object UsbSubtitleCatalog {
   val video = videoUrl.toHttpUrlOrNull() ?: return emptyList()
   val unsigned = video.encodedPathSegments.firstOrNull() == "usb-files" &&
    video.encodedPathSegments.size >= 2 && video.querySize == 0
-  if (!authorizedVideoPath(video) && !unsigned) return emptyList()
+  val signed = authorizedVideoPath(video) &&
+   !video.queryParameter("expires").isNullOrBlank() &&
+   !video.queryParameter("sig").isNullOrBlank()
+  if (!unsigned && !signed) return emptyList()
   val list = JSONObject(json).optJSONArray("subtitles") ?: return emptyList()
   val found = LinkedHashMap<String, UsbSubtitleOption>()
   for (i in 0 until minOf(list.length(), 48)) {
@@ -46,29 +49,33 @@ object UsbSubtitleCatalog {
    val extension = name.substringAfterLast('.', "").lowercase()
    if (name.isBlank() || '/' in name || '\\' in name ||
        name.length > 240 || extension !in TEXT_EXTENSIONS) continue
-   val raw = record.optString("url")
-   // OkHttp's resolve accepts a path supplied by this router, and never
-   // accepts redirects/URLs on an unrelated authority as subtitle entries.
-   val candidate = video.resolve(raw) ?: continue
-   if (unsigned) {
-    if (candidate.scheme == video.scheme && candidate.host == video.host &&
-        candidate.port == video.port && candidate.querySize == 0 &&
-        candidate.encodedPathSegments.dropLast(1) == video.encodedPathSegments.dropLast(1) &&
-        candidate.pathSegments.lastOrNull() == name)
-     found.putIfAbsent(candidate.toString(), UsbSubtitleOption(name, candidate.toString()))
-    if (found.size >= 24) break
-    continue
-   }
+   val candidate = video.resolve(record.optString("url")) ?: continue
    if (candidate.scheme != video.scheme || candidate.host != video.host ||
-       candidate.port != video.port ||
-       candidate.encodedPathSegments.size != 3 ||
-       candidate.encodedPathSegments[0] != "media" ||
-       candidate.encodedPathSegments[1] != video.encodedPathSegments[1] ||
-       candidate.queryParameter("expires").isNullOrBlank() ||
-       candidate.queryParameter("sig").isNullOrBlank()) continue
-   found.putIfAbsent(candidate.toString(), UsbSubtitleOption(name, candidate.toString()))
+       candidate.port != video.port) continue
+
+   val unsignedSidecar = candidate.encodedPathSegments.firstOrNull() == "usb-files" &&
+    candidate.encodedPathSegments.size >= 2 && candidate.querySize == 0
+   val signedSidecar = candidate.encodedPathSegments.size == 3 &&
+    candidate.encodedPathSegments[0] == "media" &&
+    candidate.encodedPathSegments[1].startsWith("usb-") &&
+    !candidate.queryParameter("expires").isNullOrBlank() &&
+    !candidate.queryParameter("sig").isNullOrBlank()
+   if (unsignedSidecar && candidate.pathSegments.lastOrNull() != name) continue
+   val accepted = if (unsigned) {
+    (unsignedSidecar &&
+     candidate.encodedPathSegments.dropLast(1) == video.encodedPathSegments.dropLast(1)) ||
+     signedSidecar
+   } else {
+    (signedSidecar && candidate.encodedPathSegments[1] == video.encodedPathSegments[1]) ||
+     unsignedSidecar
+   }
+   // The router's movie-specific ?subtitles=1 manifest may bridge between
+   // signed /media and unsigned /usb-files paths. Each URL type still has its
+   // own authorization shape; same-type links retain same-directory checks.
+   if (accepted) found.putIfAbsent(candidate.toString(), UsbSubtitleOption(name,candidate.toString()))
    if (found.size >= 24) break
   }
   return found.values.toList()
  }
+
 }
