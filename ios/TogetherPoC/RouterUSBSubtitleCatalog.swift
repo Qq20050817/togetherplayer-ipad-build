@@ -48,23 +48,32 @@ enum RouterUSBSubtitleCatalog {
   components.queryItems=query.filter{$0.name != "subtitles"}+[URLQueryItem(name:"subtitles",value:"1")]
   return components.url
  }
- private static func allowed(_ file:URL,movie:URL)->Bool {
-  if movie.pathComponents.count>=3,movie.pathComponents[1]=="usb-files",
-     file.pathComponents.dropLast()==movie.pathComponents.dropLast(),
-     file.scheme?.lowercased()==movie.scheme?.lowercased(),
-     file.host?.lowercased()==movie.host?.lowercased(),file.port==movie.port,
-     extensions.contains(file.pathExtension.lowercased()),
-     (URLComponents(url:file,resolvingAgainstBaseURL:false)?.queryItems ?? []).isEmpty {
-   return true
+ private enum RouteKind {case unsignedUSB,signedUSB}
+ private static func routeKind(of url:URL)->RouteKind? {
+  let path=url.pathComponents
+  let query=URLComponents(url:url,resolvingAgainstBaseURL:false)?.queryItems ?? []
+  if path.count>=3,path[1]=="usb-files",query.isEmpty {return .unsignedUSB}
+  if path.count>=4,path[1]=="media",path[2].hasPrefix("usb-"),
+     query.contains(where:{$0.name=="sig" && !($0.value ?? "").isEmpty}),
+     query.contains(where:{$0.name=="expires" && !($0.value ?? "").isEmpty}) {
+   return .signedUSB
   }
+  return nil
+ }
+ private static func allowed(_ file:URL,movie:URL)->Bool {
   guard file.scheme?.lowercased()==movie.scheme?.lowercased(),
         file.host?.lowercased()==movie.host?.lowercased(),file.port==movie.port,
-        file.pathComponents.dropLast()==movie.pathComponents.dropLast(),
         extensions.contains(file.pathExtension.lowercased()),
         !file.lastPathComponent.isEmpty,
-        let parts=URLComponents(url:file,resolvingAgainstBaseURL:false)?.queryItems,
-        parts.contains(where:{$0.name=="sig" && !($0.value ?? "").isEmpty}),
-        parts.contains(where:{$0.name=="expires" && !($0.value ?? "").isEmpty}) else{return false}
+        let movieRoute=routeKind(of:movie),let fileRoute=routeKind(of:file) else {return false}
+  if movieRoute == fileRoute {
+   // The same URL representation must stay in the exact same directory.
+   return file.pathComponents.dropLast()==movie.pathComponents.dropLast()
+  }
+  // The router can advertise a directly accessible /usb-files/ sidecar for a
+  // previously signed /media/usb-* movie (or the reverse) during migration.
+  // The catalog itself comes from this film's ?subtitles=1 endpoint. Retain
+  // the origin, extension and per-representation access checks above.
   return true
  }
  static func decodeCatalog(_ data:Data,movie:URL)throws->[RouterUSBSubtitleOption] {
