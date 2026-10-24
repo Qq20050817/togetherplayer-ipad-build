@@ -1,0 +1,75 @@
+name: Verify Android HTTP range 2008 recovery 0.6.60.6
+on:
+  push:
+    branches: [fix/android-http-range-2008-20261025]
+    paths: ['android/**', '.github/workflows/android-http-range-2008.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: android-range-2008-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify-and-deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Bundle verified offline voice model
+        run: |
+          mkdir -p android/app/src/main/assets
+          curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
+      - name: Unit tests and APK build
+        working-directory: android
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify playback UI on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash android/decoder-check.sh false
+      - name: Verify exact APK and publish direct prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p delivery
+          apk=TogetherPlayer-Android-0.6.60.6-HTTP-Range-2008.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk "delivery/$apk"
+          (cd delivery && sha256sum "$apk" > SHA256SUMS.txt)
+          printf 'Source SHA: %s\nAndroid: 0.6.60.6\nBase: 9a49219a901de2dae90cf12f10147b8826bc50b9\nScope: bounded HTTP 2008 and transient HTTP gateway recovery, safe seeks, subtitle/room continuity.\nValidation: unit tests, Android emulator; router Range/dual-device playback needs field acceptance.\n' "$GITHUB_SHA" > delivery/BUILD.txt
+          (cd delivery && sha256sum -c SHA256SUMS.txt)
+          tag="android-http-range-0.6.60.6-$GITHUB_RUN_ID"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Refusing to overwrite an existing release" >&2
+            exit 1
+          fi
+          gh release create "$tag" "delivery/$apk" delivery/BUILD.txt delivery/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title 'TogetherPlayer Android 0.6.60.6 HTTP range recovery preview' \
+            --notes 'Direct APK. Retries Media3 HTTP range read-position error 2008 and temporary 429/5xx gateway responses, bounded to two attempts with safe seek positions and subtitle preservation. Tests verified in CI/emulator. Live router and two-device playback require acceptance. No production server or router changes.'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-http-range-2008-validation
+          path: |
+            delivery/
+            android/app/build/reports/tests/
+            android/app/build/reports/androidTests/
+            android/app/build/outputs/androidTest-results/
+          retention-days: 7
