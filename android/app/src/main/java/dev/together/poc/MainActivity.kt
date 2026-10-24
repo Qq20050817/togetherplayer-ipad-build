@@ -147,8 +147,12 @@ class MainActivity: Activity() {
     val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name ?: videoDecoderName
     details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
     format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
+    val httpStatus=generateSequence(error.cause){it.cause}
+     .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
+     .firstOrNull()?.responseCode
+    if(httpStatus!=null)details.put("httpStatus",httpStatus)
     diagnostic("playerError",details)
-    if(scheduleHttpErrorRecovery(error.errorCode))return
+    if(scheduleHttpErrorRecovery(error.errorCode,httpStatus))return
      if(tryRecoverMalformedLocalContainer(error.errorCode))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
@@ -984,9 +988,8 @@ class MainActivity: Activity() {
   }
   return true
  }
- private fun scheduleHttpErrorRecovery(code:Int):Boolean {
-   if(code != androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT &&
-      code != androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)return false
+ private fun scheduleHttpErrorRecovery(code:Int,httpStatus:Int?):Boolean {
+   if(!HttpReadRecoveryPolicy.shouldRetry(code,httpStatus))return false
    val room=engine.room ?: return false
    if(!httpHealth.isHttp || playback.compatibleActive)return false
    if(localFileUri.isNotBlank() && localSourceRoomID==room.optString("roomId") && localSourceRoom==room.optString("mediaUrl")){
@@ -1011,16 +1014,17 @@ class MainActivity: Activity() {
    val mediaUri=playback.currentMediaItem?.localConfiguration?.uri?.toString() ?: return false
    val expectedRoom=room.optString("roomId")
    val generation=networkRecoveryGeneration
-   val delay=if(playerRebuildCount==0)1500L else 4000L
+   val delay=HttpReadRecoveryPolicy.retryDelayMs(playerRebuildCount)
    networkRecoveryScheduled=true
    playerRebuildCount++
-   requestStatus.text="HTTP 连接超时，正在自动恢复（${playerRebuildCount}/2）…"
+   requestStatus.text="${HttpReadRecoveryPolicy.status(code,httpStatus)}，正在自动恢复（${playerRebuildCount}/2）…"
    main.postDelayed({
     if(generation!=networkRecoveryGeneration)return@postDelayed
     networkRecoveryScheduled=false
     if(stopped || !foreground || engine.room?.optString("roomId")!=expectedRoom ||
        playback.currentMediaItem?.localConfiguration?.uri?.toString()!=mediaUri)return@postDelayed
-    val position=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0)
+    val requested=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0).toLong()
+    val position=HttpReadRecoveryPolicy.safeSeekMs(requested,playback.duration).toDouble()
     loadMedia(mediaUri,position,preserveSubtitles=true)
     if(engine.target()?.second=="playing" && plotPoll?.optBoolean("waitingForAnswers")!=true)
      playback.play()
