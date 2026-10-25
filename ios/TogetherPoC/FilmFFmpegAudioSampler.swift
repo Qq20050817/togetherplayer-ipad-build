@@ -33,7 +33,7 @@ final class FilmFFmpegAudioSampler {
  private var frame: UnsafeMutablePointer<AVFrame>?
  private let streamIndex: Int32
  private let secondsPerTick: Double
- private var resampler: UnsafeMutablePointer<SwrContext>?
+ private var resampler: OpaquePointer?
 
  init(url: URL) throws {
   guard url.isFileURL || ["http","https"].contains(url.scheme?.lowercased() ?? "") else {
