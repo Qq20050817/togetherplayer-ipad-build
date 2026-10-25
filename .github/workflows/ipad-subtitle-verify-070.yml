@@ -1,7 +1,7 @@
-name: Isolated iPad audio capture and upload 0.6.71
+name: Isolated iPad audio-only capture and upload 0.6.72
 on:
   push:
-    branches: [feat/ipad-nine-sample-subtitle-verify-20261025]
+    branches: [feat/ipad-voice-first-nine-clips-20261026]
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,19 +30,19 @@ jobs:
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-verify-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/FilmAudioCaptureTests -only-testing:TogetherPoCCoreTests/SubtitleVerificationPlanTests -only-testing:TogetherPoCCoreTests/AudioSubtitleTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-verify-tests.log
       - name: Package candidate unsigned IPA
         run: |
-          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.71-Audio-Capture-preview-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.72-No-Subtitle-Audio-Capture-preview-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           python3 - <<'PY'
           import plistlib,zipfile
-          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.71-Audio-Capture-preview-unsigned.ipa') as z:
+          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.72-No-Subtitle-Audio-Capture-preview-unsigned.ipa') as z:
               p=plistlib.loads(z.read('Payload/TogetherPoC.app/Info.plist'))
-              assert p['CFBundleShortVersionString']=='0.6.71'
-              assert str(p['CFBundleVersion'])=='131'
+              assert p['CFBundleShortVersionString']=='0.6.72'
+              assert str(p['CFBundleVersion'])=='132'
           PY
           shasum -a 256 delivery/*.ipa > delivery/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ipad-audio-capture-071-preview
+          name: ipad-audio-capture-072-no-subtitle-preview
           path: |
             delivery/
             subtitle-*.log
