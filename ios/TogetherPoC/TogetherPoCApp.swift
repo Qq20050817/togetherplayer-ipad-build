@@ -533,6 +533,10 @@ struct SubtitleHeightKey:PreferenceKey {
  @State private var showingAudio=false
  @State private var showingSubtitles=false
  @StateObject private var subtitleVerification=SubtitleVerificationController()
+ @State private var showingCaptureSetup=false
+ @State private var captureEndpoint=""
+ @State private var captureSecret=""
+ @State private var captureSetupError=""
  @State private var voiceBusy=false
  var showsVoice=true
  var compact=false
@@ -556,11 +560,54 @@ struct SubtitleHeightKey:PreferenceKey {
      .accessibilityIdentifier("subtitle-verification-status")
    }
   }.buttonStyle(AnimatedAppButtonStyle(.bordered))
-   .onChange(of:importing || adjustingSubtitles || showingAudio || showingSubtitles || voiceBusy) {modalChanged($0)}
+   .onChange(of:importing || adjustingSubtitles || showingAudio || showingSubtitles || showingCaptureSetup || voiceBusy) {modalChanged($0)}
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
    .fullScreenCover(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles,player:model.adapter.player,chat:model.chat)}
+   .sheet(isPresented:$showingCaptureSetup) {
+    NavigationStack {
+     Form {
+      Section("新加坡音轨接收服务") {
+       TextField("HTTPS 地址，例如 https://你的服务器域名",text:$captureEndpoint)
+        .textInputAutocapitalization(.never).autocorrectionDisabled()
+        .keyboardType(.URL)
+       SecureField("音轨接收配对授权码",text:$captureSecret)
+       Text("授权信息仅保存在本机钥匙串。服务器需要先部署独立的 HTTPS 接收入口。")
+        .font(.caption).foregroundStyle(.secondary)
+      }
+      if !captureSetupError.isEmpty {Text(captureSetupError).foregroundStyle(.red)}
+      Section {
+       Button("保存并采集电影音轨") {
+        do {
+         try FilmAudioCaptureKeychain.save(endpoint:captureEndpoint,secret:captureSecret)
+         captureSecret="";captureSetupError="";showingCaptureSetup=false
+         beginAudioCapture()
+        } catch {captureSetupError=error.localizedDescription}
+       }
+       Button("清除接收端授权",role:.destructive) {
+        FilmAudioCaptureKeychain.clear()
+        captureSecret=""
+        captureSetupError="授权信息已从本机移除"
+       }
+      }
+     }
+     .navigationTitle("音轨采集设置")
+     .toolbar {ToolbarItem(placement:.cancellationAction) {
+      Button("取消") {showingCaptureSetup=false;captureSecret=""}
+     }}
+    }
+   }
+ }
+ private func beginAudioCapture() {
+  guard let configuration=FilmAudioCaptureKeychain.load() else {
+   captureEndpoint="";captureSecret="";captureSetupError=""
+   showingCaptureSetup=true
+   return
+  }
+  subtitleVerification.begin(movieURL:model.bankMovieURL,
+   document:subtitles.selectedVerificationDocument(nativeSelection:model.selectedSubtitleIndex),
+   duration:model.playback.duration,configuration:configuration)
  }
  private var audioMenu: some View {
   Button {showingAudio=true} label:{Label("音轨",systemImage:"waveform")}.popover(isPresented:$showingAudio) {
@@ -581,12 +628,15 @@ struct SubtitleHeightKey:PreferenceKey {
      importButton
      Button {
       showingSubtitles=false
-      subtitleVerification.begin(movieURL:model.bankMovieURL,
-       document:subtitles.selectedVerificationDocument(nativeSelection:model.selectedSubtitleIndex),
-       duration:model.playback.duration)
-     } label:{Label("验证字幕同步",systemImage:"waveform.path.ecg")}
+      beginAudioCapture()
+     } label:{Label("采集电影音轨",systemImage:"waveform")}
       .disabled(subtitleVerification.running)
-      .accessibilityIdentifier("verify-subtitle-sync")
+      .accessibilityIdentifier("capture-movie-audio")
+     Button {
+      captureEndpoint=FilmAudioCaptureKeychain.load()?.baseURL.absoluteString ?? ""
+      captureSecret="";captureSetupError=""
+      showingSubtitles=false;showingCaptureSetup=true
+     } label:{Label("设置音轨接收服务",systemImage:"lock.shield")}
      if !subtitleVerification.status.isEmpty {
       Text(subtitleVerification.status).font(.caption).foregroundStyle(.secondary)
      }
