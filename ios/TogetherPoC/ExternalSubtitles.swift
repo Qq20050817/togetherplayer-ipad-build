@@ -42,6 +42,13 @@ import CoreFoundation
  private var document: SubtitleDocument?
  private var completeEmbeddedForAI:SubtitleDocument?
  var completeExternalForAI:SubtitleDocument? {document}
+ // A verifier must use the currently selected playback subtitle, never a
+ // stale AI transcript from a different embedded stream.
+ func selectedVerificationDocument(nativeSelection:Int)->SubtitleDocument? {
+  if enabled { return document }
+  guard nativeSelection == -1 else { return nil }
+  return completeEmbeddedForAI ?? (nativeIndexedTrack == nil ? nil : nativeIndexedDocument)
+ }
  func installCompleteEmbeddedForAI(_ value:SubtitleDocument){completeEmbeddedForAI=value;nativeIndexStatus="已读取完整内置字幕 \(value.cues.count)条（仅供 AI，观看轨道未改变）"}
  private var plannedQuestions:[PlotQuestionCheckpoint]=[]
  private var nativeIndexedDocument:SubtitleDocument?
