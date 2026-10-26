@@ -14,8 +14,8 @@ struct FilmAudioCaptureConfiguration: Codable, Equatable {
    let host=components.host,!host.isEmpty,
    components.user==nil,components.password==nil,
    components.query==nil,components.fragment==nil,
-   components.path.isEmpty || components.path=="/" else {
-    throw FilmAudioCaptureError.configuration("接收地址需要完整的 HTTPS 域名，且不要附加路径或参数")
+   ["","/","/v1/audio-capture-asr"].contains(components.path) else {
+    throw FilmAudioCaptureError.configuration("接收地址须为 HTTPS 域名，测试版可使用 /v1/audio-capture-asr 路径")
   }
   let cleanSecret=secret.trimmingCharacters(in:.whitespacesAndNewlines)
   guard cleanSecret.count>=32 && cleanSecret.count<=256 else {
@@ -24,6 +24,11 @@ struct FilmAudioCaptureConfiguration: Codable, Equatable {
   guard let url=components.url else {throw FilmAudioCaptureError.configuration("无效的服务器地址")}
   baseURL=url
   pairingSecret=cleanSecret
+ }
+
+ func resourceURL(_ segments:[String])->URL {
+  let suffix=baseURL.path=="/v1/audio-capture-asr" ? Array(segments.dropFirst(2)) : segments
+  return suffix.reduce(baseURL) {url,part in url.appendingPathComponent(part)}
  }
 }
 
@@ -43,8 +48,8 @@ enum FilmAudioCaptureError: LocalizedError {
 }
 
 enum FilmAudioCaptureKeychain {
- private static let service="dev.together.poc.audio-capture"
- private static let account="singapore-receiver"
+ private static let service="dev.together.poc.audio-capture.asr-test"
+ private static let account="singapore-asr-test"
 
  static func load()->FilmAudioCaptureConfiguration? {
   let query:[String:Any]=[
@@ -113,6 +118,8 @@ final class FilmAudioCaptureTransport {
   let count:Int?
   let received:Int?
   let audio_persisted:Bool
+  let asr_status:String?
+  let recognized_samples:Int?
  }
  private let config:FilmAudioCaptureConfiguration
  private let redirectGuard=FilmAudioCaptureRedirectGuard()
@@ -132,7 +139,7 @@ final class FilmAudioCaptureTransport {
  deinit {session.invalidateAndCancel()}
 
  private func endpoint(_ segments:[String])->URL {
-  segments.reduce(config.baseURL) {url,part in url.appendingPathComponent(part)}
+  config.resourceURL(segments)
  }
 
  private func post(_ url:URL,token:String,body:Data?,
