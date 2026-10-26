@@ -534,7 +534,7 @@ struct SubtitleHeightKey:PreferenceKey {
  @State private var showingSubtitles=false
  @StateObject private var subtitleVerification=SubtitleVerificationController()
  @State private var showingCaptureSetup=false
- @State private var captureEndpoint=""
+ @State private var captureEndpoint="https://tencent-sg.tail0afbde.ts.net:10000/v1/audio-capture-asr"
  @State private var captureSecret=""
  @State private var captureSetupError=""
  @State private var voiceBusy=false
@@ -568,12 +568,12 @@ struct SubtitleHeightKey:PreferenceKey {
    .sheet(isPresented:$showingCaptureSetup) {
     NavigationStack {
      Form {
-      Section("新加坡音轨接收服务") {
+      Section("新加坡 ASR 独立测试服务") {
        TextField("HTTPS 地址，例如 https://你的服务器域名",text:$captureEndpoint)
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .keyboardType(.URL)
        SecureField("音轨接收配对授权码",text:$captureSecret)
-       Text("授权信息仅保存在本机钥匙串。服务器需要先部署独立的 HTTPS 接收入口。")
+       Text("测试版使用独立地址和钥匙串，不会修改 TogetherPlayer 正式版的接收端授权。")
         .font(.caption).foregroundStyle(.secondary)
       }
       if !captureSetupError.isEmpty {Text(captureSetupError).foregroundStyle(.red)}
@@ -601,7 +601,7 @@ struct SubtitleHeightKey:PreferenceKey {
  }
  private func beginAudioCapture() {
   guard let configuration=FilmAudioCaptureKeychain.load() else {
-   captureEndpoint="";captureSecret="";captureSetupError=""
+   captureEndpoint="https://tencent-sg.tail0afbde.ts.net:10000/v1/audio-capture-asr";captureSecret="";captureSetupError=""
    showingCaptureSetup=true
    return
   }
@@ -633,7 +633,7 @@ struct SubtitleHeightKey:PreferenceKey {
       .disabled(subtitleVerification.running)
       .accessibilityIdentifier("capture-movie-audio")
      Button {
-      captureEndpoint=FilmAudioCaptureKeychain.load()?.baseURL.absoluteString ?? ""
+      captureEndpoint=FilmAudioCaptureKeychain.load()?.baseURL.absoluteString ?? "https://tencent-sg.tail0afbde.ts.net:10000/v1/audio-capture-asr"
       captureSecret="";captureSetupError=""
       showingSubtitles=false;showingCaptureSetup=true
      } label:{Label("设置音轨接收服务",systemImage:"lock.shield")}
