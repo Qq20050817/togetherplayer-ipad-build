@@ -82,9 +82,15 @@ import Combine
     // No subtitle anchor exists here and the receiver must not treat it as one.
     // The receiver may not have ASR configured. Audio upload is the only
     // promised success; never claim a subtitle sync check took place.
-    _ = try await transport.finish(grant:grant)
+    let result=try await transport.finish(grant:grant)
     clips.removeAll(keepingCapacity:false)
-    status="九段音轨已上传新加坡服务器；原字幕未修改"
+    if result.asr_status=="complete" {
+     status="九段音轨识别完成 9/9；字幕时间轴仍待比对"
+    } else if result.asr_status=="partial" {
+     status="已识别 \(result.recognized_samples ?? 0)/9 段音轨；字幕仍待比对"
+    } else {
+     status="九段音轨已上传新加坡服务器；原字幕未修改"
+    }
    } catch {
     status="音轨采集或上传未完成：\(error.localizedDescription)。原字幕保持不变"
    }
