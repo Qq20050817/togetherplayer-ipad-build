@@ -6,8 +6,8 @@ options:
 settings:
  base:
   SWIFT_VERSION: "5.0"
-  MARKETING_VERSION: "0.6.72"
-  CURRENT_PROJECT_VERSION: "132"
+  MARKETING_VERSION: "0.6.73"
+  CURRENT_PROJECT_VERSION: "133"
   TARGETED_DEVICE_FAMILY: "1,2"
 packages:
  PrismCore:
@@ -26,13 +26,13 @@ targets:
    - package: MPVKit
   settings:
    base:
-    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.asrtest
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     GENERATE_INFOPLIST_FILE: YES
   info:
    path: Info.plist
    properties:
-    CFBundleDisplayName: TogetherPlayer
+    CFBundleDisplayName: Together ASR 测试
     UIFileSharingEnabled: true
     LSSupportsOpeningDocumentsInPlace: true
     UILaunchScreen: {}
@@ -59,7 +59,7 @@ targets:
    - target: TogetherPoC
   settings:
    base:
-    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.coretests
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.asrtest.coretests
     GENERATE_INFOPLIST_FILE: YES
  TogetherPoCUITests:
   type: bundle.ui-testing
@@ -69,7 +69,7 @@ targets:
    - target: TogetherPoC
   settings:
    base:
-    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.uitests
+    PRODUCT_BUNDLE_IDENTIFIER: dev.together.poc.asrtest.uitests
     GENERATE_INFOPLIST_FILE: YES
 schemes:
  TogetherPoC:
