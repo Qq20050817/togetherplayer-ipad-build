@@ -556,7 +556,7 @@ struct SubtitleHeightKey:PreferenceKey {
    if !subtitles.status.isEmpty && !compact {Text(subtitles.status).font(.caption).foregroundStyle(.secondary)}
    if !subtitleVerification.status.isEmpty {
     Text(subtitleVerification.status).font(compact ? .caption2 : .caption).foregroundStyle(.secondary)
-     .lineLimit(2)
+     .lineLimit(4)
      .accessibilityIdentifier("subtitle-verification-status")
    }
   }.buttonStyle(AnimatedAppButtonStyle(.bordered))

@@ -120,6 +120,11 @@ final class FilmAudioCaptureTransport {
   let audio_persisted:Bool
   let asr_status:String?
   let recognized_samples:Int?
+  let matched_anchors:Int?
+  let reason:String?
+  let auto_correct:Bool?
+  let offset_at_start_seconds:Double?
+  let linear_drift_seconds_per_hour:Double?
  }
  private let config:FilmAudioCaptureConfiguration
  private let redirectGuard=FilmAudioCaptureRedirectGuard()
@@ -132,8 +137,8 @@ final class FilmAudioCaptureTransport {
   settings.httpCookieStorage=nil
   settings.urlCredentialStorage=nil
   settings.urlCache=nil
-  settings.timeoutIntervalForRequest=25
-  settings.timeoutIntervalForResource=90
+  settings.timeoutIntervalForRequest=90
+  settings.timeoutIntervalForResource=180
   session=URLSession(configuration:settings,delegate:redirectGuard,delegateQueue:nil)
  }
  deinit {session.invalidateAndCancel()}
@@ -147,7 +152,7 @@ final class FilmAudioCaptureTransport {
   guard url.scheme?.lowercased()=="https",url.host==config.baseURL.host else {
    throw FilmAudioCaptureError.network("接收端地址发生变化，已停止上传")
   }
-  var request=URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:60)
+  var request=URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:120)
   request.httpMethod="POST"
   request.httpBody=body ?? Data()
   request.setValue("Bearer "+token,forHTTPHeaderField:"Authorization")
@@ -175,7 +180,7 @@ final class FilmAudioCaptureTransport {
  }
 
  func upload(grant:Grant,index:Int,pcm:Data,subtitleSeconds:Double,
-             audioStartSeconds:Double) async throws {
+             audioStartSeconds:Double) async throws ->Receipt {
   guard (1...9).contains(index),pcm.count>=8*16000*2,pcm.count<=12*16000*2,
    subtitleSeconds.isFinite,audioStartSeconds.isFinite,
    subtitleSeconds>=0,audioStartSeconds>=0 else {
@@ -190,8 +195,66 @@ final class FilmAudioCaptureTransport {
              "X-Subtitle-Seconds":String(subtitleSeconds),
              "X-Audio-Start-Seconds":String(audioStartSeconds)])
   guard let receipt=try? JSONDecoder().decode(Receipt.self,from:data),
-   receipt.status=="received",receipt.count==index,
-   receipt.audio_persisted==false else {throw FilmAudioCaptureError.invalidReceipt}
+   receipt.audio_persisted==false,
+   (receipt.status=="received" && receipt.count==index ||
+    receipt.status=="retry_needed" && receipt.count==index-1) else {
+     throw FilmAudioCaptureError.invalidReceipt
+   }
+  return receipt
+ }
+
+ static func subtitlePayload(document:SubtitleDocument,duration:Double) throws ->Data {
+  struct Cue:Encodable {let start:Double;let end:Double;let text:String}
+  struct Payload:Encodable {let film_duration_seconds:Double;let cues:[Cue]}
+  guard duration.isFinite,(90...21600).contains(duration),
+   (9...3500).contains(document.cues.count) else {
+    throw FilmAudioCaptureError.configuration("字幕条数或影片时长不适合九段比对")
+  }
+  var cues:[Cue]=[]
+  for cue in document.cues {
+   let text=cue.text.trimmingCharacters(in:.whitespacesAndNewlines)
+   guard cue.start.isFinite,cue.end.isFinite,cue.start>=0,cue.end>cue.start,
+    cue.end-cue.start<=40,cue.start<=duration+300,text.count<=220 else {
+     throw FilmAudioCaptureError.configuration("字幕时间或单条文字超出比对限制")
+   }
+   if !text.isEmpty {cues.append(Cue(start:cue.start,end:cue.end,text:text))}
+  }
+  guard cues.count>=9 else {throw FilmAudioCaptureError.configuration("有效字幕少于九条")}
+  let data=try JSONEncoder().encode(Payload(film_duration_seconds:duration,cues:cues))
+  guard data.count<=512*1024 else {throw FilmAudioCaptureError.configuration("字幕数据超过比对服务限制")}
+  return data
+ }
+
+ func uploadSubtitles(grant:Grant,document:SubtitleDocument,duration:Double) async throws {
+  let body=try Self.subtitlePayload(document:document,duration:duration)
+  let data=try await post(endpoint(["v1","audio-capture","sessions",grant.job_id,"subtitles"]),
+   token:grant.upload_grant,body:body,headers:["Content-Type":"application/json"])
+  struct Confirmation:Decodable {let status:String;let cue_count:Int;let subtitles_persisted:Bool}
+  guard let receipt=try? JSONDecoder().decode(Confirmation.self,from:data),
+   receipt.status=="subtitles_received",receipt.cue_count>=9,!receipt.subtitles_persisted else {
+    throw FilmAudioCaptureError.invalidReceipt
+  }
+ }
+
+ static func resultMessage(_ result:Receipt,hasSubtitles:Bool)->String {
+  let recognized=result.recognized_samples ?? 0
+  guard hasSubtitles else {return "已识别 \(recognized)/9 段音轨；未提供字幕，尚未比对时间轴"}
+  let matched=result.matched_anchors ?? 0
+  if result.status=="verified",matched>=7 {
+   return "字幕抽样比对通过（\(matched)/9 段）；时间轴未修改"
+  }
+  if result.status=="offset_detected",matched>=7,
+   let offset=result.offset_at_start_seconds,offset.isFinite {
+   return String(format:"抽样发现可能偏移 %+.2f 秒（%d/9 段）；请核对，未自动修改",offset,matched)
+  }
+  if result.status=="drift_detected",matched>=7,
+   let drift=result.linear_drift_seconds_per_hour,drift.isFinite {
+   return String(format:"抽样发现可能漂移 %+.2f 秒/小时；请核对，未自动修改",drift)
+  }
+  if result.status=="version_might_differ" {
+   return "片段时间证据不一致，需要人工核对；未修改字幕"
+  }
+  return "音轨已识别 \(recognized)/9；字幕比对证据不足（\(matched)/9），不能判断是否错位；时间轴未修改"
  }
 
  func finish(grant:Grant) async throws ->Receipt {

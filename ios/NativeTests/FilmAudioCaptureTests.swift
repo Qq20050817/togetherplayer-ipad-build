@@ -33,3 +33,30 @@ final class FilmAudioCaptureTests:XCTestCase {
   XCTAssertEqual(restored.baseURL.scheme,"https")
  }
 }
+
+extension FilmAudioCaptureTests {
+ func testSelectedSubtitlePayloadIncludesCuesAndTimings() throws {
+  let doc=SubtitleDocument((0..<9).map {SubtitleCue(start:Double($0*600),end:Double($0*600+3),text:"字幕内容")})
+  let data=try FilmAudioCaptureTransport.subtitlePayload(document:doc,duration:6000)
+  let decoded=try XCTUnwrap(JSONSerialization.jsonObject(with:data) as? [String:Any])
+  XCTAssertEqual((decoded["cues"] as? [[String:Any]])?.count,9)
+  XCTAssertEqual(decoded["film_duration_seconds"] as? Double,6000)
+  XCTAssertNil(decoded["movie_url"])
+  XCTAssertNil(decoded["pairing_secret"])
+ }
+ func testASRCompleteDoesNotMeanSubtitleVerificationPassed() throws {
+  let data=Data(#"{"status":"unavailable","received":9,"audio_persisted":false,"asr_status":"complete","recognized_samples":9,"matched_anchors":3}"#.utf8)
+  let receipt=try JSONDecoder().decode(FilmAudioCaptureTransport.Receipt.self,from:data)
+  let message=FilmAudioCaptureTransport.resultMessage(receipt,hasSubtitles:true)
+  XCTAssertTrue(message.contains("证据不足"))
+  XCTAssertFalse(message.contains("通过"))
+  XCTAssertTrue(message.contains("不能判断是否错位"))
+ }
+ func testVerifiedReportRequiresEnoughMatchedEvidence() throws {
+  for matched in [3,9] {
+   let data=Data("{\"status\":\"verified\",\"received\":9,\"audio_persisted\":false,\"recognized_samples\":9,\"matched_anchors\":\(matched)}".utf8)
+   let receipt=try JSONDecoder().decode(FilmAudioCaptureTransport.Receipt.self,from:data)
+   XCTAssertEqual(FilmAudioCaptureTransport.resultMessage(receipt,hasSubtitles:true).contains("通过"),matched==9)
+  }
+ }
+}

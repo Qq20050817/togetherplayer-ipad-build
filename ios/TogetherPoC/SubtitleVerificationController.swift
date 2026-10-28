@@ -15,8 +15,6 @@ import Combine
   guard let movieURL else {
    status="无法采集音轨：当前没有 iPad 能读取的电影片源";return
   }
-  // The caller may have no subtitles yet. They are never needed for audio capture.
-  _ = document
   running=true;sampledCount=0;status="正在检查影片"
   Task {
    defer {running=false}
@@ -34,7 +32,11 @@ import Combine
       status="无法读取原片：源站不支持安全的 HTTP Range";return
      }
     }
-    let planned=SubtitleVerificationPlan.audioOnlySamples(duration:duration)
+    let planned: [SubtitleVerificationSample]
+    if let document {
+     _ = try FilmAudioCaptureTransport.subtitlePayload(document:document,duration:duration)
+     planned=SubtitleVerificationPlan.samples(document:document,duration:duration)
+    } else {planned=SubtitleVerificationPlan.audioOnlySamples(duration:duration)}
     guard planned.count==9 else {
      status="无法采集：请等待影片时长加载完成（至少 90 秒）";return
     }
@@ -70,27 +72,33 @@ import Combine
     status="正在连接新加坡接收服务"
     let transport=FilmAudioCaptureTransport(configuration:configuration)
     let grant=try await transport.start()
+    if let document {
+     status="正在发送所选字幕用于比对"
+     try await transport.uploadSubtitles(grant:grant,document:document,duration:duration)
+    }
     status="正在安全上传音轨"
     for (number,clip) in clips.enumerated() {
      try Task.checkCancellation()
-     try await transport.upload(grant:grant,index:clip.plan.index,pcm:clip.pcm,
-                                subtitleSeconds:clip.actualStart,
-                                audioStartSeconds:clip.actualStart)
+     var pcm=clip.pcm;var start=clip.actualStart
+     for attempt in 0..<3 {
+      let receipt=try await transport.upload(grant:grant,index:clip.plan.index,pcm:pcm,
+       subtitleSeconds:start,audioStartSeconds:start)
+      if receipt.status=="received" {break}
+      guard attempt<2 else {throw FilmAudioCaptureError.invalidReceipt}
+      let candidates=SubtitleVerificationPlan.audioOnlyCandidateStarts(for:clip.plan,duration:duration)
+      guard candidates.count>attempt+1 else {throw FilmAudioCaptureError.invalidReceipt}
+      let target=candidates[attempt+1]
+      let retry=try await Task.detached(priority:.utility) {
+       try FilmFFmpegAudioSampler(url:movieURL).extract(at:target,length:clip.plan.durationSeconds)
+      }.value
+      pcm=retry.pcm16le;start=retry.actualStartSeconds
+     }
      status="已上传 \(number+1)/9"
     }
-    // The legacy X-Subtitle-Seconds header carries the AUDIO timestamp only.
-    // No subtitle anchor exists here and the receiver must not treat it as one.
-    // The receiver may not have ASR configured. Audio upload is the only
-    // promised success; never claim a subtitle sync check took place.
+    status="正在比对音轨与字幕"
     let result=try await transport.finish(grant:grant)
     clips.removeAll(keepingCapacity:false)
-    if result.asr_status=="complete" {
-     status="九段音轨识别完成 9/9；字幕时间轴仍待比对"
-    } else if result.asr_status=="partial" {
-     status="已识别 \(result.recognized_samples ?? 0)/9 段音轨；字幕仍待比对"
-    } else {
-     status="九段音轨已上传新加坡服务器；原字幕未修改"
-    }
+    status=FilmAudioCaptureTransport.resultMessage(result,hasSubtitles:document != nil)
    } catch {
     status="音轨采集或上传未完成：\(error.localizedDescription)。原字幕保持不变"
    }
