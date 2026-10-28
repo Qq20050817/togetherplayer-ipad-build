@@ -1,0 +1,68 @@
+name: Publish subtitle comparison 0.6.74 preview
+on:
+  push:
+    branches: [delivery/subtitle-comparison-074-20261028]
+permissions:
+  contents: read
+jobs:
+  receiver-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r server/subtitle_capture/requirements.txt
+      - name: Run receiver contracts and segmentation regressions
+        run: python -m unittest discover -s server/subtitle_capture -v
+  publish:
+    needs: receiver-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Verify exact successful native build and download artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected='5d117b58f6241f9ff9685b021c6ad76aaed1708d'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/40696932858" > run.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='5d117b58f6241f9ff9685b021c6ad76aaed1708d'
+          assert r['conclusion']=='success'
+          PY
+          gh run download 40696932858 --repo "$GITHUB_REPOSITORY" --name ipad-subtitle-comparison-074-unsigned --dir verified
+          cd verified
+          sha256sum -c delivery/SHA256SUMS.txt
+          python3 - <<'PY'
+          import plistlib,zipfile
+          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.74-Subtitle-Comparison-unsigned.ipa') as z:
+              p=plistlib.loads(z.read('Payload/TogetherPoC.app/Info.plist'))
+              assert p['CFBundleShortVersionString']=='0.6.74'
+              assert str(p['CFBundleVersion'])=='134'
+              assert p['CFBundleIdentifier']=='dev.together.poc.asrtest'
+          PY
+      - name: Publish explicitly limited preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTES'
+          修复测试版 / Build 134。所选字幕现在会发送给服务端比对；支持识别重试，区分“识别完成”和“比对证据不足”。接收端修复短句过滤及相邻字幕断句问题。不自动修改字幕时间轴。
+          
+          已通过 iPad 编译、原生回归及接收端回归。重要限制：已确认对齐的真实九段样本仍只有 3/9 个可接受语义候选，自动校准效果尚未达标；本预览不是“完整修复已验收”。iPad 真机验收尚未完成。IPA 未签名，需沿用原有签名安装方式。
+          
+          Exact native source: 5d117b58f6241f9ff9685b021c6ad76aaed1708d. Native CI: 40696932858. Generic receiver source is on delivery/subtitle-comparison-074-20261028.
+          NOTES
+          tag='v0.6.74-ipad-subtitle-comparison-preview-20261028'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Refusing to overwrite an existing release' >&2
+            exit 1
+          fi
+          gh release create "$tag" verified/delivery/TogetherPlayer-iPad-0.6.74-Subtitle-Comparison-unsigned.ipa verified/delivery/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target 5d117b58f6241f9ff9685b021c6ad76aaed1708d --prerelease --latest=false --title 'TogetherPlayer iPad 0.6.74 字幕比对修复预览' --notes-file notes.md
