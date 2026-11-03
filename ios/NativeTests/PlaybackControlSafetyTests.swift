@@ -74,6 +74,17 @@ private final class DeferredSeekPlayer:AVPlayer {
   XCTAssertFalse(adapter.isSeeking);XCTAssertEqual(player.starts,2)
   XCTAssertEqual(player.defaultRate,2)
  }
+ func testFailedSeekRetriesOnceAndReportsFailureWithoutFalseResume() async throws {
+  let (player,url)=try await readyPlayer();defer {try? FileManager.default.removeItem(at:url)}
+  let adapter=AVPlayerAdapter(player:player)
+  var results:[Bool]=[];adapter.seekResult={ok,_ in results.append(ok)}
+  adapter.play();adapter.seekTo(500)
+  player.completions[0](false);try await drainCompletion()
+  XCTAssertTrue(results.isEmpty);XCTAssertEqual(player.targets.count,2)
+  player.completions[1](false);try await drainCompletion()
+  XCTAssertEqual(results,[false]);XCTAssertFalse(adapter.isSeeking)
+  XCTAssertEqual(player.starts,1,"failed seek must not pretend it resumed at the target")
+ }
  func testPauseDuringSeekCancelsResumeWithoutDroppingFinalPosition() async throws {
   let (player,url)=try await readyPlayer();defer {try? FileManager.default.removeItem(at:url)}
   let adapter=AVPlayerAdapter(player:player)

@@ -26,7 +26,7 @@ final class FullscreenSpeedTests:XCTestCase {
   let before=Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:1,executeAt:0,state:"paused",position:0,updatedAt:0,playbackRate:1,before:paused)
   engine.receive(before)
   now=200
-  let scheduled=Room(roomId:"r",hostId:"h",mediaUrl:before.mediaUrl,version:2,executeAt:950,state:"playing",position:2500,updatedAt:950,playbackRate:1,before:paused)
+  let scheduled=Room(roomId:"r",hostId:"h",mediaUrl:before.mediaUrl,version:2,executeAt:950,state:"playing",position:0,updatedAt:950,playbackRate:1,before:paused)
   engine.receive(scheduled)
   now=700;engine.tick();XCTAssertFalse(p.playing,"scheduled start should not start early")
   now=1000;engine.tick();XCTAssertTrue(p.playing)
@@ -35,7 +35,7 @@ final class FullscreenSpeedTests:XCTestCase {
   now=1800;p.position=100;engine.tick()
   XCTAssertEqual(p.seeks,0,"short startup stalls should not cause another seek")
   now=3300;engine.tick()
-  XCTAssertEqual(p.seeks,1,"genuine sustained drift should still be corrected")
+  XCTAssertEqual(p.seeks,0,"automatic recovery uses speed without a decoder jump")
  }
  func testRapidDoubleSpeedTransitionsDoNotSeekWhileAVPlayerSettles() {
   var now=0.0;let clock=ClockSync{now};clock.add(0,0,0,0)
@@ -44,10 +44,10 @@ final class FullscreenSpeedTests:XCTestCase {
   let original=Timeline(state:"playing",position:10_000,updatedAt:0,playbackRate:1)
   engine.receive(Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:1,executeAt:0,state:"playing",position:10_000,updatedAt:0,playbackRate:1,before:original))
   now=100
-  engine.receive(Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:2,executeAt:100,state:"playing",position:15_000,updatedAt:100,playbackRate:2,before:original))
+  engine.receive(Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:2,executeAt:100,state:"playing",position:10_100,updatedAt:100,playbackRate:2,before:original))
   now=250;engine.tick();XCTAssertEqual(p.rate,2);XCTAssertEqual(p.seeks,0)
   now=2000;engine.tick();XCTAssertEqual(p.seeks,0,"2x transition should not hard-seek the decoding frame")
-  now=2800;engine.tick();XCTAssertEqual(p.seeks,1,"drift correction remains available after settling")
+  now=2800;engine.tick();XCTAssertEqual(p.seeks,0,"drift recovery does not hard seek after settling")
  }
  func testWaitingPlayerRetainsPlayIntentForAutomaticRecovery() {
   var now=0.0;let clock=ClockSync{now};clock.add(0,0,0,0)

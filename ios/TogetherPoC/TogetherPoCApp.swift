@@ -484,7 +484,7 @@ struct SubtitleHeightKey:PreferenceKey {
    }
    PlaybackActionFeedback(feedback:model.feedback)
    if let request=model.pending {Button("批准对方：\(request["type"] as? String ?? "播放请求")") {model.approve()}.buttonStyle(AnimatedAppButtonStyle(.bordered))}
-  }.onAppear {volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume || dragging) {modalChanged($0)}
+  }.onDisappear {dragging=false;modalChanged(false)}.onAppear {dragging=false;playback.refresh();volume=Double(model.playbackVolume)}.onChange(of:adjustingVolume || dragging) {modalChanged($0)}
  }
  private var volumeButton:some View {Button {adjustingVolume=true} label:{Image(systemName:volume>0 ? "speaker.wave.2" : "speaker.slash")}.accessibilityLabel("播放音量").popover(isPresented:$adjustingVolume) {volumeControl.frame(width:220).padding(20)}}
  private var progressRow:some View {
@@ -495,7 +495,11 @@ struct SubtitleHeightKey:PreferenceKey {
    Text(PlaybackMonitor.time(displayed)).font(.caption.monospacedDigit()).frame(minWidth:45)
    Slider(value:Binding(get:{dragging ? min(duration,max(0,target)) : current},set:{value in
     target=value.isFinite ? min(duration,max(0,value)) : current
-    dragging=true
+    // Accessibility adjustments can call this binding without edit events.
+    // Do not leave the display permanently latched to its preview value.
+    if !dragging && playback.duration>0 {
+     model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))
+    }
    }),in:0...duration,onEditingChanged:{editing in
     if editing {
      if !dragging {target=current}
