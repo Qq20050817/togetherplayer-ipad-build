@@ -56,3 +56,7 @@
 - Additional run41734974307: 55 core tests pass, independent fullscreen UI reaches the real drag but remaining-time expectation and following subtitle checks fail. The earlier single successful UI run does not establish reliable seek. User informed not to install the 0.6.75 preview yet.
 - Suspected deterministic race: SwiftUI Slider binding setter and onEditingChanged callbacks share a preview flag; a value delivered before begin can be replaced by the old playhead, while value-only accessibility adjustments can leave an editing flag latched. Replace with native UISlider explicit value/commit/cancel routing; preserve native clock display and AVPlayer seek acknowledgement.
 - No test assertion removed. Native coordinator event-order/cancellation/accessibility regressions and the same real fullscreen test will run. Not yet compiled/verified.
+
+## Native-slider run41739107694 actual result
+- Device Release and 57 native tests passed. Fullscreen UI failed before Seek at initial subtitle assertion, then remaining/subtitle assertions; candidate not deliverable. AX snapshot showed the 12s fixture at EOF while controls had been prepared. Test fixture paused native player but retained localPlayIntent=true, permitting normal recovery to restart it.
+- Update only DEBUG fixture setup to use intent-aware PAUSE and real SEEK to1s once tracks are available. Preserve original caption, remaining6/7, subtitle-panel and physical-slider assertions. No claim that this explains all prior Seek failures. Rerun pending.
