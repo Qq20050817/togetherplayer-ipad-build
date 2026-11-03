@@ -80,6 +80,8 @@ class MainActivity: Activity() {
  private val playbackRecovery=PlaybackRecovery()
  private val httpHealth=HttpPlaybackHealth()
  private var playbackNeedsRecovery=false
+ private val httpRetryBudget=HttpRetryBudget()
+ private var httpStablePosition=0L
  private var playerRebuildCount=0
  private var networkRecoveryGeneration=0
  private var networkRecoveryScheduled=false
@@ -311,6 +313,8 @@ class MainActivity: Activity() {
   if(durationLabel.text.toString()!=length)durationLabel.text=length
   fullscreenTime?.let {it.text="$shown / $length"}
   if(!draggingProgress)progress.progress=if(duration>0)(position.toDouble()*1000/duration).toInt().coerceIn(0,1000)else 0
+  httpRetryBudget.observe(android.os.SystemClock.elapsedRealtime(),httpHealth.isHttp && playback.isPlaying && playback.playerError==null && position>httpStablePosition)
+  httpStablePosition=position
   if(playback.playerError!=null && !sourceFault)markSourceFault()
   if(playback.playerError==null && playback.playbackState==Player.STATE_READY)sourceFault=false
   if(playback.playerError==null && playback.playbackState==Player.STATE_READY && manualSeek==null){lastGoodSource=playback.currentMediaItem?.localConfiguration?.uri?.toString().orEmpty();lastGoodPosition=position;playback.audioFormat?.let{lastGoodAudio=it}}
@@ -1064,7 +1068,7 @@ class MainActivity: Activity() {
      main.post {
       if(!stopped && engine.room?.optString("roomId")==expectedRoomID &&
          localFileUri==expectedLocal && playback.currentMediaItem?.localConfiguration?.uri?.toString()==observed){
-       val target=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0)
+       val target=actualPlaybackPosition().coerceAtLeast(0.0)
        loadMedia(expectedLocal,target,preserveSubtitles=true)
        requestStatus.text="已恢复手机本地影片，正在准备播放"
       }
@@ -1072,15 +1076,15 @@ class MainActivity: Activity() {
      return true
     }
    }
-   if(playerRebuildCount>=2)return false
    if(networkRecoveryScheduled)return true
    val mediaUri=playback.currentMediaItem?.localConfiguration?.uri?.toString() ?: return false
    val expectedRoom=room.optString("roomId")
    val generation=networkRecoveryGeneration
-   val delay=HttpReadRecoveryPolicy.retryDelayMs(playerRebuildCount)
+   val attempt=httpRetryBudget.claim() ?: return false
+   val delay=HttpReadRecoveryPolicy.retryDelayMs(attempt)
    networkRecoveryScheduled=true
    playerRebuildCount++
-   requestStatus.text="${HttpReadRecoveryPolicy.status(code,httpStatus)}，正在自动恢复（${playerRebuildCount}/2）…"
+   requestStatus.text="${HttpReadRecoveryPolicy.status(code,httpStatus)}，正在自动恢复（${httpRetryBudget.attempts}/2）…"
    main.postDelayed({
     if(generation!=networkRecoveryGeneration)return@postDelayed
     networkRecoveryScheduled=false
@@ -1098,7 +1102,7 @@ class MainActivity: Activity() {
   val r=engine.room ?: return
   val url=if(BaiduMediaReference.parse(r.optString("mediaUrl"))!=null){if(!hasBaiduMatch()){requestStatus.text="请先选择同一影片";return};if(localFileUri.isNotBlank())localFileUri else baiduURL}else playbackSource(r.optString("mediaUrl"))
   val target=actualPlaybackPosition().coerceAtLeast(0.0)
-  requestStatus.text="正在重试播放…";playerRebuildCount=0;loadMedia(url,target,preserveSubtitles=true)
+  requestStatus.text="正在重试播放…";httpRetryBudget.reset();playerRebuildCount=0;loadMedia(url,target,preserveSubtitles=true)
    if(engine.target()?.second=="playing" && plotPoll?.optBoolean("waitingForAnswers")!=true)playback.play()
  }
  private fun actualPlaybackPosition():Double {
@@ -1121,7 +1125,7 @@ class MainActivity: Activity() {
   playbackRecovery.reset();playbackNeedsRecovery=false
   if(!preserveSubtitles)playerRebuildCount=0
   decoderRecovery.beginSource(resolved)
-  if(changed || !preserveSubtitles)httpHealth.reset(resolved)
+  if(changed || !preserveSubtitles){httpHealth.reset(resolved);httpRetryBudget.reset();httpStablePosition=0}
   videoDecoderName=""
   if(changed && !preserveSubtitles){clearSubtitle();lastGoodAudio=null}
   playback.pause()
@@ -1388,7 +1392,7 @@ class MainActivity: Activity() {
   if(current!=localFileUri){
    // The room may be paused awaiting this guest; restore the local media without waiting for PLAY.
    if(current!=null && (current.startsWith("http://") || current.startsWith("https://"))){
-    val target=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0)
+    val target=actualPlaybackPosition().coerceAtLeast(0.0)
     loadMedia(localFileUri,target,preserveSubtitles=true)
     localBufferStartedAt=0L
     requestStatus.text="已切回手机本地影片"
@@ -1410,7 +1414,7 @@ class MainActivity: Activity() {
    return
   }
   localBufferRetryCount++
-  val target=(engine.target()?.first ?: playback.currentPosition.toDouble()).coerceAtLeast(0.0)
+  val target=actualPlaybackPosition().coerceAtLeast(0.0)
   requestStatus.text="手机本地影片缓冲过久，正在恢复（$localBufferRetryCount/2）"
   loadMedia(localFileUri,target,preserveSubtitles=true)
  }

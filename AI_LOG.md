@@ -81,3 +81,7 @@
 ## HTTP error-page misclassification follow-up
 - Review found default HTTP source accepted successful-status HTML/JSON error pages, allowing extractor failure to masquerade as unsupported container. Add shared HTTP factory for normal and Baidu paths rejecting only explicit HTML/XHTML/JSON error MIME types before extraction; retain absent MIME, generic binary, HLS, text/VTT and local sources.
 - Added real MockWebServer/Media3 data-source tests: HTML becomes UNEXPECTED_CONTENT without app retry, missing/binary MIME still reads bytes. Native/unit checks pending next candidate; no production/router modification. Media3 factory API checked against official androidx/media source.
+
+## Retry budget cannot be replenished by room pause
+- Review found the existing shared playerRebuildCount resets on a paused room tick, potentially granting unlimited automatic HTTP retries. Introduce a separate two-attempt consecutive HTTP budget, retain scheduled-error dedup before exhaustion, preserve budget across same-source reload/pause, reset only on explicit retry/source replacement or30s actual advancing playback. Keep existing other decoder/recovery counters and wait intent.
+- Added policy regressions for long paused/unready intervals, interrupted vs continuous healthy playback, and explicit reset. Full Android rerun required; not yet marked passed.
