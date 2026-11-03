@@ -35,6 +35,7 @@ class ClockSync(private val monotonicNow: () -> Double = { SystemClock.elapsedRe
 }
 class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  var room: JSONObject? = null; private set
+ private var explicitSeekVersion:Long?=null
  private var correctionSpeed=1f
  private var excessiveDriftSince: Double?=null
  private var driftAtWindowStart=0.0
@@ -46,7 +47,7 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  val version get() = room?.optLong("version") ?: 0L
  fun resetSession() {
   player.pause(); player.setPlaybackSpeed(1f)
-  room=null; clock.reset();resetCorrection();lastAutoSeekAt=null;wasUnready=false;settleUntil=0.0
+  room=null; explicitSeekVersion=null;clock.reset();resetCorrection();lastAutoSeekAt=null;wasUnready=false;settleUntil=0.0
  }
  // Share this gate with the controller before applying media/UI side effects.
  fun accepts(next: JSONObject): Boolean =
@@ -59,16 +60,22 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
     if (previous.optString("state") == "paused") settleUntil=clock.localNow()+2000
     else if (previous.optDouble("playbackRate",1.0) != next.optDouble("playbackRate",1.0)) settleUntil=clock.localNow()+2500
    }
+   if(previous?.optString("roomId") != next.optString("roomId") || previous?.optString("mediaUrl") != next.optString("mediaUrl")) {
+    explicitSeekVersion=next.getLong("version")
+   } else if(next.getLong("version")>version) {
+    val before=next.optJSONObject("before")
+    val at=next.optDouble("updatedAt")
+    val prior=if(before!=null && before.has("position")) before.optDouble("position") +
+     (if(before.optString("state")=="playing") (at-before.optDouble("updatedAt")).coerceAtLeast(0.0)*before.optDouble("playbackRate",1.0) else 0.0) else Double.NaN
+    explicitSeekVersion=if(prior.isFinite() && abs(next.optDouble("position")-prior)>150)next.getLong("version")else null
+   }
    room=next
   }
  }
  private fun resetCorrection() {correctionSpeed=1f;excessiveDriftSince=null}
  private fun speed(error: Double): Float {
-  val magnitude=abs(error)
-  val sameDirection=(error>0 && correctionSpeed>1) || (error<0 && correctionSpeed<1)
-  val fast=magnitude>=500 || (sameDirection && abs(correctionSpeed-1)>0.03 && magnitude>250)
-  val gentle=magnitude>=200 || (sameDirection && abs(correctionSpeed-1)>0.001 && magnitude>100)
-  correctionSpeed=if(fast) {if(error>0) 1.05f else .95f} else if(gentle) {if(error>0) 1.02f else .98f} else 1f
+  if(correctionSpeed>1 && error>1000)return correctionSpeed
+  correctionSpeed=if(error>3000) {if(error>15000)1.25f else 1.10f} else if(error < -3000) .95f else 1f
   return correctionSpeed
  }
  fun target(): Pair<Double, String>? {
@@ -88,22 +95,26 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   val r=room
   val timeline=if(r!=null && clock.serverNow()<r.optDouble("executeAt")) r.optJSONObject("before") else r
   val baseRate=if(timeline?.optDouble("playbackRate")==2.0) 2f else 1f
+  if(explicitSeekVersion!=null){
+   if(clock.serverNow()<(room?.optDouble("executeAt") ?: 0.0)){if(state=="playing")player.play()else player.pause();return error}
+   if(state=="paused"){player.pause();player.setPlaybackSpeed(1f)}
+   if(!player.isReady() && !player.isBuffering())return null
+   explicitSeekVersion=null;resetCorrection();lastAutoSeekAt=now
+   if(abs(error)>150)player.seekTo(position.toLong())
+   player.setPlaybackSpeed(baseRate)
+   if(state=="paused")player.pause()else player.play()
+   return error
+  }
   if(!player.isReady() || player.isBuffering())wasUnready=true
   else if(wasUnready){wasUnready=false;settleUntil=now+2000}
-  if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>200) player.seekTo(position.toLong()); return error }
+  if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>3000 && lastAutoSeekAt==null) {lastAutoSeekAt=now;player.seekTo(position.toLong())}; return error }
   if (!player.isReady() || player.isBuffering()) {
    // Preserve ExoPlayer playWhenReady during 2x rebuffering and poll resume.
    if (player.isBuffering()) player.play()
    excessiveDriftSince=null;return null
   }
   if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
-  if(abs(error)>=500) {if(excessiveDriftSince==null) {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else excessiveDriftSince=null
-  var overdue=excessiveDriftSince?.let {now-it>=10000} ?: false
-  if(overdue && driftAtWindowStart-abs(error)>=100) {excessiveDriftSince=now;driftAtWindowStart=abs(error);overdue=false}
-  val canSeek=lastAutoSeekAt?.let {now-it>=3000} ?: true
-  if((abs(error)>1500 || overdue) && canSeek) {
-   player.seekTo(position.toLong());player.setPlaybackSpeed(baseRate);resetCorrection();lastAutoSeekAt=now;resyncCount++
-  } else player.setPlaybackSpeed(baseRate*speed(error))
+  player.setPlaybackSpeed((baseRate*speed(error)).coerceAtMost(2.5f))
   player.play(); return error
  }
 }

@@ -56,6 +56,26 @@ class InstantControlAndQuestionRailTest {
     assertEquals("INSTANT_CONTROL",flight.optString("type"));assertEquals("PLAY",flight.getJSONObject("data").getString("type"))
     control.invoke(a,"PAUSE",0.0);assertFalse(playback.playWhenReady)
     assertEquals(false,field(a,"optimisticPlaying").get(a))
+    control.invoke(a,"SEEK",1000.0);control.invoke(a,"SEEK",500.0);control.invoke(a,"SEEK",1000.0)
+    val queue=field(a,"queued").get(a) as Collection<*>
+    val controls=queue.map{it as JSONObject}.filter{it.optString("type")=="INSTANT_CONTROL"}
+    assertTrue("SEEK must preserve the queued PAUSE",controls.any{it.getJSONObject("data").optString("type")=="PAUSE"})
+    assertEquals(1,controls.count{it.getJSONObject("data").optString("type")=="SEEK"})
+    assertEquals(1000,playback.currentPosition)
+    playback.play()
+
+   }
+   var initial=0L
+   scenario.onActivity {a->initial=(field(a,"playback").get(a) as CompatiblePlayback).currentPosition}
+   Thread.sleep(1300)
+   scenario.onActivity {a->
+    val p=field(a,"playback").get(a) as CompatiblePlayback
+    assertTrue("real fixture must keep advancing while room ACK is missing",p.currentPosition>initial+500)
+    val label=field(a,"timeLabel").get(a) as android.widget.TextView
+    val format=a.javaClass.getDeclaredMethod("formatTime",Long::class.javaPrimitiveType).apply{isAccessible=true}
+    val now=p.currentPosition
+    assertTrue("visible clock must match actual playhead",label.text.toString() in listOf(format.invoke(a,now),format.invoke(a,(now-300).coerceAtLeast(0))))
+    p.pause()
    }
   }}finally{movie.delete()}
  }

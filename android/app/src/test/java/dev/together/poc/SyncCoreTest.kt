@@ -12,15 +12,13 @@ class SyncCoreTest {
   override fun isBuffering()=buffering;override fun isReady()=ready
   override fun setPlaybackSpeed(speed:Float){rate=speed}
  }
- @Test fun rateTransitionAllowsFramesToSettleBeforeSeeking() {
-  var now=0.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
-  val p=FakePlayer();p.pos=10000;val engine=SyncEngine(p,clock)
-  val before=JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":10000,"updatedAt":0,"playbackRate":1,"before":{}}""")
-  engine.receive(before);now=100.0
-  engine.receive(JSONObject(before.toString()).put("version",2).put("executeAt",100).put("position",15000).put("updatedAt",100).put("playbackRate",2))
-  now=300.0;engine.tick();assertEquals(2f,p.rate);assertEquals(0,p.seeks)
-  now=2000.0;engine.tick();assertEquals(0,p.seeks)
-  now=3000.0;engine.tick();assertEquals(1,p.seeks)
+ private fun frame(position:Double=10000.0,version:Long=1,at:Double=0.0)=JSONObject().put("roomId","r").put("mediaUrl","https://example.org/movie.mp4").put("version",version).put("executeAt",at).put("state","playing").put("position",position).put("updatedAt",at).put("playbackRate",1).put("before",JSONObject().put("state","playing").put("position",10000).put("updatedAt",0).put("playbackRate",1))
+ @Test fun rateTransitionSettlesWithoutAutomaticHardSeek() {
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick();now=100.0
+  e.receive(frame(10100.0,2,100.0).put("playbackRate",2))
+  now=300.0;e.tick();assertEquals(2f,p.rate);assertEquals(0,p.seeks)
+  now=3000.0;e.tick();assertEquals(0,p.seeks);assertTrue(p.rate>=2f)
  }
  @Test fun bufferingPreservesRequestedPlayback() {
   val clock=ClockSync {0.0};clock.add(0.0,0.0,0.0,0.0)
@@ -77,14 +75,12 @@ class SyncCoreTest {
   assertEquals(2L,engine.version)
   time=2000.0;player.pos=2000;engine.tick();assertFalse(player.playing)
  }
- @Test fun driftUsesSpeedAndSevereErrorSeeksOnceThenRestoresSpeed() {
-  val clock=ClockSync {1000.0};clock.add(0.0,0.0,0.0,0.0)
-  val player=FakePlayer();val engine=SyncEngine(player,clock)
-  engine.receive(JSONObject("""{"version":1,"executeAt":0,"state":"playing","position":0,"updatedAt":0,"playbackRate":1,"before":{}}"""))
-  player.pos=700;engine.tick();assertEquals(1.02f,player.rate,0.0001f);assertEquals(0,player.seeks)
-  player.pos=0;engine.tick();assertEquals(1.05f,player.rate,0.0001f)
-  player.pos=5000;engine.tick();assertEquals(1000L,player.pos);assertEquals(1,player.seeks)
-  engine.tick();assertEquals(1f,player.rate,0.0001f);assertEquals(1,player.seeks)
+ @Test fun threeSecondToleranceAndCatchupWithoutSeek() {
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick()
+  for(gap in listOf(-3000L,-1000L,0L,1000L,3000L)){p.pos=10000-gap;e.tick();assertEquals(1f,p.rate);assertEquals(0,p.seeks)}
+  p.pos=6000;e.tick();assertTrue(p.rate>1f);assertEquals(0,p.seeks)
+  p.pos=9500;e.tick();assertEquals(1f,p.rate)
  }
  @Test fun versionIsScopedToRoom() {
   val engine=SyncEngine(FakePlayer(),ClockSync {0.0})
@@ -115,38 +111,28 @@ class SyncCoreTest {
   engine.tick();assertFalse(player.playing);assertEquals(0,player.seeks)
  }
 
- @Test fun improvingDriftIsNotInterruptedByTenSecondSeek() {
-  var now=0.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0)
-  val p=FakePlayer();val e=SyncEngine(p,clock)
-  e.receive(JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":10000,"updatedAt":0,"playbackRate":1,"before":{}}"""))
-  for(i in 0..20) {now=i*1000.0;p.pos=(10000+now-(1450-i*50)).toLong();e.tick()}
-  assertEquals(0,p.seeks)
-  now=21000.0;p.pos=(10000+now-600).toLong();e.tick()
-  now=31000.0;p.pos=(10000+now-600).toLong();e.tick();assertEquals(1,p.seeks)
+ @Test fun longRunningCatchupCannotLoopThroughHardSeeks() {
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick()
+  repeat(120){now+=1000;p.pos=(10000+now-10000).toLong();e.tick();assertEquals(0,p.seeks)}
  }
- @Test fun correctionHysteresisPreventsBoundarySpeedFlapping() {
-  val clock=ClockSync {10000.0};clock.add(0.0,0.0,0.0,0.0);val p=FakePlayer();val e=SyncEngine(p,clock)
-  e.receive(JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":0,"updatedAt":0,"playbackRate":1,"before":{}}"""))
-  for(error in listOf(600,490,510,490,300)) {p.pos=10000L-error;e.tick();assertEquals(1.05f,p.rate,0.0001f)}
-  p.pos=9760;e.tick();assertEquals(1.02f,p.rate,0.0001f)
-  p.pos=9820;e.tick();assertEquals(1.02f,p.rate,0.0001f)
-  p.pos=9910;e.tick();assertEquals(1f,p.rate,0.0001f)
+ @Test fun smallExplicitSeekBypassesToleranceAndIgnoresStaleSnapshot() {
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick();e.receive(frame(12000.0,2,750.0))
+  now=500.0;e.tick();assertEquals(0,p.seeks)
+  now=750.0;e.tick();assertEquals(1,p.seeks);assertEquals(12000L,p.pos)
+  e.receive(frame(12000.0,2,750.0));e.tick();e.receive(frame());e.tick();assertEquals(1,p.seeks)
  }
- @Test fun recoveryDoesNotImmediatelySeekBackIntoBuffering() {
-  var now=1000.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0);val p=FakePlayer();val e=SyncEngine(p,clock)
-  e.receive(JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":10000,"updatedAt":0,"playbackRate":1,"before":{}}"""))
-  p.buffering=true;e.tick();p.buffering=false
-  e.tick();assertEquals(0,p.seeks);assertTrue(p.playing);assertEquals(1f,p.rate,0.001f)
-  now=2999.0;e.tick();assertEquals(0,p.seeks)
-  now=3000.0;e.tick();assertEquals(1,p.seeks)
+ @Test fun loadingRetainsLatestExplicitSeekAndTimelineOffset() {
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick();p.ready=false;e.timelineOffset=500.0
+  e.receive(frame(20000.0,2));e.tick();e.receive(frame(80000.0,3));e.tick();assertEquals(0,p.seeks)
+  p.ready=true;e.tick();assertEquals(1,p.seeks);assertEquals(80500L,p.pos)
  }
- @Test fun slowSeekCompletionCannotCauseTenSeeksPerSecond() {
-  var now=1000.0;val clock=ClockSync {now};clock.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.acceptSeek=false;val e=SyncEngine(p,clock)
-  val room=JSONObject("""{"roomId":"r","version":1,"executeAt":0,"state":"playing","position":10000,"updatedAt":0,"playbackRate":1,"before":{}}""")
-  e.receive(room);e.tick();assertEquals(1,p.seeks)
-  repeat(29) {now+=100;e.tick()};assertEquals(1,p.seeks)
-  now=4000.0;e.tick();assertEquals(2,p.seeks)
-  e.receive(JSONObject(room.toString()).put("version",2));e.tick();assertEquals(3,p.seeks)
+ @Test fun slowExplicitSeekIsIssuedOncePerNewRoomVersion() {
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick();p.acceptSeek=false;e.receive(frame(20000.0,2));e.tick()
+  repeat(100){now+=100;e.tick()};assertEquals(1,p.seeks)
  }
 
 }

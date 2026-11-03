@@ -110,6 +110,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
     if(token!=epoch || !compatibleActive || failure!=null)return
     if((source?.stats?.displayedPictures ?: 0)>0){
      ready=true;state=Player.STATE_READY;buffering=100f
+     pendingSeek?.let {p.setTime(it,false)}
      if(!wanted)p.pause()
      p.setVolume((native.volume*100).roundToInt())
      applySubtitleSelection()
@@ -127,7 +128,6 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  override fun getCurrentMediaItem():MediaItem?=if(compatibleActive)item else native.currentMediaItem
  override fun getCurrentPosition():Long {
   if(!compatibleActive)return native.currentPosition
-  pendingSeek?.let {if(android.os.SystemClock.elapsedRealtime()<pendingUntil)return it;pendingSeek=null}
   return (vlc?.time ?: -1).takeIf {it>=0} ?: startPosition
  }
  override fun getDuration():Long=if(compatibleActive)(vlc?.length ?: 0).coerceAtLeast(0) else native.duration
@@ -144,7 +144,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  override fun setPlayWhenReady(value:Boolean){if(!compatibleActive){native.playWhenReady=value;return};wanted=value;if(ready){if(value)vlc?.play()else vlc?.pause()}}
  override fun play()=setPlayWhenReady(true)
  override fun pause()=setPlayWhenReady(false)
- override fun seekTo(positionMs:Long){if(!compatibleActive){native.seekTo(positionMs);return};startPosition=positionMs.coerceIn(0,duration.takeIf {it>0} ?: Long.MAX_VALUE);pendingSeek=startPosition;pendingUntil=android.os.SystemClock.elapsedRealtime()+3000;vlc?.setTime(startPosition,false)}
+ override fun seekTo(positionMs:Long){if(!compatibleActive){native.seekTo(positionMs);return};startPosition=positionMs.coerceIn(0,duration.takeIf {it>0} ?: Long.MAX_VALUE);pendingSeek=startPosition;pendingUntil=android.os.SystemClock.elapsedRealtime()+3000;if(ready)vlc?.setTime(startPosition,false)}
  override fun seekTo(mediaItemIndex:Int,positionMs:Long){if(compatibleActive)seekTo(positionMs)else native.seekTo(mediaItemIndex,positionMs)}
  override fun setVolume(value:Float){native.volume=value.coerceIn(0f,1f);if(compatibleActive && ready)vlc?.setVolume((native.volume*100).roundToInt())}
  override fun getVolume():Float=native.volume
