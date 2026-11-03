@@ -3,3 +3,6 @@ apple-build-logs/
 apple-delivery/
 ios/TogetherPoC.xcodeproj/
 .DS_Store
+
+# Local AI execution metadata (never commit raw session logs)
+.ai/logs/

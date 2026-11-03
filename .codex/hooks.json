@@ -1,0 +1,56 @@
+{
+  "description": "Project-scoped metadata-only Codex development journal. Review and trust in Codex /hooks.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/ai_event_log.py\"",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"py -3 (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/ai_event_log.py')\"",
+            "timeout": 10,
+            "additionalContextLimit": 500
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/ai_event_log.py\"",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"py -3 (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/ai_event_log.py')\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/ai_event_log.py\"",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"py -3 (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/ai_event_log.py')\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/ai_event_log.py\"",
+            "commandWindows": "powershell -NoProfile -NonInteractive -Command \"py -3 (Join-Path (git rev-parse --show-toplevel) '.codex/hooks/ai_event_log.py')\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
