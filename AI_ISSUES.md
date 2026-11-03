@@ -39,3 +39,9 @@
 
 - TP-ANDROID-USB-HTTP: local router Range boundary probes passed for available large MKV / small MP4. No evidence of 4GB integer truncation in this server. Cross-network throughput and large MP4 remain unverified.
 - TP-ANDROID-LOCAL-FIRST: confirmed source-path gap: normal HTTP local-file selections bypass identity checks, and default source switching may clear external subtitles. New phase will preserve prior reconnect fail-closed behavior.
+
+## HTTP error pages reported as unsupported movie format
+- Confirmed factory review: default normal/Baidu HTTP paths had no content MIME predicate.200 HTML/JSON could reach the extractor and appear as malformed/unsupported container. Candidate0999f58 rejects explicit structured error MIME, retains unknown/generic binary/HLS/subtitle variants. Real Media3/MockWebServer and unit regressions added; run41742801175 pending, not marked fixed in delivery.
+
+## Automatic retry budget reset by paused room
+- Confirmed shared playerRebuildCount reset on paused tick; continuous HTTP errors could regain retries. Candidate9a36b3f introduces separate two-attempt budget, scheduled dedup,30s actual advancing recovery reset and explicit retry/new-source reset. Pause/same-source load cannot refill it. Policy tests added; full candidate CI pending.

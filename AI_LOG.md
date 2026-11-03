@@ -85,3 +85,6 @@
 ## Retry budget cannot be replenished by room pause
 - Review found the existing shared playerRebuildCount resets on a paused room tick, potentially granting unlimited automatic HTTP retries. Introduce a separate two-attempt consecutive HTTP budget, retain scheduled-error dedup before exhaustion, preserve budget across same-source reload/pause, reset only on explicit retry/source replacement or30s actual advancing playback. Keep existing other decoder/recovery counters and wait intent.
 - Added policy regressions for long paused/unready intervals, interrupted vs continuous healthy playback, and explicit reset. Full Android rerun required; not yet marked passed.
+
+## Candidate consolidation
+- Current application9a36b3f7c43e487d9c527daa81442b5dc21c442d, Android0.6.60.8/128, full run41742801175. Earlier c863015 and0999f58 runs superseded/cancelled after additional code findings; their partial build success does not verify this application. Record final counts only after current completion. All changes remain on independent branch/PR32, unmerged/undeployed.
