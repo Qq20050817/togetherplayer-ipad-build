@@ -36,3 +36,7 @@
 - First Android CI: 120 JVM unit tests ran, 119 passed; pauseCancelsPlayIntentEvenWhilePlayerNotReady failed. Root: new explicit-seek waiting gate returned before honoring paused intent when decoder was unready. Fixed on both platforms by applying PAUSE before the readiness gate; original assertion preserved. Android source/test compilation passed; native emulator tests not reached.
 
 - First iPad CI: device compile passed and 55/55 selected core tests passed. UI test failed at app.launch with XCTest background assertion denied for the still-running unit-test host PID, before any seek interaction. Extracted xcresult diagnostics show no app crash report. Split core/UI invocations and explicitly terminate only the test simulator app between them; original UI assertions retained. Rerun pending.
+
+- User added high-priority Android USB/HTTP compatibility phase after Seek/clock verification. Complete requirements preserved in TP-ANDROID-USB-HTTP-20261104; no router changes, source conversions or deployment performed.
+
+- User added Android local-first / USB fallback requirements. Recorded TP-ANDROID-LOCAL-FIRST-20261104 for next phase jointly with USB compatibility. Preserve prior local binding/reconnect fixes, SAF permissions and per-device isolation; no whole-film upload or source mutation.
