@@ -466,6 +466,13 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   #if DEBUG
   if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {credentials=["roomId":"media-ui-test","userId":"media-ui-host","token":String(repeating:"a",count:64)];roomID="media-ui-test"}
   #endif
+  adapter.seekResult={ [weak self] success,reason in
+   Task {@MainActor in
+    guard let self else{return}
+    self.playback.refresh()
+    if !success {self.requestStatus=reason;self.feedback.showPlaybackAction(reason)}
+   }
+  }
   let pulse=tickPulse
   let timer=Timer(timeInterval:0.1,repeats:true) {[weak self] _ in
    pulse.request {[weak self] in self?.tick()}
@@ -1283,11 +1290,15 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if supportsInstantControls,["PLAY","PAUSE","SEEK","REPLAY"].contains(type),let room=engine.room {
    guard variantDurationCheck == .compatible else {requestStatus="请先确认影片版本";return}
    if type=="PLAY",adapter.player.currentItem?.status == .failed,let original=currentOriginalURL {loadMedia(original);return}
-   queuedOperations.removeAll {($0["type"] as? String)=="INSTANT_CONTROL"}
    let playhead=max(0,adapter.position-engine.timelineOffset)
    let atEnd=adapter.duration>0 && adapter.position>=adapter.duration-150
    let kind=type=="PLAY" && atEnd ? "REPLAY" : type
    let canonical=(kind=="SEEK" ? max(0,position) : kind=="REPLAY" ? 0 : playhead)
+   queuedOperations.removeAll { operation in
+    guard operation["type"] as? String == "INSTANT_CONTROL",let data=operation["data"] as? [String:Any] else{return false}
+    let queued=data["type"] as? String
+    return kind == "SEEK" ? queued == "SEEK" : ["PLAY","PAUSE","REPLAY"].contains(queued ?? "")
+   }
    let operation:[String:Any]=["type":"INSTANT_CONTROL","data":["type":kind,"position":canonical,"commandTime":clock.serverNow(),"mediaUrl":room.mediaUrl]]
    queuedOperations.append(operation)
    optimisticRoomID=room.roomId;optimisticUntil=clock.localNow()+8000

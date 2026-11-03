@@ -67,6 +67,10 @@ struct PlaybackStartGate {
 final class AVPlayerAdapter: PlayerAdapter {
  let player: AVPlayer
  init(player: AVPlayer = AVPlayer()) {self.player=player}
+ var seekResult:((Bool,String)->Void)?
+ private var seekDeadline:DispatchWorkItem?
+ private var seekSerial=0
+ private var seekRetry=0
  private var seeking = false
  private var seekEpoch = 0
  private var seekBuffer = SeekRequestBuffer()
@@ -139,6 +143,7 @@ final class AVPlayerAdapter: PlayerAdapter {
  // Called before replacing a movie. A delayed completion must not seek its replacement.
  func resetPendingSeeks() {
   if deferToMain({$0.resetPendingSeeks()}) {return}
+  seekDeadline?.cancel();seekDeadline=nil;seekSerial &+= 1;seekRetry=0
   seekEpoch &+= 1
   seekBuffer.clear()
   seeking=false
@@ -150,13 +155,24 @@ final class AVPlayerAdapter: PlayerAdapter {
   guard milliseconds.isFinite else {return}
   if deferToMain({$0.seekTo(milliseconds)}) {return}
   guard let item=player.currentItem,item.status != .failed,
-        item.error == nil,player.error == nil else {return}
+        item.error == nil,player.error == nil else {seekResult?(false,"片源尚未就绪或读取失败");return}
+  seekRetry=0
   let firstRequest = !isSeeking
   guard seekBuffer.replace(milliseconds,duration:duration) else {return}
   if firstRequest {
    resumeAfterSeek=startGate.requested || player.rate>0 || player.timeControlStatus != .paused
   }
   if !seeking {performNextSeek()}
+  if seekBuffer.pending != nil && !seeking {armSeekDeadline()}
+ }
+ private func armSeekDeadline() {
+  seekDeadline?.cancel();seekSerial &+= 1
+  let serial=seekSerial,epoch=seekEpoch
+  let deadline=DispatchWorkItem { [weak self] in
+   guard let self,self.seekSerial==serial,self.seekEpoch==epoch,self.isSeeking else{return}
+   self.resetPendingSeeks();self.seekResult?(false,"跳转超时，请检查片源读取和网络后重试")
+  }
+  seekDeadline=deadline;DispatchQueue.main.asyncAfter(deadline:.now()+15,execute:deadline)
  }
  func itemBecameReady(_ item:AVPlayerItem) {
   if deferToMain({$0.itemBecameReady(item)}) {return}
@@ -169,7 +185,7 @@ final class AVPlayerAdapter: PlayerAdapter {
   guard let item=player.currentItem,item.status == .readyToPlay,
         item.error == nil,player.error == nil else {seeking=false;return}
   guard let target=seekBuffer.takeLatest() else {seeking=false;return}
-  seeking=true
+  seeking=true;armSeekDeadline()
   // Pause once for the whole burst. No PLAY/rate write runs between its
   // intermediate completions; an explicit PAUSE can cancel resume intent.
   if startGate.requested || player.rate != 0 {player.pause()}
@@ -177,15 +193,26 @@ final class AVPlayerAdapter: PlayerAdapter {
   let epoch=seekEpoch
   // Exact-frame decoding on each rapid jump is expensive for 4K/HDR video.
   let tolerance=CMTime(value:1,timescale:10)
-  player.seek(to:CMTime(seconds:target/1000,preferredTimescale:600),toleranceBefore:tolerance,toleranceAfter:tolerance) { [weak self,weak item] _ in
+  player.seek(to:CMTime(seconds:target/1000,preferredTimescale:600),toleranceBefore:tolerance,toleranceAfter:tolerance) { [weak self,weak item] finished in
    DispatchQueue.main.async {
     guard let self=self,epoch==self.seekEpoch else {return}
     guard self.player.currentItem === item else {
      self.seekBuffer.clear();self.seeking=false;return
     }
+    self.seekDeadline?.cancel();self.seekDeadline=nil
     self.seeking=false
-    if self.seekBuffer.pending != nil {self.performNextSeek()}
-    else if self.resumeAfterSeek {
+    if self.seekBuffer.pending != nil {self.seekRetry=0;self.performNextSeek();return}
+    let confirmed=finished && abs(self.position-target)<=250
+    if !confirmed {
+     if self.seekRetry<1 {
+      self.seekRetry+=1;self.seekBuffer.replace(target,duration:self.duration);self.performNextSeek()
+     } else {
+      self.resumeAfterSeek=false;self.seekResult?(false,"播放器未确认跳转，可能存在片源或 HTTP Range 读取异常")
+     }
+     return
+    }
+    self.seekRetry=0;self.seekResult?(true,"")
+    if self.resumeAfterSeek {
      self.resumeAfterSeek=false;self.play()
     } else {self.setPlaybackSpeed(self.speed)}
    }
@@ -225,6 +252,7 @@ final class ClockSync {
 final class SyncEngine {
  private(set) var room: Room?
  var timelineOffset=0.0 {didSet {if oldValue != timelineOffset {resetCorrection();lastAutoSeekAt=nil}}}
+ private var explicitSeekVersion: Int64?
  private var correctionSpeed: Float = 1
  private var excessiveDriftSince: Double?
  private var driftAtWindowStart=0.0
@@ -235,7 +263,7 @@ final class SyncEngine {
  let clock: ClockSync; let player: PlayerAdapter
  init(_ player: PlayerAdapter,_ clock: ClockSync) { self.player=player;self.clock=clock }
  func resetSession() {
-  player.pause();player.setPlaybackSpeed(1);clock.reset();room=nil;lastAutoSeekAt=nil;wasUnready=false;settleUntil=0;resetCorrection()
+  player.pause();player.setPlaybackSpeed(1);clock.reset();room=nil;explicitSeekVersion=nil;lastAutoSeekAt=nil;wasUnready=false;settleUntil=0;resetCorrection()
  }
  func receive(_ next: Room) {
   if next.roomId != room?.roomId || next.version >= (room?.version ?? 0) {
@@ -250,6 +278,14 @@ final class SyncEngine {
     // Give a new shared speed time to settle before drift correction seeks.
     else if next.playbackRate != previous?.playbackRate {settleUntil=clock.localNow()+2500}
    }
+   if next.roomId != previous?.roomId || next.mediaUrl != previous?.mediaUrl {
+    explicitSeekVersion=next.version
+   } else if next.version > (previous?.version ?? 0) {
+    // Timeline discontinuity identifies an explicit room jump, including
+    // jumps smaller than the automatic three-second tolerance.
+    let previousPosition=next.before.at(next.updatedAt)
+    explicitSeekVersion=abs(next.position-previousPosition)>150 ? next.version : nil
+   }
    room=next
   }
  }
@@ -258,13 +294,11 @@ final class SyncEngine {
  // AVPlayer rate changes can stall briefly; switching at a single threshold
  // can undo the progress of the preceding speed correction.
  private func speed(for error: Double) -> Float {
-  let magnitude=abs(error)
-  let sameDirection=(error>0 && correctionSpeed>1) || (error<0 && correctionSpeed<1)
-  let wasFast=abs(correctionSpeed-1)>0.03
-  let correcting=abs(correctionSpeed-1)>0.001
-  let fast=magnitude>=500 || (sameDirection && wasFast && magnitude>250)
-  let gentle=magnitude>=200 || (sameDirection && correcting && magnitude>100)
-  correctionSpeed=fast ? (error>0 ? 1.05 : 0.95) : gentle ? (error>0 ? 1.02 : 0.98) : 1
+  // Recovery never pauses the healthy peer. Hysteresis stops rate flapping.
+  if correctionSpeed>1 && error>1000 {return correctionSpeed}
+  if error>3000 {correctionSpeed=error>15000 ? 1.25 : 1.10}
+  else if error < -3000 {correctionSpeed=0.95}
+  else {correctionSpeed=1}
   return correctionSpeed
  }
  func target() -> (Double,String)? {
@@ -280,9 +314,20 @@ final class SyncEngine {
   let now=clock.localNow()
   let timeline=clock.serverNow() < (room?.executeAt ?? 0) ? room?.before.playbackRate : room?.playbackRate
   let baseRate:Float=timeline == 2 ? 2 : 1
+  if explicitSeekVersion != nil {
+   // Suppress old before-timeline correction after a local optimistic seek.
+   guard clock.serverNow() >= (room?.executeAt ?? 0) else {if state == "playing" {player.play()} else {player.pause()};return error}
+   if state == "paused" {player.pause();player.setPlaybackSpeed(1)}
+   guard player.ready || player.buffering else {return nil}
+   explicitSeekVersion=nil;resetCorrection();lastAutoSeekAt=now
+   if abs(error)>150 {player.seekTo(position)}
+   player.setPlaybackSpeed(baseRate)
+   if state == "paused" {player.pause()} else {player.play()}
+   return error
+  }
   if !player.ready || player.buffering {wasUnready=true}
   else if wasUnready {wasUnready=false;settleUntil=now+2000}
-  if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>200 {player.seekTo(position)};return error }
+  if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>3000 && lastAutoSeekAt == nil {lastAutoSeekAt=now;player.seekTo(position)};return error }
   guard player.ready else {excessiveDriftSince=nil;return nil}
   if player.buffering {
    // Preserve play intent while AVPlayer waits for data. The player can
@@ -300,15 +345,9 @@ final class SyncEngine {
    return error
   }
   if now<settleUntil {resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
-  if abs(error)>=500 {if excessiveDriftSince == nil {excessiveDriftSince=now;driftAtWindowStart=abs(error)}} else {excessiveDriftSince=nil}
-  var overdue=excessiveDriftSince.map {now-$0>=10_000} ?? false
-  if overdue && driftAtWindowStart-abs(error)>=100 {
-   excessiveDriftSince=now;driftAtWindowStart=abs(error);overdue=false
-  }
-  let canSeek=lastAutoSeekAt.map {now-$0>=3000} ?? true
-  if (abs(error)>1500 || overdue) && canSeek {
-   player.seekTo(position);player.setPlaybackSpeed(baseRate);resetCorrection();lastAutoSeekAt=now;resyncCount += 1
-  } else {player.setPlaybackSpeed(baseRate*speed(for:error))}
+  // Automatic drift correction uses speed only; explicit jumps were handled
+  // above. Never issue a repeated hard-seek loop while a decoder catches up.
+  player.setPlaybackSpeed(min(2.5,baseRate*speed(for:error)))
   player.play();return error
  }
 }

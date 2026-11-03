@@ -7,10 +7,15 @@ private final class DeferredSeekPlayer:AVPlayer {
  var targets:[Double]=[]
  var completions:[Completion]=[]
  var starts=0
+ var confirmedTime=CMTime.zero
+ override func currentTime()->CMTime {confirmedTime}
  override func play() {starts += 1}
  override func pause() {}
  override func seek(to time:CMTime,toleranceBefore:CMTime,toleranceAfter:CMTime,completionHandler:@escaping @Sendable (Bool)->Void) {
-  targets.append(time.seconds);completions.append(completionHandler)
+  targets.append(time.seconds);completions.append { [weak self] finished in
+   if finished {self?.confirmedTime=time}
+   completionHandler(finished)
+  }
  }
 }
 
@@ -73,6 +78,17 @@ private final class DeferredSeekPlayer:AVPlayer {
   player.completions[1](true);try await drainCompletion()
   XCTAssertFalse(adapter.isSeeking);XCTAssertEqual(player.starts,2)
   XCTAssertEqual(player.defaultRate,2)
+ }
+ func testFailedSeekRetriesOnceAndReportsFailureWithoutFalseResume() async throws {
+  let (player,url)=try await readyPlayer();defer {try? FileManager.default.removeItem(at:url)}
+  let adapter=AVPlayerAdapter(player:player)
+  var results:[Bool]=[];adapter.seekResult={ok,_ in results.append(ok)}
+  adapter.play();adapter.seekTo(500)
+  player.completions[0](false);try await drainCompletion()
+  XCTAssertTrue(results.isEmpty);XCTAssertEqual(player.targets.count,2)
+  player.completions[1](false);try await drainCompletion()
+  XCTAssertEqual(results,[false]);XCTAssertFalse(adapter.isSeeking)
+  XCTAssertEqual(player.starts,1,"failed seek must not pretend it resumed at the target")
  }
  func testPauseDuringSeekCancelsResumeWithoutDroppingFinalPosition() async throws {
   let (player,url)=try await readyPlayer();defer {try? FileManager.default.removeItem(at:url)}

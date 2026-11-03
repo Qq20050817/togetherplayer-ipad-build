@@ -26,26 +26,26 @@ final class FakePlayer: PlayerAdapter {
    Room(roomId:"test",hostId:"host",mediaUrl:"https://example.com/movie.mp4",version:version,executeAt:0,state:state,position:10_000,updatedAt:0,playbackRate:1,before:Timeline(state:state,position:10_000,updatedAt:0,playbackRate:1))
   }
   func error(_ value: Double) {player.position=10_000+now-value;engine.tick()}
-  engine.receive(room())
-  // Replay the observed boundary cycle: retain fast correction below 500ms.
+  engine.receive(room());player.position=10_000;engine.tick()
+  // Old small-drift boundary cycles now remain inside the three-second tolerance.
   for value in [600.0,530,495,510,490,300] {
-   now += 100;error(value);precondition(player.rate==1.05,"fast speed toggled near 500ms")
+   now += 100;error(value);precondition(player.rate==1,"fast speed toggled near 500ms")
   }
-  error(240);precondition(player.rate==1.02)
-  error(180);precondition(player.rate==1.02,"gentle speed stopped too early")
+  error(240);precondition(player.rate==1)
+  error(180);precondition(player.rate==1,"gentle speed stopped too early")
   error(90);precondition(player.rate==1)
-  error(-600);precondition(player.rate==0.95,"correction direction incorrect")
-  error(300);precondition(player.rate==1.02,"old direction retained")
-  // A decoder that makes no progress must receive a bounded resync.
+  error(-600);precondition(player.rate==1,"correction direction incorrect")
+  error(300);precondition(player.rate==1,"old direction retained")
+  // Small drift must not turn into periodic hard seeks even after ten seconds.
   now=1_000;error(600)
   now=10_999;error(600);precondition(player.seekCount==0)
-  now=11_000;error(600);precondition(player.seekCount==1 && engine.resyncCount==1)
-  // Buffering must not consume the ten-second recovery budget.
+  now=11_000;error(600);precondition(player.seekCount==0 && engine.resyncCount==0)
+  // Buffer recovery must preserve the same tolerance.
   now=12_000;error(600);player.buffering=true
   now=30_000;engine.tick();player.buffering=false
-  now=31_000;error(600);precondition(player.seekCount==1)
-  now=33_000;error(600);precondition(player.seekCount==1)
-  now=43_000;error(600);precondition(player.seekCount==2)
+  now=31_000;error(600);precondition(player.seekCount==0)
+  now=33_000;error(600);precondition(player.seekCount==0)
+  now=43_000;error(600);precondition(player.seekCount==0)
   engine.receive(room("paused",2));engine.tick()
   precondition(!player.playing && player.rate==1)
   engine.receive(room("playing",3));player.duration=60_095;player.position=60_095;now=90_000
@@ -68,7 +68,7 @@ final class FakePlayer: PlayerAdapter {
   for i in 0...20 {now=improvingStart+Double(i)*1000;error(1450-Double(i)*50)}
   precondition(player.seekCount==beforeImproving,"improving drift caused unnecessary seek")
   now=improvingStart+21_000;error(600);now=improvingStart+31_000;error(600)
-  precondition(player.seekCount==beforeImproving+1,"stalled correction no longer resyncs")
+  precondition(player.seekCount==beforeImproving,"tolerated drift unexpectedly hard-seeked")
   precondition(!RecoveryBufferPolicy.ready(prepared:true,bufferedMs:3000,positionMs:10000,durationMs:100000,recovering:true))
   precondition(RecoveryBufferPolicy.ready(prepared:true,bufferedMs:12000,positionMs:10000,durationMs:100000,recovering:true))
   precondition(RecoveryBufferPolicy.ready(prepared:true,bufferedMs:1950,positionMs:98000,durationMs:100000,recovering:true),"tail cannot wait for twelve seconds")
@@ -85,10 +85,11 @@ final class FakePlayer: PlayerAdapter {
   for _ in 0..<10 {now += 3000;engine.tick()}
   precondition(player.seekCount==recoverySeeks,"no hard-seek storm before first movie frame")
   player.position=180;now += 100;engine.tick()
-  precondition(player.seekCount==recoverySeeks+1,"sync should seek to room clock after actual playback advances")
+  precondition(player.seekCount==recoverySeeks,"automatic drift must use rate instead of hard seeks")
   // A ready AVPlayerItem may still be natively paused while recovering after
   // an HTTP interruption. Do not fire a hard seek every three seconds.
   engine.resetSession();clock.add(0,0,0,0);engine.receive(room())
+  player.position=10_000+now;engine.tick()
   player.position=210_000
   player.nativePlaybackRunning=false
   let seekBeforePausedDecoder=player.seekCount
@@ -97,7 +98,7 @@ final class FakePlayer: PlayerAdapter {
   precondition(player.playing,"sync must keep requesting the decoder to resume")
   player.nativePlaybackRunning=true
   now += 4000;engine.tick()
-  precondition(player.seekCount>seekBeforePausedDecoder,"sync must catch up after the decoder is genuinely playing")
+  precondition(player.seekCount==seekBeforePausedDecoder,"native recovery must use catch-up speed without a hard seek")
   print("iOS SyncEngine regression checks passed")
  }
 }

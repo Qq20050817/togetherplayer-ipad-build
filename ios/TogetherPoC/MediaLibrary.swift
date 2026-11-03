@@ -29,15 +29,22 @@ struct SavedMedia: Codable, Identifiable {
  @Published private(set) var buffering=false
  private let player: AVPlayer
  private var timer: Timer?
+ private var timeObserver:Any?
  private let pulse=MainActorPulse()
  init(player: AVPlayer) {
   self.player=player
   let pulse=self.pulse
-  let timer=Timer(timeInterval:0.5,repeats:true) {[weak self] _ in pulse.request {[weak self] in self?.update()}}
+  let timer=Timer(timeInterval:0.5,repeats:true) {[weak self] _ in pulse.request {[weak self] in self?.refresh()}}
   self.timer=timer;RunLoop.main.add(timer,forMode:.common)
+  // Native clock events plus the common-mode watchdog survive scrubbing,
+  // fullscreen transitions and observer stalls independently of room sync.
+  timeObserver=player.addPeriodicTimeObserver(forInterval:CMTime(seconds:0.25,preferredTimescale:600),queue:.main) { [weak self] _ in
+   pulse.request {[weak self] in self?.refresh()}
+  }
+  refresh()
  }
- deinit {timer?.invalidate()}
- private func update() {
+ deinit {timer?.invalidate();if let timeObserver {player.removeTimeObserver(timeObserver)}}
+ func refresh() {
   let time=player.currentTime().seconds;let nextPosition=time.isFinite ? max(0,time) : 0;if position != nextPosition {position=nextPosition}
   let length=player.currentItem?.duration.seconds ?? 0;let nextDuration=length.isFinite ? max(0,length) : 0;if duration != nextDuration {duration=nextDuration}
   let nextPlaying=player.timeControlStatus == .playing;let nextBuffering=player.timeControlStatus == .waitingToPlayAtSpecifiedRate;if playing != nextPlaying {playing=nextPlaying};if buffering != nextBuffering {buffering=nextBuffering}
