@@ -49,3 +49,10 @@
 - Review: draft PR30 (iPad), PR31 (Android) against each verified client baseline, no merge. Later workflow/docs commits do not change the verified application directories.
 - Journal sync checked: AI Journal indexes main only (private a542f2c0136d342068855830f174df7bbf76814a; public c6d747298f4e9869292352107d7a45cb965bb36c). Task branches are committed on GitHub but not included in main-only MCP notes. Do not mark branch journal synchronization complete.
 - Remaining acceptance: physical Android/iPad pair, real router/cloud long runs, timing across network failure. Backend wait-for-peer policy is unchanged and not claimed fixed. Original installed apps are the rollback; unsigned iPad requires user signing.
+
+## 2026-11-04 · Reopen iPad seek reliability
+
+- Baseline a4d00a46c7ec9eb06f627ac5e963acb978b2ca5d, iOS application tree matches 59487c6d146b653705cedd0d50b6837a35498de8 exactly. New branch fix/ipad-native-seek-slider-20261104, clean on entry.
+- Additional run41734974307: 55 core tests pass, independent fullscreen UI reaches the real drag but remaining-time expectation and following subtitle checks fail. The earlier single successful UI run does not establish reliable seek. User informed not to install the 0.6.75 preview yet.
+- Suspected deterministic race: SwiftUI Slider binding setter and onEditingChanged callbacks share a preview flag; a value delivered before begin can be replaced by the old playhead, while value-only accessibility adjustments can leave an editing flag latched. Replace with native UISlider explicit value/commit/cancel routing; preserve native clock display and AVPlayer seek acknowledgement.
+- No test assertion removed. Native coordinator event-order/cancellation/accessibility regressions and the same real fullscreen test will run. Not yet compiled/verified.

@@ -1,7 +1,7 @@
-name: iPad Seek and clock candidate 0.6.75
+name: iPad Seek and clock candidate 0.6.76
 on:
   push:
-    branches: [fix/playback-seek-clock-ipad-20261104]
+    branches: [fix/ipad-native-seek-slider-20261104]
   workflow_dispatch:
 permissions:
   contents: read
@@ -49,7 +49,7 @@ jobs:
         run: |
           set -o pipefail
           device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-verify-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/PlaybackClockTests -only-testing:TogetherPoCCoreTests/ThreeSecondSyncTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/FullscreenSpeedTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests -only-testing:TogetherPoCCoreTests/P2PMuseHandoffTests -only-testing:TogetherPoCCoreTests/FilmAudioCaptureTests -only-testing:TogetherPoCCoreTests/SubtitleVerificationPlanTests -only-testing:TogetherPoCCoreTests/AudioSubtitleTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-verify-tests.log
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-verify-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/PlaybackSeekSliderTests -only-testing:TogetherPoCCoreTests/PlaybackClockTests -only-testing:TogetherPoCCoreTests/ThreeSecondSyncTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/FullscreenSpeedTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests -only-testing:TogetherPoCCoreTests/P2PMuseHandoffTests -only-testing:TogetherPoCCoreTests/FilmAudioCaptureTests -only-testing:TogetherPoCCoreTests/SubtitleVerificationPlanTests -only-testing:TogetherPoCCoreTests/AudioSubtitleTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-verify-tests.log
       - name: Verify real fullscreen seek after ending unit-test host
         run: |
           set -o pipefail
@@ -60,20 +60,20 @@ jobs:
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-ui-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-ui-tests.log
       - name: Package candidate unsigned IPA
         run: |
-          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.75-Seek-Clock-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.76-Seek-Clock-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
           python3 - <<'PY'
           import plistlib,zipfile
-          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.75-Seek-Clock-unsigned.ipa') as z:
+          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.76-Seek-Clock-unsigned.ipa') as z:
               p=plistlib.loads(z.read('Payload/TogetherPoC.app/Info.plist'))
-              assert p['CFBundleShortVersionString']=='0.6.75'
-              assert str(p['CFBundleVersion'])=='135'
+              assert p['CFBundleShortVersionString']=='0.6.76'
+              assert str(p['CFBundleVersion'])=='136'
               assert p['CFBundleIdentifier']=='dev.together.poc.asrtest'
           PY
           shasum -a 256 delivery/*.ipa > delivery/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ipad-seek-clock-075-unsigned
+          name: ipad-native-seek-076-unsigned
           path: |
             delivery/
             subtitle-*.log
