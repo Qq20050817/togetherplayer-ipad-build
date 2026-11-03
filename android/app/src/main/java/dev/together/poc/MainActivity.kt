@@ -126,7 +126,7 @@ class MainActivity: Activity() {
   // Keep a reserve before starting/resuming; a short reserve repeatedly drains on slow sources.
   val buffering=AdaptiveHttpLoadControl(httpHealth)
   val renderers=PlaybackRenderers.create(this,decoderRecovery)
-  player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).build()
+  player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,HttpMediaDataSource.factory()))).build()
   playback=CompatiblePlayback(this,player,{active->nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error))})
   engine=SyncEngine(Media3Adapter(playback),clock)
   voice=VoiceDanmakuController(this,playback,{if(connected)engine.room?.optString("roomId") ?: "" else ""},{sendVoice(it)},{voiceViews.forEach {it.render()};if(voice.busy){main.removeCallbacks(hideControls);fullscreenControls?.visibility=View.VISIBLE}else if(fullscreenDialog!=null)revealControls()})
@@ -1129,7 +1129,7 @@ class MainActivity: Activity() {
   if(preserveSubtitles && !audioLanguage.isNullOrBlank() && audioLanguage!="und")playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setPreferredAudioLanguage(audioLanguage).build()
   val item=MediaItem.fromUri(android.net.Uri.parse(resolved))
   if(selected==baiduURL){
-   val network=androidx.media3.datasource.DefaultHttpDataSource.Factory().setUserAgent("pan.baidu.com")
+   val network=HttpMediaDataSource.factory("pan.baidu.com")
    val factory=androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,network))
    playback.setMediaSource(factory.createMediaSource(item),position.coerceAtLeast(0.0).toLong())
   }else playback.setMediaItem(item,position.coerceAtLeast(0.0).toLong())

@@ -77,3 +77,7 @@
 ## Optional source-fault protocol candidate
 - Real Media3 or compatibility errors immediately report sourceFault=true, retaining it through same-source retries until actual READY. Source replacement clears old transient fault. Periodic status includes optional boolean; old server/clients remain compatible. Native retry regression now verifies fault retention and READY clearing.
 - Matching private server candidate isolates active HTTP/local source faults from automatic wait, while retaining ordinary buffering, disconnect, manual-pause and Baidu identity gates. No backend deployment performed. This protocol requires the separately tested server update to affect automatic wait. Android candidate rerun pending.
+
+## HTTP error-page misclassification follow-up
+- Review found default HTTP source accepted successful-status HTML/JSON error pages, allowing extractor failure to masquerade as unsupported container. Add shared HTTP factory for normal and Baidu paths rejecting only explicit HTML/XHTML/JSON error MIME types before extraction; retain absent MIME, generic binary, HLS, text/VTT and local sources.
+- Added real MockWebServer/Media3 data-source tests: HTML becomes UNEXPECTED_CONTENT without app retry, missing/binary MIME still reads bytes. Native/unit checks pending next candidate; no production/router modification. Media3 factory API checked against official androidx/media source.
