@@ -35,10 +35,12 @@ jobs:
           set -euo pipefail
           ulimit -c 0
           git show 5d117b58f6241f9ff9685b021c6ad76aaed1708d:ios/TogetherPoC/SyncCore.swift > /tmp/BaselineSyncCore.swift
-          swiftc /tmp/BaselineSyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/baseline-sync
+          swiftc /tmp/BaselineSyncCore.swift ios/tests/ThreeSecondSyncRegression.swift -o /tmp/baseline-sync
           if /tmp/baseline-sync > baseline-sync.log 2>&1; then echo 'Baseline unexpectedly passes new policy'; exit 1; fi
-          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/fixed-sync
+          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/ThreeSecondSyncRegression.swift -o /tmp/fixed-sync
           /tmp/fixed-sync | tee fixed-sync.log
+          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/recovery-sync
+          /tmp/recovery-sync | tee -a fixed-sync.log
       - name: Build unsigned device app
         run: |
           set -o pipefail

@@ -202,7 +202,7 @@ final class AVPlayerAdapter: PlayerAdapter {
     self.seekDeadline?.cancel();self.seekDeadline=nil
     self.seeking=false
     if self.seekBuffer.pending != nil {self.seekRetry=0;self.performNextSeek();return}
-    let confirmed=finished && abs(self.position-target)<=1500
+    let confirmed=finished && abs(self.position-target)<=250
     if !confirmed {
      if self.seekRetry<1 {
       self.seekRetry+=1;self.seekBuffer.replace(target,duration:self.duration);self.performNextSeek()
@@ -317,6 +317,7 @@ final class SyncEngine {
   if explicitSeekVersion != nil {
    // Suppress old before-timeline correction after a local optimistic seek.
    guard clock.serverNow() >= (room?.executeAt ?? 0) else {if state == "playing" {player.play()} else {player.pause()};return error}
+   if state == "paused" {player.pause();player.setPlaybackSpeed(1)}
    guard player.ready || player.buffering else {return nil}
    explicitSeekVersion=nil;resetCorrection();lastAutoSeekAt=now
    if abs(error)>150 {player.seekTo(position)}

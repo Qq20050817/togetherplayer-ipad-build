@@ -7,10 +7,15 @@ private final class DeferredSeekPlayer:AVPlayer {
  var targets:[Double]=[]
  var completions:[Completion]=[]
  var starts=0
+ var confirmedTime=CMTime.zero
+ override func currentTime()->CMTime {confirmedTime}
  override func play() {starts += 1}
  override func pause() {}
  override func seek(to time:CMTime,toleranceBefore:CMTime,toleranceAfter:CMTime,completionHandler:@escaping @Sendable (Bool)->Void) {
-  targets.append(time.seconds);completions.append(completionHandler)
+  targets.append(time.seconds);completions.append { [weak self] finished in
+   if finished {self?.confirmedTime=time}
+   completionHandler(finished)
+  }
  }
 }
 
