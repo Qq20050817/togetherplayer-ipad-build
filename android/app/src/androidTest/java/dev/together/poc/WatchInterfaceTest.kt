@@ -203,24 +203,26 @@ class WatchInterfaceTest {
  @Test fun testLocalFileFingerprintAndPickerReturnApplyAfterReconnect() {
   val fixture=java.io.File(instrumentation.targetContext.cacheDir,"picked-local-movie.mka")
   instrumentation.context.assets.open("dts-test.mka").use {source->fixture.outputStream().use {source.copyTo(it)}}
+  val remote=FixtureHttpServer(fixture.readBytes())
+  val mediaUrl=remote.url
   val uri=android.net.Uri.fromFile(fixture)
   try {ActivityScenario.launch<MainActivity>(MainActivity::class.java).use {scenario->
    scenario.onActivity {activity->
     activity.javaClass.getDeclaredField("pendingLocalRoom").apply {isAccessible=true}.set(activity,"local-room")
-    activity.javaClass.getDeclaredField("pendingLocalMedia").apply {isAccessible=true}.set(activity,"https://example.org/movie.mp4")
+    activity.javaClass.getDeclaredField("pendingLocalMedia").apply {isAccessible=true}.set(activity,mediaUrl)
    }
    scenario.recreate()
    scenario.onActivity {activity->
     assertEquals("local-room",activity.javaClass.getDeclaredField("pendingLocalRoom").apply {isAccessible=true}.get(activity))
-    assertEquals("https://example.org/movie.mp4",activity.javaClass.getDeclaredField("pendingLocalMedia").apply {isAccessible=true}.get(activity))
+    assertEquals(mediaUrl,activity.javaClass.getDeclaredField("pendingLocalMedia").apply {isAccessible=true}.get(activity))
     val identity=activity.javaClass.getDeclaredMethod("localFileIdentity",android.net.Uri::class.java).apply {isAccessible=true}.invoke(activity,uri) as Pair<*,*>
     assertEquals(fixture.length(),identity.first);assertEquals(32,(identity.second as String).length)
     fun field(name:String,value:Any){activity.javaClass.getDeclaredField(name).apply {isAccessible=true}.set(activity,value)}
-    field("pendingLocalRoom","local-room");field("pendingLocalMedia","https://example.org/movie.mp4");field("connected",false)
+    field("pendingLocalRoom","local-room");field("pendingLocalMedia",mediaUrl);field("connected",false)
     val returned=activity.javaClass.getDeclaredMethod("onActivityResult",Int::class.javaPrimitiveType,Int::class.javaPrimitiveType,android.content.Intent::class.java).apply {isAccessible=true}
     returned.invoke(activity,702,android.app.Activity.RESULT_OK,android.content.Intent().setData(uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
     assertNotNull(activity.javaClass.getDeclaredField("pendingLocalMovie").apply {isAccessible=true}.get(activity))
-    val room=org.json.JSONObject().put("roomId","local-room").put("hostId","peer").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1).put("mediaUrl","https://example.org/movie.mp4").put("title","本地影片")
+    val room=org.json.JSONObject().put("roomId","local-room").put("hostId","peer").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1).put("mediaUrl",mediaUrl).put("title","本地影片")
     activity.javaClass.getDeclaredMethod("receive",org.json.JSONObject::class.java,Double::class.javaPrimitiveType).apply {isAccessible=true}.invoke(activity,org.json.JSONObject().put("type","WELCOME").put("room",room),0.0)
    }
    var selected=false
@@ -230,7 +232,7 @@ class WatchInterfaceTest {
     Thread.sleep(100)
    }
    assertTrue("File-picker result must be applied after WELCOME",selected)
-  }} finally {fixture.delete()}
+  }} finally {remote.close();fixture.delete()}
  }
  @Test fun testHevcRuntimeRecoveryRestartsSamePlayerAndPreservesSubtitle() {
   val format=androidx.media3.common.Format.Builder().setSampleMimeType("video/hevc").setWidth(320).setHeight(180).build()

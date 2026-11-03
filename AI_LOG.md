@@ -70,3 +70,6 @@
 
 - CI preparation run41738428661 remained in setup-gradle for more than five minutes before compilation. Disabled shared Gradle cache restoration and bounded that setup step to five minutes; same application source, same tests. No test result is inferred from setup delay.
 - External IPv6 read test after 4GiB returned206 and exact64KiB matched disk in ~1.3s. Remote container probe recognized HEVC Main10 3840x1600 with DTS-HD MA/DTS/AC3 and PGS tracks; this is metadata/transport evidence, not a physical Android decode or full playback claim.
+
+## Reconnect picker regression follow-up
+- Run41739201207: full JVM checks and APK compilation passed; 35/36 native tests passed. Existing picker-after-reconnect test still used an unverifiable example.org URL, correctly triggering the new identity confirmation gate. Replace only its HTTP fixture with identical bounded-Range sample bytes; retain Activity recreation, disconnected picker return, WELCOME and final selected-URI assertions. No production behavior or identity gate weakened. Rerun required.
