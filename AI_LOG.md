@@ -73,3 +73,7 @@
 
 ## Reconnect picker regression follow-up
 - Run41739201207: full JVM checks and APK compilation passed; 35/36 native tests passed. Existing picker-after-reconnect test still used an unverifiable example.org URL, correctly triggering the new identity confirmation gate. Replace only its HTTP fixture with identical bounded-Range sample bytes; retain Activity recreation, disconnected picker return, WELCOME and final selected-URI assertions. No production behavior or identity gate weakened. Rerun required.
+
+## Optional source-fault protocol candidate
+- Real Media3 or compatibility errors immediately report sourceFault=true, retaining it through same-source retries until actual READY. Source replacement clears old transient fault. Periodic status includes optional boolean; old server/clients remain compatible. Native retry regression now verifies fault retention and READY clearing.
+- Matching private server candidate isolates active HTTP/local source faults from automatic wait, while retaining ordinary buffering, disconnect, manual-pause and Baidu identity gates. No backend deployment performed. This protocol requires the separately tested server update to affect automatic wait. Android candidate rerun pending.

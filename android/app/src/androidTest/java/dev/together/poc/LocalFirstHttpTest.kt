@@ -47,16 +47,19 @@ class LocalFirstHttpTest {
    val count=remote.server.requestCount
    scenario.onActivity{a->
     val p=playback(a);p.seekTo(1500);field(a,"subtitleName").set(a,"preserved.srt")
+    a.javaClass.getDeclaredMethod("markSourceFault").apply{isAccessible=true}.invoke(a)
+    assertEquals(true,field(a,"sourceFault").get(a))
     val clock=field(a,"clock").get(a) as ClockSync;val now=clock.localNow();clock.add(now,now,now,now)
     val retry=a.javaClass.getDeclaredMethod("scheduleHttpErrorRecovery",Int::class.javaPrimitiveType,Int::class.javaObjectType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}
     assertEquals(true,retry.invoke(a,androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,503,true))
     assertEquals(true,retry.invoke(a,androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,503,true))
     assertEquals(1,field(a,"playerRebuildCount").get(a))
+    assertEquals("same-source recovery must retain fault until READY",true,field(a,"sourceFault").get(a))
    }
    var recovered=false
    repeat(80){if(!recovered){scenario.onActivity{a->recovered=remote.server.requestCount>count && playback(a).playbackState==Player.STATE_READY && playback(a).currentPosition>=1000};SystemClock.sleep(100)}}
    assertTrue("retry must preserve the real local playhead rather than paused room position zero",recovered)
-   scenario.onActivity{a->assertEquals("preserved.srt",field(a,"subtitleName").get(a));assertFalse(playback(a).playWhenReady);assertEquals(remote.url,playback(a).currentMediaItem!!.localConfiguration!!.uri.toString())}
+   scenario.onActivity{a->assertEquals("READY must clear source fault",false,field(a,"sourceFault").get(a));assertEquals("preserved.srt",field(a,"subtitleName").get(a));assertFalse(playback(a).playWhenReady);assertEquals(remote.url,playback(a).currentMediaItem!!.localConfiguration!!.uri.toString())}
   }}
  }
  @Test fun invalidGrantDoesNotFallBackUntilUserExplicitlyClearsBinding(){
