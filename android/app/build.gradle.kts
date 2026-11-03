@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
  namespace = "dev.together.poc"
  compileSdk = 35
- defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 127; versionName = "0.6.60.7"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
+ defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 128; versionName = "0.6.60.8"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
  buildTypes { getByName("debug") {
   // Separate preview identity preserves every existing install and its data.
   applicationIdSuffix = ".fluency"
@@ -19,6 +19,8 @@ dependencies {
  androidTestImplementation("androidx.test:runner:1.6.2")
  androidTestImplementation("androidx.test.ext:junit:1.2.1")
  androidTestImplementation("androidx.test:core:1.6.1")
+ testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+ androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
  testImplementation("junit:junit:4.13.2")
  testImplementation("org.json:json:20240303")
  implementation("androidx.media3:media3-exoplayer:1.7.1")

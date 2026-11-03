@@ -7,6 +7,8 @@ import kotlin.math.abs
 interface PlayerAdapter {
  fun play(); fun pause(); fun seekTo(positionMs: Long)
  fun getPosition(): Long; fun getDuration(): Long
+ fun isAdvancing():Boolean = true
+ fun getBufferedAhead():Long = Long.MAX_VALUE
  fun isBuffering(): Boolean; fun isReady(): Boolean; fun setPlaybackSpeed(speed: Float)
 }
 interface MediaSourceAdapter { fun resolve(url: String): String }
@@ -114,6 +116,9 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
    excessiveDriftSince=null;return null
   }
   if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
+  if(!player.isAdvancing() || (error>3000 && player.getBufferedAhead()<3000)){
+   resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error
+  }
   player.setPlaybackSpeed((baseRate*speed(error)).coerceAtMost(2.5f))
   player.play(); return error
  }

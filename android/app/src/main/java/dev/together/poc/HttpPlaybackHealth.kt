@@ -23,20 +23,21 @@ class HttpPlaybackHealth {
   private set
  @Volatile var remainingMs=Long.MAX_VALUE
   private set
+ @Volatile var mediaBitrateBps=0L;private set
  private var seenReady=false
  private var lastState=Player.STATE_IDLE
 
  fun reset(source:String) {
   isHttp=source.startsWith("http://",true) || source.startsWith("https://",true)
   speedMbps=null;stalls=0;lastStallElapsedMs=0;remainingMs=Long.MAX_VALUE
-  seenReady=false;lastState=Player.STATE_IDLE
+  seenReady=false;lastState=Player.STATE_IDLE;mediaBitrateBps=0
  }
 
  fun onBandwidthEstimate(loadTimeMs:Int,bytes:Long,estimateBitsPerSecond:Long) {
   if(!isHttp || loadTimeMs<=0 || bytes<32*1024L)return
   val rate=if(estimateBitsPerSecond>0)estimateBitsPerSecond.toDouble()/1_000_000.0
    else bytes*8.0/loadTimeMs/1000.0
-  if(rate.isFinite() && rate>0 && rate<100_000) speedMbps=rate
+  if(rate.isFinite() && rate>0 && rate<100_000) speedMbps=speedMbps?.let{it*0.7+rate*0.3} ?: rate
  }
 
  fun onPlaybackState(state:Int,playWhenReady:Boolean,elapsedMs:Long) {
@@ -53,7 +54,9 @@ class HttpPlaybackHealth {
   remainingMs=if(durationMs>0) (durationMs-positionMs).coerceAtLeast(0) else Long.MAX_VALUE
  }
 
+ fun setMediaBitrate(video:Int?,audio:Int?){mediaBitrateBps=(video?.takeIf{it>0}?.toLong() ?: 0L)+(audio?.takeIf{it>0}?.toLong() ?: 0L)}
  fun resumeReserveMs():Long = when {
+  stalls>=2 && mediaBitrateBps>0 && (speedMbps ?: Double.POSITIVE_INFINITY)*1_000_000<mediaBitrateBps*1.15->20_000L
   stalls>=3->20_000L
   stalls>=2->16_000L
   else->12_000L
@@ -63,7 +66,7 @@ class HttpPlaybackHealth {
   if(!isHttp)return ""
   val rate=speedMbps?.let {String.format(Locale.US,"%.1f Mbps",it)} ?: "速度待测"
   val buffer=(bufferedMs.coerceAtLeast(0L)/1000L)
-  return "HTTP $rate · 已缓冲 ${buffer}s · 卡顿 ${stalls}次"
+  return "HTTP $rate · 已缓冲 ${buffer}s · 卡顿 ${stalls}次"+(if(mediaBitrateBps>0 && (speedMbps ?: Double.POSITIVE_INFINITY)*1_000_000<mediaBitrateBps)" · 带宽低于片源码率，建议使用本地影片" else "")
  }
 }
 

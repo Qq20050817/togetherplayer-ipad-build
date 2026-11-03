@@ -38,3 +38,32 @@
 - User added high-priority Android USB/HTTP compatibility phase after Seek/clock verification. Complete requirements preserved in TP-ANDROID-USB-HTTP-20261104; no router changes, source conversions or deployment performed.
 
 - User added Android local-first / USB fallback requirements. Recorded TP-ANDROID-LOCAL-FIRST-20261104 for next phase jointly with USB compatibility. Preserve prior local binding/reconnect fixes, SAF permissions and per-device isolation; no whole-film upload or source mutation.
+
+## 2026-11-04 · Verified Seek/clock checkpoint
+
+- iPad app source `59487c6d146b653705cedd0d50b6837a35498de8`, Actions `41734096867` SUCCESS: unsigned device Release build, 55 core tests, 1 fullscreen real-movie seek UI test; baseline-vs-fixed policy and preserved recovery/EOF standalone checks passed. IPA 0.6.75 / 135, isolated app identity. SHA256 `732a047ece68599cadec83f04b2f75580d939bf0ac4ae379de6f1bdb4e1a4f0a`.
+- Android app source `6363aad6709957ef6dd91c96b6951119124bd889`, Actions `41734109853` SUCCESS: 120 JVM tests, APK compilation, full 33-test emulator suite; additional three seek/clock/decoder checks passed on a fresh emulator. APK 0.6.60.7 / 127, isolated .fluency app identity, SHA256 `c934991e0a629bdac938084fd36b3a6add6b32d5a20d3f6b3d84234083aa896e`.
+- Artifacts downloaded through authorized Actions access, ZIP digests and exact extracted hashes verified. Both installables saved; original app/services remain untouched. Android preview signing may differ from previous previews; never silently uninstall an existing app or promise same-signature upgrade.
+- Review: draft PR30 (iPad), PR31 (Android) against each verified client baseline, no merge. Later workflow/docs commits do not change the verified application directories.
+- Journal sync checked: AI Journal indexes main only (private a542f2c0136d342068855830f174df7bbf76814a; public c6d747298f4e9869292352107d7a45cb965bb36c). Task branches are committed on GitHub but not included in main-only MCP notes. Do not mark branch journal synchronization complete.
+- Remaining acceptance: physical Android/iPad pair, real router/cloud long runs, timing across network failure. Backend wait-for-peer policy is unchanged and not claimed fixed. Original installed apps are the rollback; unsigned iPad requires user signing.
+
+## 2026-11-04 · Android USB/local-first baseline
+
+- Branch fix/android-local-first-usb-stability-20261104 at 1553ef43b682a82d5985a3a3acc04ef1f837ec21; application directory exactly matches verified 6363aad / 0.6.60.7 (Actions41734109853). Clean before phase edits.
+- Read-only GL-MT3000 test: existing ~22GB MKV and ~97MB MP4 HEAD lengths match disk; 206 and Content-Range checked at head, around 2GiB/4GiB boundaries and tail; returned bytes match direct file reads. Beyond EOF correctly returns416; interrupted full response then ranged reconnect passed. No >4GB MP4 was available, no physical Android external-network test yet. Zero original-file or service changes.
+- Media server inspected SHA256906bc1c8416bb43f0bda2d5cb133272a3d286a0d4dc53c3b5704fb87d3fccbe0. Python integer range math shows no truncation. Production configuration/credentials and media names are excluded from logs.
+- Client findings: ordinary HTTP local picker skips fingerprint validation; switch defaults can clear subtitles; source reload uses old canonical snapshot instead of actual playhead; all HTTP errors beyond a small whitelist collapse to generic decode/source labels.
+- Planned minimal changes: central per-device local priority guard; bounded HTTP range identity validation; explicit confirmation plus duration gate for differing/unavailable byte identity; preserve selection/real position; classify HTTP failures and retain bounded retries. Server changes only if a specific failing protocol check is reproduced.
+- Rollback: previous isolated candidate remains available. Production services, media and main are untouched.
+
+## 2026-11-04 · Local-first/USB candidate edits
+
+- Local source policy is enforced centrally at every load; renewed HTTP room URLs cannot replace a valid same-movie binding. Explicit unbind still enables HTTP. Changed sources stop and clear old player input before preparation; existing external subtitles and preferred audio language are retained for verified same-film switches. Actual playhead is used at switch/recovery time.
+- Normal HTTP selections now compare three bounded 64KiB byte samples plus length to the local fingerprint before binding. Unavailable/different byte identity requires the existing explicit same-cut confirmation and duration gate; no whole-file upload. In-flight identity reads can be canceled. Confirmed-variant duration requirements survive reconnect persistence.
+- Error classification separates HTTP auth/unavailable/range/server/throttling, timeout/connection, incomplete data, unexpected content, local access and container errors. Existing two-attempt backoff/dedup is preserved; EOF-like recoverable failures can use it. Private rotating, asynchronous, bounded metadata diagnostics retain no URLs, paths, token or media names.
+- HTTP measured speed is smoothed; repeated-stall reserve considers known stream bitrate. Catchup needs advancing frames and at least 3s buffered reserve, avoiding acceleration into an empty buffer. Existing hardware/FFmpeg audio and bounded HEVC fallback paths are retained.
+- Added: long-offset/range validation, bounded network identity, source routing, redaction and error classification unit tests; real HTTP/local switch and zero-reload native test; existing SAF UI tests now use matching HTTP fixtures while preserving picker/frame/seek assertions. New isolated CI 0.6.60.8/128 prepared.
+- Not yet compiled or executed for this candidate; field tests and unsupported-format combinations are not marked passed. Production router/services and original media untouched.
+
+- Audio selection continuity: capture selected format identity/language/label/codec/channels; reapply a matching supported group once after source preparation, or explicitly ask the user to check audio if no exact match exists. Added native tests for explicit invalid-grant fallback and deduplicated transient recovery retaining real position and subtitle. Native field/hardware combinations remain unverified until CI/device testing.

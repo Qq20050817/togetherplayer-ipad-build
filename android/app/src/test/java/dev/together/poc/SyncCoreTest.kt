@@ -5,14 +5,21 @@ import org.json.JSONObject
 
 class SyncCoreTest {
  class FakePlayer : PlayerAdapter {
-  var pos=0L;var rate=1f;var playing=false;var seeks=0;var ready=true;var acceptSeek=true;var durationMs=4000000L;var buffering=false
+  var pos=0L;var rate=1f;var playing=false;var seeks=0;var ready=true;var acceptSeek=true;var durationMs=4000000L;var buffering=false;var reserve=Long.MAX_VALUE;var advancing=true
   override fun play() {playing=true};override fun pause() {playing=false}
   override fun seekTo(positionMs:Long) {if(acceptSeek) pos=positionMs;seeks++}
   override fun getPosition()=pos;override fun getDuration()=durationMs
+  override fun isAdvancing()=advancing;override fun getBufferedAhead()=reserve
   override fun isBuffering()=buffering;override fun isReady()=ready
   override fun setPlaybackSpeed(speed:Float){rate=speed}
  }
  private fun frame(position:Double=10000.0,version:Long=1,at:Double=0.0)=JSONObject().put("roomId","r").put("mediaUrl","https://example.org/movie.mp4").put("version",version).put("executeAt",at).put("state","playing").put("position",position).put("updatedAt",at).put("playbackRate",1).put("before",JSONObject().put("state","playing").put("position",10000).put("updatedAt",0).put("playbackRate",1))
+ @Test fun catchupNeedsAdvancingFramesAndBufferReserve(){
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  p.pos=5000;p.reserve=1000;e.tick();assertEquals(1f,p.rate)
+  p.reserve=10000;p.advancing=false;e.tick();assertEquals(1f,p.rate)
+  p.advancing=true;e.tick();assertTrue(p.rate>1f);assertEquals(0,p.seeks)
+ }
  @Test fun rateTransitionSettlesWithoutAutomaticHardSeek() {
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
   e.receive(frame());e.tick();now=100.0

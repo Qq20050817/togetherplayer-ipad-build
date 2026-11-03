@@ -26,7 +26,8 @@ class LocalDocumentPlaybackTest {
  private val instrumentation get()=InstrumentationRegistry.getInstrumentation()
  @Test fun mp4PickedThroughSystemFilesRendersAndSeeks()=pickAndPlay("mp4","video/mp4")
  @Test fun mkvPickedThroughSystemFilesRendersAndSeeks()=pickAndPlay("mkv","video/x-matroska")
- private fun room()=JSONObject().put("roomId","local-document-test").put("hostId","peer").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1).put("mediaUrl","https://example.invalid/fixture.mp4").put("title","Local test")
+ private var fixtureUrl="https://example.invalid/fixture.mp4"
+ private fun room()=JSONObject().put("roomId","local-document-test").put("hostId","peer").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1).put("mediaUrl",fixtureUrl).put("title","Local test")
  private fun welcome(activity:MainActivity) {
   activity.javaClass.getDeclaredMethod("receive",JSONObject::class.java,Double::class.javaPrimitiveType).apply{isAccessible=true}.invoke(activity,JSONObject().put("type","WELCOME").put("room",room()),0.0)
  }
@@ -36,6 +37,8 @@ class LocalDocumentPlaybackTest {
   val name="TOGETHER-LOCAL-TEST.$extension"
   val values=ContentValues().apply {put(MediaStore.Downloads.DISPLAY_NAME,name);put(MediaStore.Downloads.MIME_TYPE,mime);put(MediaStore.Downloads.RELATIVE_PATH,"Download/");put(MediaStore.Downloads.IS_PENDING,1)}
   val fixture=resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values)!!
+  val bytes=instrumentation.context.assets.open("local-test.$extension").use{it.readBytes()}
+  val remote=FixtureHttpServer(bytes);fixtureUrl=remote.url
   try {
    instrumentation.context.assets.open("local-test.$extension").use{source->resolver.openOutputStream(fixture)!!.use{source.copyTo(it)}}
    resolver.update(fixture,ContentValues().apply{put(MediaStore.Downloads.IS_PENDING,0)},null,null)
@@ -70,7 +73,7 @@ class LocalDocumentPlaybackTest {
     assertTrue("No rendered video frame after real Files selection",frame.await(15,TimeUnit.SECONDS));assertNull(failure)
     scenario.onActivity{activity->assertTrue(player(activity).duration>0);assertEquals(160,player(activity).videoFormat!!.width);player(activity).stop()}
    }
-  } finally {resolver.delete(fixture,null,null)}
+  } finally {remote.close();resolver.delete(fixture,null,null)}
  }
  // DocumentsUI replaces nodes while thumbnails/metadata arrive. Re-query only
  // stale accessibility nodes; still require the actual content URI, decoded frame and seek.

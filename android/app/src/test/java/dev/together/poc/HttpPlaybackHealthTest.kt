@@ -55,4 +55,10 @@ class HttpPlaybackHealthTest {
   h.setRemaining(0,50_000)
   assertEquals(Long.MAX_VALUE,h.remainingMs)
  }
+ @Test fun shortThroughputSpikeDoesNotEraseSlowLinkHistory(){
+  val h=HttpPlaybackHealth();h.reset("http://example.org/video.mkv");h.onBandwidthEstimate(1000,1000000,10000000);h.onBandwidthEstimate(100,1000000,100000000)
+  assertTrue(h.speedMbps!!>10);assertTrue(h.speedMbps!!<100)
+  h.setMediaBitrate(100000000,1000000);assertTrue(h.display(12000).contains("带宽低于片源码率"))
+ }
+
 }
