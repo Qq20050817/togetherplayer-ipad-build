@@ -67,3 +67,6 @@
 - Not yet compiled or executed for this candidate; field tests and unsupported-format combinations are not marked passed. Production router/services and original media untouched.
 
 - Audio selection continuity: capture selected format identity/language/label/codec/channels; reapply a matching supported group once after source preparation, or explicitly ask the user to check audio if no exact match exists. Added native tests for explicit invalid-grant fallback and deduplicated transient recovery retaining real position and subtitle. Native field/hardware combinations remain unverified until CI/device testing.
+
+- CI preparation run41738428661 remained in setup-gradle for more than five minutes before compilation. Disabled shared Gradle cache restoration and bounded that setup step to five minutes; same application source, same tests. No test result is inferred from setup delay.
+- External IPv6 read test after 4GiB returned206 and exact64KiB matched disk in ~1.3s. Remote container probe recognized HEVC Main10 3840x1600 with DTS-HD MA/DTS/AC3 and PGS tracks; this is metadata/transport evidence, not a physical Android decode or full playback claim.
