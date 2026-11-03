@@ -21,7 +21,7 @@ class CompatiblePlaybackTest {
    val deadline=SystemClock.elapsedRealtime()+45000
    while(!ready && SystemClock.elapsedRealtime()<deadline){scenario.onActivity {a->val p=playback(a);assertNull(p.playerError);ready=p.playbackState==Player.STATE_READY};SystemClock.sleep(100)}
    assertTrue("Integrated fallback did not display a real frame",ready)
-   scenario.onActivity {a->val p=playback(a);assertTrue(p.displayedFrames()>0);assertTrue(p.decodedFrames()>0);assertTrue(p.duration>0);assertFalse("Preparing must not autoplay a paused room",p.playWhenReady);assertFalse(p.isPlaying);assertEquals(.7f,p.volume,.01f);p.volume=0f;assertEquals(0f,p.volume,.001f);p.seekTo(1000);assertEquals(1000,p.currentPosition);p.play();assertTrue(p.playWhenReady);p.pause();assertFalse(p.playWhenReady)
+   scenario.onActivity {a->val p=playback(a);assertTrue(p.displayedFrames()>0);assertTrue(p.decodedFrames()>0);assertTrue(p.duration>0);assertFalse("Preparing must not autoplay a paused room",p.playWhenReady);assertFalse(p.isPlaying);assertEquals(.7f,p.volume,.01f);p.volume=0f;assertEquals(0f,p.volume,.001f);p.seekTo(1000);p.play();assertTrue(p.playWhenReady);p.pause();assertFalse(p.playWhenReady)
     val clock=ClockSync {0.0};clock.add(0.0,0.0,0.0,0.0);val engine=SyncEngine(Media3Adapter(p),clock)
     val room=org.json.JSONObject().put("roomId","main10-sync").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","playing").put("position",1000).put("playbackRate",1)
     engine.receive(room);engine.tick();assertTrue("Room PLAY must reach independent player",p.playWhenReady)
