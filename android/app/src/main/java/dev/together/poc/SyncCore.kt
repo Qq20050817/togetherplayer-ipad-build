@@ -97,6 +97,7 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   val baseRate=if(timeline?.optDouble("playbackRate")==2.0) 2f else 1f
   if(explicitSeekVersion!=null){
    if(clock.serverNow()<(room?.optDouble("executeAt") ?: 0.0)){if(state=="playing")player.play()else player.pause();return error}
+   if(state=="paused"){player.pause();player.setPlaybackSpeed(1f)}
    if(!player.isReady() && !player.isBuffering())return null
    explicitSeekVersion=null;resetCorrection();lastAutoSeekAt=now
    if(abs(error)>150)player.seekTo(position.toLong())

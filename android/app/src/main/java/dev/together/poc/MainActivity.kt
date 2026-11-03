@@ -288,7 +288,7 @@ class MainActivity: Activity() {
   manualSeek?.let {request->
    val elapsed=android.os.SystemClock.elapsedRealtime()-request.at
    val advance=if(request.playing)elapsed*request.rate else 0f
-   if(elapsed>=200 && playback.playbackState==Player.STATE_READY && position>=request.position-1500 && position<=request.position+advance+1500){
+   if(elapsed>=200 && playback.playbackState==Player.STATE_READY && position>=request.position-250 && position<=request.position+advance+250){
     manualSeek=null
    } else if(elapsed>=15000 || playback.playerError!=null){
     manualSeek=null;playbackAction("跳转未获播放器确认，请检查片源读取或网络后重试")
