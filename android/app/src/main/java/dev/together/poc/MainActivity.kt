@@ -1156,6 +1156,9 @@ class MainActivity: Activity() {
   playback.pause()
   if(changed){sourceFault=false;playback.stop();playback.clearMediaItems();lastGoodSource=resolved;lastGoodPosition=position.coerceAtLeast(0.0).toLong()}
   if(preserveSubtitles && !audioLanguage.isNullOrBlank() && audioLanguage!="und")playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setPreferredAudioLanguage(audioLanguage).build()
+  if(preferredAudio?.mime!=null)playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon()
+   .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO)
+   .setPreferredAudioMimeTypes(preferredAudio.mime).setPreferredAudioLanguage(preferredAudio.language).build()
   val item=MediaItem.fromUri(android.net.Uri.parse(resolved))
   if(selected==baiduURL){
    val network=HttpMediaDataSource.factory("pan.baidu.com")
