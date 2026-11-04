@@ -1046,11 +1046,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   request.timeoutInterval=15
   request.httpBody=try? JSONSerialization.data(withJSONObject:join ? [:] : ["mediaUrl":MediaSourceCatalog.resolve(mediaURL)?.absoluteString ?? mediaURL,"title":movieTitle])
   guard join || MediaSourceCatalog.canShare(mediaURL) else {requestStatus="房间片源不能包含账户凭据；请使用公开授权链接，或放入仅本机片源。";return}
-  registering=true;requestStatus="正在处理房间请求…"
+  roomTLS.reset();registering=true;requestStatus="正在处理房间请求…"
   Task {
    defer {registering=false}
    do {
-    let (data,response)=try await URLSession.shared.data(for:request)
+    let (data,response)=try await roomRegistrationData(for:request)
     guard let http=response as? HTTPURLResponse else {requestStatus="服务器没有返回有效响应，请稍后重试";return}
     guard http.statusCode == 201 else {
      if http.statusCode == 503 {requestStatus="同步服务器暂时离线，请稍后重试"}
@@ -1060,9 +1060,23 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     guard let next=try JSONSerialization.jsonObject(with:data) as? [String:Any],let nextRoom=next["roomId"] as? String,!nextRoom.isEmpty,
      let user=next["userId"] as? String,!user.isEmpty,let token=next["token"] as? String,!token.isEmpty else {requestStatus="服务器返回了无效房间凭证";return}
     forgetRememberedMovie();releaseLocalFileAccess()
-    roomTLS.reset();credentials=next;credentialServer=base;roomID=nextRoom
+    credentials=next;credentialServer=base;roomID=nextRoom
     UserDefaults.standard.set(data,forKey:"credentials");UserDefaults.standard.set(base,forKey:"server");connect()
-   } catch {requestStatus="房间请求失败：\(error.localizedDescription)"}
+   } catch {requestStatus="房间请求失败：\(RoomTransportFailure.description(error as NSError,httpStatus:nil))"}
+  }
+ }
+ private func roomHTTPData(for request:URLRequest) async throws -> (Data,URLResponse) {
+  let session=URLSession(configuration:roomTLS.configuration())
+  defer {session.finishTasksAndInvalidate()}
+  return try await session.data(for:request)
+ }
+ private func roomRegistrationData(for request:URLRequest) async throws -> (Data,URLResponse) {
+  do {return try await roomHTTPData(for:request)}
+  catch {
+   let failure=error as NSError
+   guard roomTLS.retryAfterHandshakeFailure(failure,httpStatus:nil) else {throw error}
+   requestStatus="\(RoomTransportFailure.description(failure,httpStatus:nil))；尝试 TLS 1.2 兼容连接…"
+   return try await roomHTTPData(for:request)
   }
  }
  func retryRoomConnection() {
