@@ -147,3 +147,11 @@
 - Native build/regressions pending; source diff check passes. No install, merge, production deployment or physical playback claim. Rollback: retain installed0.6.60.11 and candidate baseline; do not uninstall for CI signing differences.
 
 - Review before native CI completion: clear the failed explicit audio override and prefer the chosen compatible MIME before prepare; pending exact track override still applies after discovery. This prevents immediately reopening the same failed DTS track. Rerun required; no successful candidate verification inferred.
+
+- Independent Singapore public endpoint probe completed: POST create/join201; authenticated TLS1.2 andTLS1.3 WebSocket WELCOME; same-credential reconnect WELCOME; synthetic room closed. This verifies server protocol capability, not the failing iPad Wi-Fi route.
+
+## 2026-11-04 · Android candidate native verification and signing boundary
+- Exact applicationccdeec1ac043fba72f74a35d39474f0d3ac38d3d; Actions41853120352 SUCCESS.145 JVM tests and41 native tests,0 failures/errors/skips. Includes actual HTTP compatible-audio recovery at native position with same room/source/subtitle, no autoplay and bounded retry; existing local/SEEK/decoder/voice tests retained.
+- Artifact13336498921 ZIP SHA25627b6d276b74f079b6932d18fe8127209f00db271406abe2941f7afe4950182b3 verified from official download, ZIP integrity passes, APK78561613B SHA2566c31758eaa0a1db6d0561428d4b01c5bc3ec3b21941684d578f5dd8335fe6c4c. ARM64-only compressed JNI and voice-model hash verified.
+- APK v2 certificate SHA2564c27b494e7aa76fe32475d53ff753f8e3070f254ce4a5d8cdbfaf907dfe5f1ce differs from installed0.6.60.11 signer40815d7c...; do not offer uninstall/overwrite as a prerequisite. New packaging-only workflow preserves verified application source, changes runtime suffix to.decoder12 and display label toTogether解码测试, verifies coexistence with exact0.6.60.11 in an emulator, then emits compact ARM64 package. No source logic or runtime data migration. Parallel package verification pending.
+- User supplied audio menu: English Dolby Digital5.1 track1 and French Dolby Digital5.1 track2 plus English DTS tracks3/4. Asked user to select English track1 and retry; result pending. This metadata/menu does not yet establish the failed renderer.
