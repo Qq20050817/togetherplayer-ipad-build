@@ -1327,8 +1327,12 @@ class MainActivity: Activity() {
   }
   if(chat.accept(m,m.userId==credentials?.optString("userId"))){
    renderChat()
-   if(live && (fullscreenDialog!=null || m.clientId.startsWith("voice:"))){
-    if(danmakuPending.size<20)danmakuPending.addLast(Triple(m.text.take(500),clock.localNow(),if(m.clientId.startsWith("voice:"))5000L else 10000L))
+   // The automated third-party stall explanation is a visible video danmaku
+   // even in the normal split-room layout (not only in fullscreen).
+   val stallAssistant=m.userId=="system" && m.clientId.startsWith("system-peer-stalled-v")
+   if(live && (fullscreenDialog!=null || m.clientId.startsWith("voice:") || stallAssistant)){
+    val shown=if(stallAssistant) "${m.name}：${m.text}" else m.text
+    if(danmakuPending.size<20)danmakuPending.addLast(Triple(shown.take(500),clock.localNow(),if(m.clientId.startsWith("voice:"))5000L else 10000L))
     drainDanmaku()
    }
   }
