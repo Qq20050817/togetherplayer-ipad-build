@@ -1,7 +1,7 @@
-name: Android local-first and USB resilience 0.6.60.8
+name: Android peer-stall and decoding diagnostics 0.6.60.9
 on:
   push:
-    branches: [fix/android-local-first-usb-stability-20261104]
+    branches: [fix/android-local-first-usb-stability-20261104, fix/android-peer-stall-decoder-diagnostics-20261104]
     paths: ['android/**', '.github/workflows/android-local-first-usb.yml']
   workflow_dispatch:
 permissions:
@@ -48,12 +48,12 @@ jobs:
       - name: Preserve candidate APK
         run: |
           mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.8-Local-First-USB.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.9-Peer-Stall-Diagnostics.apk
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-local-first-usb-0608
+          name: android-peer-stall-0609
           path: |
             delivery/
             android/app/build/reports/tests/

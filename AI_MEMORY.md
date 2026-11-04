@@ -23,3 +23,6 @@
 ## HTTP recovery boundaries
 - Keep consecutive HTTP retry budget separate from decoder/stall rebuild counters. Paused room ticks and same-source reload must not refill it. Two attempts with backoff/dedup; explicit retry/new source or30s actual stable advancement may start a new budget.
 - Reject only explicit HTML/XHTML/JSON error response types before media extraction. Preserve absent/unknown MIME, application/octet-stream, HLS and subtitle/text compatibility to avoid new source-format false negatives.
+
+## Automatic room stall pause contract
+- Only fresh periodic real-player position reports may indicate a 10-second stall. A behind but advancing member uses local speed correction. Server `peer_stalled` PAUSE must preserve each client's actual playhead, avoiding skipped scenes on the stalled peer; manual resume retains catch-up. This rule is separate from explicit user PAUSE, question gates and stale/disconnected status.

@@ -142,4 +142,20 @@ class SyncCoreTest {
   repeat(100){now+=100;e.tick()};assertEquals(1,p.seeks)
  }
 
+ @Test fun peerStalledPausePreservesActualPositionAndManualResumeCatchesUp() {
+  var now=0.0;val clock=ClockSync{now};clock.add(0.0,0.0,0.0,0.0)
+  val p=FakePlayer();p.pos=10000;val engine=SyncEngine(p,clock)
+  engine.receive(frame());engine.tick();assertEquals(0,p.seeks)
+  val prior=JSONObject().put("state","playing").put("position",30000).put("updatedAt",0).put("playbackRate",1)
+  val paused=frame(30750.0,2,750.0).put("state","paused").put("pauseReason","peer_stalled").put("before",prior)
+  engine.receive(paused)
+  now=500.0;engine.tick();assertTrue(p.playing)
+  now=1000.0;engine.tick();assertFalse(p.playing);assertEquals(10000L,p.pos);assertEquals(0,p.seeks)
+  repeat(20){now+=100;engine.tick();assertEquals(0,p.seeks)}
+  val before=JSONObject().put("state","paused").put("position",30750).put("updatedAt",1000).put("playbackRate",1)
+  val resumed=frame(30750.0,3,3000.0).put("before",before)
+  engine.receive(resumed)
+  repeat(30){now=3000.0+(it+1)*100;p.pos=10000+(it+1)*100L;engine.tick()}
+  assertTrue(p.playing);assertTrue(p.rate>1f);assertEquals(0,p.seeks)
+ }
 }

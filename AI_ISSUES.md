@@ -49,3 +49,12 @@
 ## Android candidate regression results
 - Run41742801175 passed137 JVM plus38 native tests with0 skipped/failed. The historic picker-after-WELCOME assertion now passes against real matching HTTP bytes; identity gate unchanged. Error-page classification and retry-budget tests passed. Candidate0.6.60.8 available for field validation, superseding partial/superseded runs.
 - Field hardware/long-duration/mobile-network matrix remains open. Backend optional source-fault isolation needs separate authorized deployment. >10s pause-intent classification remains outstanding and must not be declared complete.
+
+## TP-ANDROID-DECODER-20261104 · PlaybackException decoding failure on router HTTP video (open)
+- User screenshot: Android room playback around 03:48, HTTP throughput estimate 4.1 Mbps, 0 seconds contiguous buffer, `ERROR_CODE_DECODING_FAILED`.
+- Evidence: current `HttpFailureDiagnosis.classify` maps decoder failure to generic OTHER and HTTP UI masks track details, despite existing HEVC alternate decoder selection and DTS/TrueHD FFmpeg renderer. Failure subtype (audio/video), codec profile, device decoder and actual media container are not yet proven.
+- Diagnostic candidate branch `fix/android-peer-stall-decoder-diagnostics-20261104`: structured DECODER category, explicit per-track MIME/codec/decoder UI, no extra retry loop; preserve existing fallback. Field capture and device/format-specific fix remain open.
+
+## TP-PEER-STALL-20261104 · Android preserve playhead on peer stall
+- Server peer-stalled pause is an independent candidate; Android 0.6.60.9 tests verify no implicit hard-seek on shared pause and speed catch-up on manual resumption.
+- Pending CI and both-client version compatibility, backend deployment authorization and two-person field test. Previous local-first fallback stays unchanged.

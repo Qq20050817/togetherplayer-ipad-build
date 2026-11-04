@@ -17,6 +17,7 @@ internal object HttpFailureDiagnosis {
   code==P.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE->Result("UNEXPECTED_CONTENT","服务端返回了非视频内容",false)
   code==P.ERROR_CODE_IO_FILE_NOT_FOUND || code==P.ERROR_CODE_IO_NO_PERMISSION->Result("LOCAL_UNAVAILABLE","本地文件不存在或读取权限失效，请重新选择或切回U盘",false)
   code==P.ERROR_CODE_PARSING_CONTAINER_MALFORMED || code==P.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED->Result("CONTAINER","影片封装无法解析，建议检查完整性或尝试无损重封装",false)
+  code==P.ERROR_CODE_DECODING_FAILED->Result("DECODER","视频或音频轨道解码失败，可能存在格式或设备兼容问题",false)
   else->Result("OTHER","播放读取失败，请查看错误码与编码信息",false)
  }
 }
