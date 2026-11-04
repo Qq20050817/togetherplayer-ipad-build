@@ -19,3 +19,8 @@
 
 - User chose 3000ms automatic synchronization tolerance. Explicit user SEEK must bypass it. Lagging clients catch up locally with speed; automatic hard-seek loops are prohibited. Pause/question gates, timeline offsets and existing P2P handoff remain authoritative.
 - Coalesce only pending SEEK operations; preserve queued PAUSE/PLAY when a user drags the slider. Native playback time is the display source of truth; predicted pending seek targets must not masquerade as real time.
+
+## Installation package delivery
+
+- Default distribution preference is a verified, expiring HTTP direct download through the user's existing USB media allowlist, with exact size, SHA256, public HEAD and Range tests. Never record full signed links or secrets in public project logs. This does not authorize broad router reconfiguration or automatic client installation.
+- The user's latest instruction on 2026-11-05 excludes Android APK delivery for the current task; iPad 0.6.81 was delivered unsigned and needs user-side signing.
