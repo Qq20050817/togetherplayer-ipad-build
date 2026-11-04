@@ -79,15 +79,21 @@ class CompatiblePlaybackTest {
     val output=texture(view);assertNotNull("Compatibility output must use the texture path",output)
     val bitmap=output!!.getBitmap(120,64);assertNotNull(bitmap)
     try {
-     val colors=(0 until 6).map{n->bitmap!!.getPixel(n*20+10,12)}
      fun high(c:Int,mask:Int)=((c shr mask) and 255)>140
      fun low(c:Int,mask:Int)=((c shr mask) and 255)<110
-     assertTrue("Main10 red stripe must retain chroma",high(colors[0],16)&&low(colors[0],8)&&low(colors[0],0))
-     assertTrue("Main10 green stripe must retain chroma",high(colors[1],8)&&low(colors[1],16)&&low(colors[1],0))
-     assertTrue("Main10 yellow stripe must retain chroma",high(colors[2],16)&&high(colors[2],8)&&low(colors[2],0))
-     assertTrue("Main10 blue stripe must retain chroma",high(colors[3],0)&&low(colors[3],16)&&low(colors[3],8))
-     assertTrue("Main10 magenta stripe must retain chroma",high(colors[4],16)&&high(colors[4],0)&&low(colors[4],8))
-     assertTrue("Main10 cyan stripe must retain chroma",high(colors[5],8)&&high(colors[5],0)&&low(colors[5],16))
+     fun matches(n:Int,c:Int)=when(n){
+      0->high(c,16)&&low(c,8)&&low(c,0)
+      1->high(c,8)&&low(c,16)&&low(c,0)
+      2->high(c,16)&&high(c,8)&&low(c,0)
+      3->high(c,0)&&low(c,16)&&low(c,8)
+      4->high(c,16)&&high(c,0)&&low(c,8)
+      else->high(c,8)&&high(c,0)&&low(c,16)
+     }
+     for(n in 0 until 6){
+      var matching=0
+      for(x in 6..14 step 2)for(y in 8..16 step 2)if(matches(n,bitmap!!.getPixel(n*20+x,y)))matching++
+      assertTrue("Main10 stripe $n must retain chroma (thin moving fixture lines excluded by majority)",matching>=15)
+     }
     } finally {bitmap?.recycle()}
    }
    scenario.onActivity{a->val p=player(a);p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0,allowHttp=true))}
