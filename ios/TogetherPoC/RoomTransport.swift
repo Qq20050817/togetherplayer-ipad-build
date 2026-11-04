@@ -29,9 +29,11 @@ struct PendingRoomMedia {
 }
 
 enum RoomResumePolicy {
- static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double) -> Bool {
+ static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double,connectionAgeMs: Double) -> Bool {
   guard hasCredentials else {return false}
-  // A suspended connection may still look connected after a brief inactive phase.
-  return !wasForeground || !isConnected || !hasSocket || lastMessageAgeMs >= 15_000
+  if !wasForeground || !hasSocket {return true}
+  // A resumed inactive scene may hold a stale socket even while still marked connected.
+  // Avoid disrupting a genuinely healthy socket or a handshake still in progress.
+  return isConnected ? lastMessageAgeMs >= 15_000 : connectionAgeMs >= 10_000
  }
 }
