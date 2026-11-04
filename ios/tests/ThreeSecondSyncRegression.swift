@@ -14,7 +14,7 @@ final class FakePlayer:PlayerAdapter {
   for t in 0...50 {now=Double(t)*100;p.position=10000+now-6000;e.tick();if t<50 {precondition(p.rate==1)}}
   precondition(p.rate>1 && p.seeks==0)
   p.position=10000+now-3000;e.tick();precondition(p.rate==1)
-  now=0
+  now=0;p.position=9500
   e.receive(room(12000,2));e.tick();precondition(p.position==12000 && p.seeks==1)
   for _ in 0..<100{e.tick()};precondition(p.seeks==1)
   e.resetSession();now=20000;precondition(!p.playing && e.tick()==nil)
