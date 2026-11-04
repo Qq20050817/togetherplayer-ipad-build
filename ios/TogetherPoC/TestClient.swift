@@ -1388,7 +1388,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private func monitorPlaybackRecovery() {
   let current=engine.room
   let now=clock.localNow()
-  let shouldPlay=foreground && connected && !engine.isSyncWaiting && !plotPollWaiting &&
+  let shouldPlay=foreground && connected && !plotPollWaiting &&
    now>=controlSettleUntil &&
    variantDurationCheck == .compatible && current?.target(clock.serverNow()).1 == "playing" &&
    adapter.player.currentItem != nil && adapter.player.currentItem?.status == .readyToPlay &&
@@ -1509,7 +1509,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    // A host's alternate encode must not redefine the canonical room duration,
    // otherwise a mismatched cut could pass its own check on the next snapshot.
    let reportedDuration=usingDifferentQuality && isHost ? (variantReferenceDuration>0 ? variantReferenceDuration+engine.timelineOffset : 0) : adapter.duration
-   send(["type":"PLAYER_STATUS","data":["sourceId":hasBaiduMatch ? baiduSourceID : "","ready":bufferReady,"syncWaiting":engine.isSyncWaiting,"buffering":readiness.buffering,"position":max(0,adapter.position-engine.timelineOffset),"duration":reportedDuration]])
+   send(["type":"PLAYER_STATUS","data":["sourceId":hasBaiduMatch ? baiduSourceID : "","ready":bufferReady,"buffering":readiness.buffering,"position":max(0,adapter.position-engine.timelineOffset),"duration":reportedDuration]])
    let safePreroll=RecoveryBufferPolicy.canPreroll(prepared:adapter.ready,
     pausedIntent:engine.target()?.1 == "paused",
     nativePaused:adapter.player.timeControlStatus == .paused && adapter.player.rate == 0,

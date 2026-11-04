@@ -249,12 +249,28 @@ final class ClockSync {
   offset=samples.min(by: {$0.1 < $1.1})!.0; rtt=latency
  }
 }
+// A sampled five-second gap must persist for five seconds before catch-up.
+// User SEEK bypasses this policy; only the lagging device changes speed.
+struct SustainedCatchupPolicy {
+ private var since:Double?;private var last:Double?;private var rate:Float=1
+ mutating func reset(){since=nil;last=nil;rate=1}
+ mutating func speed(error:Double,now:Double)->Float {
+  guard error.isFinite,now.isFinite else {reset();return 1}
+  if let last,now<last || now-last>1000 {since=nil;rate=1}
+  last=now
+  if error<=3000 {since=nil;rate=1;return 1}
+  if rate>1 {return rate}
+  if error<=5000 {since=nil;return 1}
+  if since==nil {since=now}
+  if now-(since ?? now)>=5000 {rate=error>15000 ? 1.25 : 1.10}
+  return rate
+ }
+}
 final class SyncEngine {
  private(set) var room: Room?
  var timelineOffset=0.0 {didSet {if oldValue != timelineOffset {resetCorrection();lastAutoSeekAt=nil}}}
  private var explicitSeekVersion: Int64?
- private(set) var isSyncWaiting=false
- private var correctionSpeed: Float = 1
+ private var catchup=SustainedCatchupPolicy()
  private var excessiveDriftSince: Double?
  private var driftAtWindowStart=0.0
  private var lastAutoSeekAt: Double?
@@ -290,18 +306,12 @@ final class SyncEngine {
    room=next
   }
  }
- private func resetCorrection() { correctionSpeed=1;excessiveDriftSince=nil;isSyncWaiting=false }
+ private func resetCorrection() { catchup.reset();excessiveDriftSince=nil }
  // Keep a correction speed until the error is well inside the lower band.
  // AVPlayer rate changes can stall briefly; switching at a single threshold
  // can undo the progress of the preceding speed correction.
- private func speed(for error: Double) -> Float {
-  // Recovery never pauses the healthy peer. Hysteresis stops rate flapping.
-  if correctionSpeed>1 && error>1000 {return correctionSpeed}
-  if error>3000 {correctionSpeed=error>15000 ? 1.25 : 1.10}
-  else if error < -3000 {correctionSpeed=0.95}
-  else {correctionSpeed=1}
-  return correctionSpeed
- }
+ private func speed(for error: Double) -> Float {catchup.speed(error:error,now:clock.localNow())}
+
  func target() -> (Double,String)? {
   guard clock.ready,let result=room?.target(clock.serverNow()) else {return nil}
   let localPosition=max(0,result.0+timelineOffset)
@@ -326,7 +336,7 @@ final class SyncEngine {
    if state == "paused" {player.pause()} else {player.play()}
    return error
   }
-  if !player.ready || player.buffering {wasUnready=true;isSyncWaiting=false}
+  if !player.ready || player.buffering {wasUnready=true;catchup.reset()}
   else if wasUnready {wasUnready=false;settleUntil=now+2000}
   if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>3000 && lastAutoSeekAt == nil {lastAutoSeekAt=now;player.seekTo(position)};return error }
   guard player.ready else {excessiveDriftSince=nil;return nil}
@@ -334,13 +344,6 @@ final class SyncEngine {
    // Preserve play intent while AVPlayer waits for data. The player can
    // otherwise remain stuck in waiting with no subsequent play attempt.
    player.play();excessiveDriftSince=nil;return nil
-  }
-  // A deliberate local wait must precede the native-running startup gate.
-  // It preserves the room PLAY intent and never emits a shared PAUSE.
-  if isSyncWaiting && error >= -1000 {isSyncWaiting=false}
-  if isSyncWaiting || (now>=settleUntil && player.nativePlaybackRunning && error < -10000) {
-   isSyncWaiting=true;correctionSpeed=1;excessiveDriftSince=nil
-   player.pause();player.setPlaybackSpeed(baseRate);return error
   }
   // A ready HLS item can hold dozens of seconds of buffered media yet still
   // have rendered no first frame. Hard-seeking every three seconds in that
