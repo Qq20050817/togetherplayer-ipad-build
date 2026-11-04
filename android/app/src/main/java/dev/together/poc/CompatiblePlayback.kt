@@ -54,7 +54,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private fun rebindVideoOutput(){
   val p=vlc ?: return;val view=layout ?: return
   if(!compatibleActive || source==null || !view.isAttachedToWindow || p.vlcVout.areViewsAttached())return
-  p.detachViews();p.attachViews(view,null,true,false)
+  p.detachViews();p.attachViews(view,null,true,true)
   applySubtitleSelection()
  }
  private fun applySubtitleSelection(){
@@ -84,7 +84,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      }}
     })
    }}
-   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,false)
+   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,true)
    p.setEventListener {event->
     if(token!=epoch || !compatibleActive)return@setEventListener
     when(event.type){
@@ -100,6 +100,9 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    source=if(parsed.scheme=="content")Media(core!!,descriptor?.fileDescriptor ?: throw java.io.IOException("无法打开本地影片"))else Media(core!!,parsed)
    source!!.setHWDecoderEnabled(false,false)
    source!!.addOption(":codec=avcodec")
+   // Keep Main10 reference pictures owned by the decoder rather than reuse
+   // display buffers while Android replaces/resizes the output surface.
+   source!!.addOption(":avcodec-dr=0")
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
    if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")

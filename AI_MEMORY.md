@@ -34,3 +34,6 @@
 
 ## HTTP video recovery and delivery checkpoint
 - Android installed0.6.60.11 baseline is78ea830, not old main. Verified0.6.60.12 application9354947 adds ordinary-HTTP HEVC independent recovery; its native test checkpoint387cee0 passes148 JVM+42 native, physical field acceptance open. Use parallel.decoder12 package because ephemeral CI signers differ; never require uninstalling the installed.fluency app.
+
+## Physical video acceptance boundary
+-0.6.60.12 audio recovery is user-confirmed; long Main10 picture quality failed physically despite148 JVM+42 native tests. First-frame count alone is insufficient: follow-up tests must inspect decoded output colors beyond30s and output lifecycle transitions. User's automatic room disconnect is iPad-only and home-Wi-Fi-specific, also present in old versions; investigate network path before attributing it solely to a client release.

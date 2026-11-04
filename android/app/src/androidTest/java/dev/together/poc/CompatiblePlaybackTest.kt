@@ -63,4 +63,51 @@ class CompatiblePlaybackTest {
   }}
  }
 
+ @Test fun textureOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent(){
+  val i=InstrumentationRegistry.getInstrumentation()
+  val bytes=i.context.assets.open("hevc-main10-soak-test.mp4").use{it.readBytes()}
+  FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
+   fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
+   fun player(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
+   fun texture(view:android.view.View):android.view.TextureView? {
+    if(view is android.view.TextureView && view.isShown)return view
+    if(view is android.view.ViewGroup)for(n in 0 until view.childCount){texture(view.getChildAt(n))?.let{return it}}
+    return null
+   }
+   fun assertColors(a:MainActivity){
+    val view=field(a,"independentVideoView").get(a) as android.view.View
+    val output=texture(view);assertNotNull("Compatibility output must use the texture path",output)
+    val bitmap=output!!.getBitmap(120,64);assertNotNull(bitmap)
+    try {
+     val colors=(0 until 6).map{n->bitmap!!.getPixel(n*20+10,12)}
+     fun high(c:Int,mask:Int)=((c shr mask) and 255)>140
+     fun low(c:Int,mask:Int)=((c shr mask) and 255)<110
+     assertTrue("Main10 red stripe must retain chroma",high(colors[0],16)&&low(colors[0],8)&&low(colors[0],0))
+     assertTrue("Main10 green stripe must retain chroma",high(colors[1],8)&&low(colors[1],16)&&low(colors[1],0))
+     assertTrue("Main10 yellow stripe must retain chroma",high(colors[2],16)&&high(colors[2],8)&&low(colors[2],0))
+     assertTrue("Main10 blue stripe must retain chroma",high(colors[3],0)&&low(colors[3],16)&&low(colors[3],8))
+     assertTrue("Main10 magenta stripe must retain chroma",high(colors[4],16)&&high(colors[4],0)&&low(colors[4],8))
+     assertTrue("Main10 cyan stripe must retain chroma",high(colors[5],8)&&high(colors[5],0)&&low(colors[5],16))
+    } finally {bitmap?.recycle()}
+   }
+   scenario.onActivity{a->val p=player(a);p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0,allowHttp=true))}
+   var ready=false;val preparedDeadline=SystemClock.elapsedRealtime()+45000
+   while(!ready && SystemClock.elapsedRealtime()<preparedDeadline){scenario.onActivity{a->assertNull(player(a).playerError);ready=player(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
+   assertTrue("Long Main10 fixture must prepare",ready)
+   scenario.onActivity{a->assertColors(a);player(a).play()}
+   val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0
+   while(SystemClock.elapsedRealtime()-start<38000){
+    SystemClock.sleep(2500)
+    scenario.onActivity{a->
+     val p=player(a);assertNull(p.playerError);assertTrue("Long Main10 decode must continue",p.displayedFrames()>0)
+     if(SystemClock.elapsedRealtime()-start>12000 && !reparented){a.javaClass.getDeclaredMethod("showFullscreen").apply{isAccessible=true}.invoke(a);reparented=true}
+     else if(SystemClock.elapsedRealtime()-start>22000 && !restored){(field(a,"fullscreenDialog").get(a) as android.app.Dialog).dismiss();restored=true}
+     else {assertColors(a);samples++}
+    }
+   }
+   scenario.onActivity{a->val p=player(a);assertTrue("Native clock must advance through at least30s",p.currentPosition>=30000);p.pause();assertFalse(p.playWhenReady);assertColors(a)}
+   assertTrue("Check color planes repeatedly, not only first-frame count",samples>=8);assertTrue(reparented&&restored)
+  }}
+ }
+
 }
