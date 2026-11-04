@@ -46,7 +46,10 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: bash android/decoder-check.sh false
+          script: |
+            adb shell am force-stop com.android.launcher3
+            gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.CompatiblePlaybackTest#main10HttpRecoveryDisplaysFrameAtRealPositionAndPreservesSubtitleWithoutAutoplay
+            bash android/decoder-check.sh false
       - name: Build and validate compact ARM64 delivery
         working-directory: android
         run: |

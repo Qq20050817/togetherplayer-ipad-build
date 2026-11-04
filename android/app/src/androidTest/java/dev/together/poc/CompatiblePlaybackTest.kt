@@ -34,14 +34,14 @@ class CompatiblePlaybackTest {
  @Test fun main10HttpRecoveryDisplaysFrameAtRealPositionAndPreservesSubtitleWithoutAutoplay(){
   val i=InstrumentationRegistry.getInstrumentation()
   val bytes=i.context.assets.open("hevc-main10-4k-test.mp4").use{it.readBytes()}
-  FixtureHttpServer(bytes).use{remote->ActivityScenario.launch(MainActivity::class.java).use{scenario->
+  FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
    fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
    fun playback(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
    scenario.onActivity{a->
-    val p=playback(a);p.setMediaItem(MediaItem.fromUri(remote.url),1500)
+    val p=playback(a);p.setMediaItem(MediaItem.fromUri(uri),1500)
     field(a,"subtitleName").set(a,"kept.srt");field(a,"sourceFault").set(a,true)
     val recovery=field(a,"decoderRecovery").get(a) as VideoDecoderRecovery
-    recovery.beginSource(remote.url)
+    recovery.beginSource(uri)
     assertNotNull(recovery.recover("video/hevc","failed.one",listOf("next.one")))
     assertNotNull(recovery.recover("video/hevc","failed.two",listOf("next.two")))
     val format=androidx.media3.common.Format.Builder().setSampleMimeType("video/hevc").setCodecs("hvc1.2.4.H153.90").setWidth(3840).setHeight(2076).build()
@@ -53,7 +53,7 @@ class CompatiblePlaybackTest {
    scenario.onActivity{a->
     val p=playback(a);assertTrue(p.compatibleActive);assertTrue(p.displayedFrames()>0);assertTrue(p.currentPosition>=1000)
     assertFalse("preparing HTTP recovery must not autoplay",p.playWhenReady);assertFalse(p.isPlaying)
-    assertEquals(remote.url,p.currentMediaItem!!.localConfiguration!!.uri.toString());assertEquals("kept.srt",field(a,"subtitleName").get(a))
+    assertEquals(uri,p.currentMediaItem!!.localConfiguration!!.uri.toString());assertEquals("kept.srt",field(a,"subtitleName").get(a))
     assertEquals("actual independent READY clears the source fault",false,field(a,"sourceFault").get(a))
     p.seekTo(2000);p.play();assertTrue(p.playWhenReady);p.pause();assertFalse(p.playWhenReady)
     p.setMediaItem(MediaItem.fromUri("https://example.invalid/next.mp4"),0);assertFalse(p.compatibleActive)

@@ -167,3 +167,7 @@
 - Parallel packaging built from the earlier audio-only source is superseded; final parallel packaging must compare with the newly verified application source. Existing installed0.6.60.11 stays intact.
 
 - Final parallel package source checkpoint now 9354947e379eb617d69d23b14eeb4b32078d6866 (HTTP HEVC recovery), replacing the audio-onlyccdeec1 packaging comparison. Both full native application CI and coexistence packaging must pass against this code before delivery.
+
+## 2026-11-04 · New HTTP test fixture thread and parallel label correction
+- Full148 JVM compilation passed;42 native run41857216782 had one failure before decoder activation: new test first resolved MockWebServer.url on the main thread, raising NetworkOnMainThreadException. Downloaded native XML confirms stack getCanonicalHostName -> FixtureHttpServer.getUrl -> test line41. Resolve the fixture URL on the instrumentation thread, retaining frame/real-position/subtitle/pause/source-fault assertions; no production StrictMode relaxation. Existing41 native cases passed. Add an early scoped HTTP Main10 run before the full suite for clear fail-fast evidence.
+- Final HTTP-source parallel package41857465793 passed build/coexistence/launch, but separate artifact inspection found the debug manifest overrides the intended launcher label with流畅预览. Override both main/debug labels only in the packaging job and require the final aapt label. Private staged artifact is not released. Native app source remains9354947.

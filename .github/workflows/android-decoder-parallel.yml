@@ -42,6 +42,9 @@ jobs:
           p=pathlib.Path('android/app/src/main/AndroidManifest.xml');s=p.read_text()
           assert s.count('android:label="TogetherPlayer"')==1
           p.write_text(s.replace('android:label="TogetherPlayer"','android:label="Together 解码测试"'))
+          p=pathlib.Path('android/app/src/debug/AndroidManifest.xml');s=p.read_text()
+          assert s.count('android:label="TogetherPlayer 流畅预览"')==1
+          p.write_text(s.replace('android:label="TogetherPlayer 流畅预览"','android:label="Together 解码测试"'))
           PY
           git diff --exit-code -- android/app/src/main/java android/app/src/main/res
       - name: Bundle verified offline voice model and previous install fixture
@@ -105,6 +108,7 @@ jobs:
           identity=pathlib.Path('../delivery/package-identity.txt').read_text()
           assert "name='dev.together.poc.decoder12'" in identity
           assert "versionName='0.6.60.12'" in identity
+          assert "Together 解码测试" in identity
           PY
           (cd ../delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
