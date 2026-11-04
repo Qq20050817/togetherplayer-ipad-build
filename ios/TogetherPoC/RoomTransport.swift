@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 enum RoomEnvelope {
  static func decode(_ data: Data) -> [String:Any]? {
@@ -22,7 +23,7 @@ enum RoomConnectionHealth {
 
 enum RoomTransportFailure {
  static func description(_ error: NSError, httpStatus: Int?) -> String {
-  if let httpStatus {
+  if let httpStatus,httpStatus != 101 {
    if httpStatus == 401 {return "房间凭证失效（HTTP 401）"}
    if httpStatus == 403 {return "服务器拒绝连接（HTTP 403）"}
    if [502,503,504].contains(httpStatus) {return "服务器入口暂不可用（HTTP \(httpStatus)）"}
@@ -35,11 +36,36 @@ enum RoomTransportFailure {
    case NSURLErrorNetworkConnectionLost:return "网络连接中断"
    case NSURLErrorCannotFindHost,NSURLErrorDNSLookupFailed:return "无法解析服务器地址"
    case NSURLErrorCannotConnectToHost:return "无法连接服务器"
-   case NSURLErrorSecureConnectionFailed,NSURLErrorServerCertificateUntrusted:return "安全连接失败"
+   case NSURLErrorSecureConnectionFailed:
+    let underlying=(error.userInfo[NSUnderlyingErrorKey] as? NSError).map {"，底层错误 \($0.code)"} ?? ""
+    return "安全握手失败（\(error.code)\(underlying)）"
+   case NSURLErrorServerCertificateUntrusted:return "服务器证书不受信任（\(error.code)）"
+   case NSURLErrorServerCertificateHasBadDate,NSURLErrorServerCertificateNotYetValid:return "服务器证书日期异常（\(error.code)）"
    default:return "网络错误 \(error.code)"
    }
   }
   return "连接错误 \(error.code)"
+ }
+}
+
+/// A single TLS 1.2 retry for generic handshake failures. Trust validation stays
+/// with URLSession; certificate errors and application HTTP errors never qualify.
+struct RoomTLSCompatibility {
+ private(set) var usesTLS12=false
+ mutating func reset() {usesTLS12=false}
+ mutating func retryAfterHandshakeFailure(_ error:NSError,httpStatus:Int?) -> Bool {
+  guard !usesTLS12,error.domain==NSURLErrorDomain,error.code==NSURLErrorSecureConnectionFailed,
+   httpStatus==nil || httpStatus==101 else {return false}
+  usesTLS12=true
+  return true
+ }
+ func configuration() -> URLSessionConfiguration {
+  let configuration=URLSessionConfiguration.ephemeral
+  configuration.waitsForConnectivity=false
+  configuration.timeoutIntervalForRequest=15
+  configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
+  if usesTLS12 {configuration.tlsMaximumSupportedProtocolVersion = .TLSv12}
+  return configuration
  }
 }
 
