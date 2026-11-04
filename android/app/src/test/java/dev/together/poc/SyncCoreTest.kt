@@ -17,10 +17,10 @@ class SyncCoreTest {
  @Test fun onlyContinuousGreaterThanFiveSecondLagAccelerates(){
   val p=SustainedCatchupPolicy()
   for(t in 0..100)assertEquals(1f,p.speed(5000.0,t*100.0))
-  for(t in 0..49)assertEquals(1f,p.speed(5001.0,10100.0+t*100))
-  assertTrue(p.speed(5001.0,15100.0)>1f)
-  assertTrue(p.speed(4000.0,15200.0)>1f)
-  assertEquals(1f,p.speed(3000.0,15300.0))
+  for(t in 0..99)assertEquals(1f,p.speed(5001.0,10100.0+t*100))
+  assertTrue(p.speed(5001.0,20100.0)>1f)
+  assertTrue(p.speed(4000.0,20200.0)>1f)
+  assertEquals(1f,p.speed(3000.0,20300.0))
  }
  @Test fun transientLagAndMissingRealSamplesRestartContinuousWindow(){
   val p=SustainedCatchupPolicy()
@@ -28,8 +28,8 @@ class SyncCoreTest {
   assertEquals(1f,p.speed(5000.0,5000.0))
   for(t in 0..49)assertEquals(1f,p.speed(6000.0,5100.0+t*100))
   assertEquals(1f,p.speed(6000.0,12000.0))
-  for(t in 1..49)assertEquals(1f,p.speed(6000.0,12000.0+t*100))
-  assertTrue(p.speed(6000.0,17000.0)>1f)
+  for(t in 1..99)assertEquals(1f,p.speed(6000.0,12000.0+t*100))
+  assertTrue(p.speed(6000.0,22000.0)>1f)
  }
  @Test fun leadingDeviceNeverAutomaticallyPausesOrSlows(){
   val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
@@ -37,21 +37,21 @@ class SyncCoreTest {
  }
  @Test fun explicitSeekAndPauseOverrideActiveCatchup(){
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
-  for(t in 0..50){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()};assertTrue(p.rate>1f)
+  for(t in 0..100){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()};assertTrue(p.rate>1f)
   e.receive(frame(12000.0,2,now));e.tick();assertEquals(1,p.seeks);assertEquals(12000L,p.pos);assertEquals(1f,p.rate)
   p.ready=false;e.receive(frame(12000.0,3,now).put("state","paused"));e.tick();assertFalse(p.playing)
  }
  @Test fun invalidSamplesAndExplicitResetNeverCountAsPersistentDrift(){
-  val p=SustainedCatchupPolicy();for(t in 0..50)p.speed(7000.0,t*100.0)
-  assertEquals(1f,p.speed(Double.NaN,5100.0));assertEquals(1f,p.speed(7000.0,5200.0))
-  p.reset();assertEquals(1f,p.speed(7000.0,10000.0));assertEquals(1f,p.speed(-20000.0,10100.0))
+  val p=SustainedCatchupPolicy();for(t in 0..100)p.speed(7000.0,t*100.0)
+  assertEquals(1f,p.speed(Double.NaN,10100.0));assertEquals(1f,p.speed(7000.0,10200.0))
+  p.reset();assertEquals(1f,p.speed(7000.0,20000.0));assertEquals(1f,p.speed(-20000.0,20100.0))
  }
  @Test fun catchupNeedsAdvancingFramesAndBufferReserve(){
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
   p.pos=4000;p.reserve=1000;e.tick();assertEquals(1f,p.rate)
   p.reserve=10000;p.advancing=false;e.tick();assertEquals(1f,p.rate)
   p.advancing=true
-  for(t in 0..50){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()}
+  for(t in 0..100){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()}
   assertTrue(p.rate>1f);assertEquals(0,p.seeks)
  }
  @Test fun rateTransitionSettlesWithoutAutomaticHardSeek() {
@@ -119,7 +119,7 @@ class SyncCoreTest {
  @Test fun threeSecondToleranceAndSustainedCatchupWithoutSeek() {
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
   for(gap in listOf(-3000L,-1000L,0L,1000L,3000L,4000L,5000L)){p.pos=10000-gap;e.tick();assertEquals(1f,p.rate);assertEquals(0,p.seeks)}
-  for(t in 0..50){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()};assertTrue(p.rate>1f);assertEquals(0,p.seeks)
+  for(t in 0..100){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()};assertTrue(p.rate>1f);assertEquals(0,p.seeks)
   p.pos=(10000+now-3000).toLong();e.tick();assertEquals(1f,p.rate)
  }
  @Test fun versionIsScopedToRoom() {

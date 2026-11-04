@@ -49,7 +49,7 @@ internal class SustainedCatchupPolicy {
   if(rate>1f)return rate
   if(error<=5000){since=null;return 1f}
   if(since==null)since=now
-  if(now-since!!>=5000)rate=if(error>15000)1.25f else 1.10f
+  if(now-since!!>=10000)rate=if(error>15000)1.25f else 1.10f
   return rate
  }
 }
