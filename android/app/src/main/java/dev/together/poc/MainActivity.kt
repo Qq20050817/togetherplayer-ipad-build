@@ -129,7 +129,7 @@ class MainActivity: Activity() {
   val buffering=AdaptiveHttpLoadControl(httpHealth)
   val renderers=PlaybackRenderers.create(this,decoderRecovery)
   player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,HttpMediaDataSource.factory()))).build()
-  playback=CompatiblePlayback(this,player,{active->nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error))})
+  playback=CompatiblePlayback(this,player,{active->if(active && ::playback.isInitialized && playback.playbackState==Player.STATE_READY)sourceFault=false;nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error))})
   engine=SyncEngine(Media3Adapter(playback){seekManually(it)},clock)
   voice=VoiceDanmakuController(this,playback,{if(connected)engine.room?.optString("roomId") ?: "" else ""},{sendVoice(it)},{voiceViews.forEach {it.render()};if(voice.busy){main.removeCallbacks(hideControls);fullscreenControls?.visibility=View.VISIBLE}else if(fullscreenDialog!=null)revealControls()})
   buildInterface()
@@ -1041,7 +1041,7 @@ class MainActivity: Activity() {
   val position=playback.currentPosition.coerceAtLeast(0L)
   val sourceRoom=engine.room?.optString("roomId")
   audioFallbackAttemptedSource=uri
-  diagnostic("audioDecoderFallback",JSONObject().put("fromMime",failed?.sampleMimeType).put("toMime",selected.sampleMimeType).put("language",selected.language))
+  diagnostic("audioDecoderFallback",JSONObject().put("mimeType",failed?.sampleMimeType).put("decoderMimeType",selected.sampleMimeType))
   requestStatus.text="DTS/TrueHD 音轨解码异常，尝试同语言的 AC3/AAC 兼容音轨…"
   main.post {
    if(stopped || !foreground || engine.room?.optString("roomId")!=sourceRoom ||
@@ -1052,7 +1052,7 @@ class MainActivity: Activity() {
   return true
  }
  private fun tryRecoverVideoDecoder(format:androidx.media3.common.Format?,failed:String):Boolean {
-  if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending)return false
+  if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending || playback.compatibleActive)return false
   val fallbackURI=playback.currentMediaItem?.localConfiguration?.uri?.toString()
   if(format.codecs?.let {it.startsWith("hvc1.2.") || it.startsWith("hev1.2.")}==true && fallbackURI!=null && android.net.Uri.parse(fallbackURI).scheme in listOf("content","file") && playback.activateCompatibility(fallbackURI,playback.currentPosition)) {
    diagnostic("independentDecoderSelected",JSONObject().put("failedCodec",failed).put("mimeType",format.sampleMimeType))
@@ -1063,7 +1063,16 @@ class MainActivity: Activity() {
   // Only offer another decoder that reports support for this exact profile/size.
   // Secure/tunneled playback is not used by our local and authorized sources.
   val alternatives=runCatching {androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false).filter {it.isFormatSupported(format)}.map {it.name}}.getOrElse {emptyList()}
-  val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives) ?: return false
+  val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives)
+  if(next==null){
+   val accountSource=baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL)
+   if(!accountSource && android.net.Uri.parse(uri).scheme in listOf("http","https") && playback.activateCompatibility(uri,playback.currentPosition,allowHttp=true)){
+    requestStatus.text="系统 HEVC 解码失败，正在尝试独立兼容播放…"
+    diagnostic("independentHttpDecoderSelected",JSONObject().put("failedCodec",failed).put("mimeType",format.sampleMimeType))
+    return true
+   }
+   return false
+  }
   val position=playback.currentPosition.coerceAtLeast(0)
   val retryURL=if(baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL))baiduURL else uri
   decoderRecoveryPending=true

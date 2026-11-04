@@ -16,7 +16,7 @@ import org.videolan.libvlc.util.VLCVideoLayout
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** A narrow local-video fallback. ExoPlayer remains the normal playback path. */
+/** Independent video recovery for local files and explicitly approved ordinary HTTP sources. */
 class CompatiblePlayback(private val context:Context,private val native:ExoPlayer,
  private val changed:(Boolean)->Unit,private val failed:(String)->Unit):ForwardingPlayer(native) {
  private val main=Handler(Looper.getMainLooper())
@@ -62,8 +62,8 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   val id=requestedSubtitle ?: if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))-1 else return
   vlc?.let {p->if(id<0 || p.spuTracks?.any {it.id==id}==true)p.setSpuTrack(id)}
  }
- fun activateCompatibility(uri:String,positionMs:Long):Boolean {
-  if(layout==null || compatibleActive || android.net.Uri.parse(uri).scheme !in listOf("content","file"))return false
+ fun activateCompatibility(uri:String,positionMs:Long,allowHttp:Boolean=false):Boolean {
+  if(layout==null || compatibleActive || !CompatibilitySourcePolicy.allows(uri,allowHttp))return false
   nativeVideo=native.videoFormat;nativeAudio=native.audioFormat
   item=native.currentMediaItem ?: return false
   if(item?.localConfiguration?.uri?.toString()!=uri)return false
@@ -102,7 +102,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    source!!.addOption(":codec=avcodec")
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
-   source!!.addOption(":http-user-agent=pan.baidu.com")
+   if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")
    source!!.addOption(":start-time=${startPosition/1000.0}")
    p.media=source;p.setVolume(0);p.setRate(speed);p.play()
    val deadline=android.os.SystemClock.elapsedRealtime()+45000
@@ -120,7 +120,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    }
    main.post {awaitFrame()}
    return true
-  }catch(e:Exception){fail("兼容播放准备失败：${e.localizedMessage ?: e.javaClass.simpleName}");return true}
+  }catch(e:Exception){fail("兼容播放准备失败（${e.javaClass.simpleName}），请重试或更换片源");return true}
  }
  private fun fail(message:String){failure=PlaybackException(message,null,PlaybackException.ERROR_CODE_DECODING_FAILED);wanted=false;state=Player.STATE_IDLE;vlc?.stop();failed(message)}
  private fun closeInput(){vlc?.stop();vlc?.media=null;source?.release();source=null;descriptor?.close();descriptor=null;pendingSeek=null}
