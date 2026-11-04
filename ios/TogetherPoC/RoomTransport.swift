@@ -2,7 +2,9 @@ import Foundation
 
 enum RoomEnvelope {
  static func decode(_ data: Data) -> [String:Any]? {
-  guard !data.isEmpty,data.count<=8192,
+  // Reconnect WELCOME frames can include room state and a large chat backlog.
+   // Keep a bounded limit without dropping otherwise valid snapshots above 8 KiB.
+   guard !data.isEmpty,data.count<=1_048_576,
    let value=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],
    let type=value["type"] as? String,!type.isEmpty else {return nil}
   return value
