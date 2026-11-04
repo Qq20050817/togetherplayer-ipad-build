@@ -100,3 +100,9 @@
 - Local ahead >10000ms pauses only this device; resume at <=1000ms ahead. Check latch before native-running gate; preserve manual SEEK, room PAUSE, question gates, offsets and source errors.
 - Exclude intentional wait from stall recovery. Optional syncWaiting status is diagnostic; do not report it as buffering or a shared PAUSE.
 - Regression/build pending; hardware pair and long playback unverified.
+
+## 2026-11-04 · Android leading-wait verified delivery
+- Applicatione2e2dad886af803134fa76820460e263b47acffe, candidate0.6.60.9/129. Actions41807034832 SUCCESS:141 JVM tests0 failures/ignored;38 emulator tests0 failures/errors/skips. New waiting boundary/resume/override/offset/reset/buffering tests passed with existing source-routing, decoder and Seek coverage.
+- Artifact13310518213 archive SHA256cab3bacd35078150519ad3937580e89b0ea72ad6662c6b3d330546fd60b347fa verified against downloaded bytes. APK292693449 bytes SHA256f6aec035412c856a197448242b5b5dc74773a0ff78245ed50144f027fc8b0164; extracted hash matches build checksum. Filename version0.6.60.9 despite inherited artifact group name0608.
+- Intentional wait compares local position (with timeline offset) against canonical room time. It is local only, does not issue shared PAUSE, resumes within1000ms, and is not stall recovery. Existing server ordinary-buffer wait (~2s) remains a distinct policy; this change does not claim peer-position-based waiting.
+- Production source-fault counterpart was separately authorized, backed up, deployed and verified via local/public two-connection protocol checks. Existing ordinary buffering and manual pause behavior preserved. No client install or branch merge. Physical Android/iPad pair, hardware combinations and long playback remain unverified; original candidates remain rollback. Feature-branch logs are committed; main-only AI Journal ingestion is not claimed.
