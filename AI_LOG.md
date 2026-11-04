@@ -71,3 +71,9 @@
 - Local ahead >10000ms pauses only this device; resume at <=1000ms ahead. Check latch before native-running gate; preserve manual SEEK, room PAUSE, question gates, offsets and source errors.
 - Exclude intentional wait from stall recovery. Optional syncWaiting status is diagnostic; do not report it as buffering or a shared PAUSE.
 - Regression/build pending; hardware pair and long playback unverified.
+
+## 2026-11-04 · iPad leading-wait verified delivery
+- Application734221933620a5656d72073be20ea6dc6ed1573a;0.6.77/137; Actions41807041334 SUCCESS: unsigned device Release build,61 targeted native tests0 failures,1 real fullscreen continuous-seek UI test0 failures. Baseline-vs-fixed and preserved standalone sync checks passed.
+- Artifact13310304841 archive SHA256adb0c019be845c1f34acd3d190090e989c53013e0e43f9f1d0bb488c88d82448 verified against bytes. IPA17650075 bytes SHA2562364f6adef69dc8b8efc49c0eb42da21352b882264f6dba7f9c624689fe4b01f matches build checksum; Info.plist confirms0.6.77/137/dev.together.poc.asrtest. IPA requires user signing.
+- Wait compares actual local position (including offset) to canonical room time, not another device's reported position. Pause locally above10000ms; resume within1000ms; explicit seek and shared pause override. Native-paused wait checked before startup-running gate; stall recovery excludes intentional wait. Ordinary server buffer-wait policy remains separate and unchanged.
+- Android counterpart e2e2dad/0.6.60.9 passed141 JVM+38 native tests. Source-fault server counterpart separately authorized, backed up, deployed and protocol-tested locally and through public entry. No merge/client installation. Physical two-device playback and long hardware runs remain unverified. Previous candidates retained as rollback; branch logs committed, main-only AI Journal ingestion not claimed.
