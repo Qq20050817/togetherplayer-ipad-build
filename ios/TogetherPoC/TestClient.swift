@@ -1227,11 +1227,14 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    for _ in 0..<100 {
     if !subtitleLabels.isEmpty {
      if selectedSubtitleIndex != 0 {chooseSubtitle(0)}
+     // Freeze through the same intent-aware controls used by the UI.
+     // Native pause alone leaves recovery allowed to restart this short movie.
+     control("PAUSE");control("SEEK",position:1000)
      for _ in 0..<100 {
-      if !externalSubtitles.text.isEmpty && adapter.position>150 {adapter.pause();return}
+      if !externalSubtitles.text.isEmpty && adapter.position>150 {control("PAUSE");return}
       try? await Task.sleep(nanoseconds:100_000_000)
      }
-     adapter.pause();return
+     control("PAUSE");return
     }
     try? await Task.sleep(nanoseconds:100_000_000)
    }

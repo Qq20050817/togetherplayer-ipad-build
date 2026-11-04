@@ -493,25 +493,14 @@ struct SubtitleHeightKey:PreferenceKey {
   let displayed=dragging ? min(duration,max(0,target)) : current
   return HStack(spacing:10) {
    Text(PlaybackMonitor.time(displayed)).font(.caption.monospacedDigit()).frame(minWidth:45)
-   Slider(value:Binding(get:{dragging ? min(duration,max(0,target)) : current},set:{value in
-    target=value.isFinite ? min(duration,max(0,value)) : current
-    // Accessibility adjustments can call this binding without edit events.
-    // Do not leave the display permanently latched to its preview value.
-    if !dragging && playback.duration>0 {
-     model.control("SEEK",position:max(0,target*1000-model.engine.timelineOffset))
-    }
-   }),in:0...duration,onEditingChanged:{editing in
-    if editing {
-     if !dragging {target=current}
-     dragging=true
-    } else {
-     let destination=min(duration,max(0,target))
+   PlaybackSeekSlider(value:current,duration:duration,enabled:playback.duration.isFinite && playback.duration>0,
+    preview:{value in target=value;dragging=true},
+    commit:{destination in
      dragging=false
-     if playback.duration.isFinite && playback.duration>0 {
-      model.control("SEEK",position:max(0,destination*1000-model.engine.timelineOffset))
-     }
-    }
-   }).disabled(!playback.duration.isFinite || playback.duration<=0).accessibilityLabel("影片进度").accessibilityIdentifier("movie-progress")
+     guard playback.duration.isFinite,playback.duration>0 else{return}
+     model.control("SEEK",position:max(0,min(playback.duration,max(0,destination))*1000-model.engine.timelineOffset))
+    },cancel:{dragging=false}).frame(minWidth:80,maxWidth:.infinity).frame(height:32)
+
    Text(PlaybackTime.remaining(duration:playback.duration,position:displayed)).font(.caption.monospacedDigit()).fixedSize(horizontal:true,vertical:false).accessibilityIdentifier("playback-remaining")
   }
  }

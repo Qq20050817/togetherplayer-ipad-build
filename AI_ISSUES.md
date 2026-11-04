@@ -36,3 +36,9 @@
 - Status: requirements recorded; no new implementation or passing test claim.
 
 - TP-SEEK-CLOCK-20261104 latest status: candidate automatic validation passed on both platforms at the exact commits recorded in AI_LOG.md. Initial pause-while-unready regression resolved (120/120 JVM); iPad UI launcher failure was followed by a successful unweakened UI test. Physical paired-device acceptance remains unverified.
+
+- TP-SEEK-CLOCK reopened for iPad: additional actual fullscreen seek failed in run41734974307 despite previous pass. 0.6.75 preview is not a reliable completed fix. New native-slider branch preserves all app features and investigates event order; original UI assertions retained.
+
+## iPad native Seek candidate validation update
+- Run41739107694 remained failed at pre-Seek initial caption; do not reinterpret as pass. Corrected DEBUG fixture PAUSE intent and real1s seek setup in6f26227.
+- Run41741956555 now passed57 native tests plus unchanged actual fullscreen remaining/subtitle assertions after .2/.8/.5 slider adjustments. Candidate0.6.76 available unsigned. Simulator validation passed; physical-device/network/two-party field cases still open, no blanket completion claim.

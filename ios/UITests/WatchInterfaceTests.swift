@@ -518,6 +518,8 @@ final class WatchInterfaceTests: XCTestCase {
   // Decoder/snapshot startup can consume the normal ten-second idle window.
   // Reveal real controls again and never adjust the covered watch-page slider.
   revealControls()
+  progress.adjust(toNormalizedSliderPosition:0.2)
+  progress.adjust(toNormalizedSliderPosition:0.8)
   progress.adjust(toNormalizedSliderPosition:0.5)
   let seek=XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == '剩余 00:06' OR label == '剩余 00:07'"),object:app.staticTexts["playback-remaining"].firstMatch)
   XCTAssertEqual(XCTWaiter.wait(for:[seek],timeout:8),.completed)

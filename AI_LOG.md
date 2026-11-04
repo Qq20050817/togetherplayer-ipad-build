@@ -49,3 +49,19 @@
 - Review: draft PR30 (iPad), PR31 (Android) against each verified client baseline, no merge. Later workflow/docs commits do not change the verified application directories.
 - Journal sync checked: AI Journal indexes main only (private a542f2c0136d342068855830f174df7bbf76814a; public c6d747298f4e9869292352107d7a45cb965bb36c). Task branches are committed on GitHub but not included in main-only MCP notes. Do not mark branch journal synchronization complete.
 - Remaining acceptance: physical Android/iPad pair, real router/cloud long runs, timing across network failure. Backend wait-for-peer policy is unchanged and not claimed fixed. Original installed apps are the rollback; unsigned iPad requires user signing.
+
+## 2026-11-04 · Reopen iPad seek reliability
+
+- Baseline a4d00a46c7ec9eb06f627ac5e963acb978b2ca5d, iOS application tree matches 59487c6d146b653705cedd0d50b6837a35498de8 exactly. New branch fix/ipad-native-seek-slider-20261104, clean on entry.
+- Additional run41734974307: 55 core tests pass, independent fullscreen UI reaches the real drag but remaining-time expectation and following subtitle checks fail. The earlier single successful UI run does not establish reliable seek. User informed not to install the 0.6.75 preview yet.
+- Suspected deterministic race: SwiftUI Slider binding setter and onEditingChanged callbacks share a preview flag; a value delivered before begin can be replaced by the old playhead, while value-only accessibility adjustments can leave an editing flag latched. Replace with native UISlider explicit value/commit/cancel routing; preserve native clock display and AVPlayer seek acknowledgement.
+- No test assertion removed. Native coordinator event-order/cancellation/accessibility regressions and the same real fullscreen test will run. Not yet compiled/verified.
+
+## Native-slider run41739107694 actual result
+- Device Release and 57 native tests passed. Fullscreen UI failed before Seek at initial subtitle assertion, then remaining/subtitle assertions; candidate not deliverable. AX snapshot showed the 12s fixture at EOF while controls had been prepared. Test fixture paused native player but retained localPlayIntent=true, permitting normal recovery to restart it.
+- Update only DEBUG fixture setup to use intent-aware PAUSE and real SEEK to1s once tracks are available. Preserve original caption, remaining6/7, subtitle-panel and physical-slider assertions. No claim that this explains all prior Seek failures. Rerun pending.
+
+## 2026-11-04 iPad0.6.76 verified candidate checkpoint
+- Application/source6f26227ec5897e8f4a0bbd46d3273ffc016d0a6c, run41741956555 success: Release device build;57 native tests; actual fullscreen .2/.8/.5 progress gestures with remaining6/7 and subtitle adjustment assertions passed (one UI test,76s). Historic baseline reproduction/preserved recovery checks also passed. Earlier0.6.75 and failed41739107694 remain superseded and are not recommended.
+- Artifact13281738313 archive digest1303c4a1c0a60b6bb981f2fa97321114f8049bd48523b270e40e14221b245578 verified after download. IPA17,649,137 bytes SHA2562384aef7a125ecc3522bf855ca3f6e1b0ec403932843e541fb70e3b9fa8b4eeb. Info.plist0.6.76/136, isolated dev.together.poc.asrtest, original comparison display name retained. Unsigned, requires compatible device signing.
+- Physical iPad long playback/background/network/repeated-seek matrix and real two-device synchronization remain unverified; successful simulator run does not establish those results. No main merge or production install. Rollback remains the prior separately validated delivery; source snapshot at this commit is reviewable via PR33. Main-only AI Journal has not ingested this branch.
