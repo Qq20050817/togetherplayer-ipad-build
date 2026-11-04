@@ -138,3 +138,7 @@
 ## 2026-11-04 · Apple runner capacity failure, not a compiler result
 - Runs41853536785/41854620672 reached no build steps and failed acquisition after about15min. Public check annotations explicitly state hosted runner was not acquired and macOS arm64 capacity constraints. The job wrapper reports cancelled, the workflow conclusion failure; neither is a Swift compilation result.
 - Switch targeted native workflow from macos-15 (ARM pool) to macos-15-intel, retaining Xcode26 selection and the same app/tests. Native/IPA verification still pending. No user Mac or signing credential requested; no claim of a successful iPad candidate yet.
+
+## 2026-11-04 · iOS native build remains infrastructure-blocked
+- Intel attempt1 in41857877554 (job126671295353) also reached no build steps; public check annotation: hosted runner not acquired even after multiple attempts. Failed-job rerun accepted, attempt2 job126683449518 remains queued. ARM failed runs likewise had no compiler/test output.
+- Candidate applicationcfe66a15e7e43ccb1a1b151fdba41e147919a13b, workflowd9b870cc08b7ae29982437c7bf198b868a10f568. No unsigned0.6.82 IPA exists; static diff/YAML only. Do not call TLS compatibility root cause proven or iOS fixed. User can temporarily use the already confirmed hotspot path; physical Wi-Fi diagnosis remains open.
