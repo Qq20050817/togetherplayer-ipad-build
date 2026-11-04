@@ -49,3 +49,11 @@
 ## Android candidate regression results
 - Run41742801175 passed137 JVM plus38 native tests with0 skipped/failed. The historic picker-after-WELCOME assertion now passes against real matching HTTP bytes; identity gate unchanged. Error-page classification and retry-budget tests passed. Candidate0.6.60.8 available for field validation, superseding partial/superseded runs.
 - Field hardware/long-duration/mobile-network matrix remains open. Backend optional source-fault isolation needs separate authorized deployment. >10s pause-intent classification remains outstanding and must not be declared complete.
+
+## SYNC-SUSTAINED-CATCHUP · 2026-11-04
+- Problem: immediate correction and automatic wait/pause conflicted with the final user requirement. Root: instantaneous error thresholds plus peer-readiness shared PAUSE and a mistaken local >10s auto-pause.
+- Final application64aba059ab087c562f0718628ab28d0d6208c3c3: lag>5s continuously>=10s before local rate correction; no automatic pause/seek; settle within3s. Native boundary/interruption/reset/manual-control regressions pass in Actions41812565306. Server peer-pause removed/deployed with84 tests and live public protocol proof.
+- Status: native/emulator/control-protocol verified; physical playback/long field tests unverified.
+
+## ANDROID-ORDINARY-SEEK-CONFIRM · 2026-11-04
+- Source audit: normal server-driven seeks went directly from Media3Adapter to Player, bypassing the UI native-position confirmation/15s failure tracker used by instant controls. Route them through seekManually. Real paused-room HTTP seek now confirms, and a simulated ignored native request reports failure while clock/playhead remain real. New native test passes in41812565306. Existing local/SAF/compatibility/rapid-seek/clock regressions retained.
