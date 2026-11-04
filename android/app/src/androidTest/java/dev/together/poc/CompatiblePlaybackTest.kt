@@ -33,7 +33,7 @@ class CompatiblePlaybackTest {
  }
  @Test fun main10HttpRecoveryDisplaysFrameAtRealPositionAndPreservesSubtitleWithoutAutoplay(){
   val i=InstrumentationRegistry.getInstrumentation()
-  val bytes=i.context.assets.open("hevc-main10-4k-test.mp4").use{it.readBytes()}
+  val bytes=i.context.assets.open("hevc-main10-http-test.mp4").use{it.readBytes()}
   FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
    fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
    fun playback(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
@@ -47,9 +47,9 @@ class CompatiblePlaybackTest {
     val format=androidx.media3.common.Format.Builder().setSampleMimeType("video/hevc").setCodecs("hvc1.2.4.H153.90").setWidth(3840).setHeight(2076).build()
     assertTrue(a.javaClass.getDeclaredMethod("tryRecoverVideoDecoder",androidx.media3.common.Format::class.java,String::class.java).apply{isAccessible=true}.invoke(a,format,"failed.final") as Boolean)
    }
-   var ready=false;val deadline=SystemClock.elapsedRealtime()+45000
-   while(!ready && SystemClock.elapsedRealtime()<deadline){scenario.onActivity{a->val p=playback(a);assertNull(p.playerError);ready=p.playbackState==Player.STATE_READY};SystemClock.sleep(100)}
-   assertTrue("HTTP HEVC Main10 fallback must display an actual video frame",ready)
+   var ready=false;var details="";val deadline=SystemClock.elapsedRealtime()+45000
+   while(!ready && SystemClock.elapsedRealtime()<deadline){scenario.onActivity{a->val p=playback(a);assertNull(p.playerError);ready=p.playbackState==Player.STATE_READY;val view=field(a,"independentVideoView").get(a) as android.view.View;details="state=${p.playbackState},decoded=${p.decodedFrames()},displayed=${p.displayedFrames()},position=${p.currentPosition},duration=${p.duration},requests=${remote.server.requestCount},shown=${view.isShown},size=${view.width}x${view.height}"};SystemClock.sleep(100)}
+   assertTrue("HTTP HEVC Main10 fallback must display an actual video frame: $details",ready)
    scenario.onActivity{a->
     val p=playback(a);assertTrue(p.compatibleActive);assertTrue(p.displayedFrames()>0);assertTrue(p.currentPosition>=1000)
     assertFalse("preparing HTTP recovery must not autoplay",p.playWhenReady);assertFalse(p.isPlaying)
