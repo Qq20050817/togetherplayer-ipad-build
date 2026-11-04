@@ -1945,7 +1945,14 @@ extension TestClient {
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
  func handleBackground() {stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
- func handleForeground() {guard !foreground else {return};foreground=true;chat.visible=true;visualSampler.setForeground(true);if credentials != nil {connect()}}
+ func handleForeground() {
+  let wasForeground=foreground
+  foreground=true;chat.visible=true;visualSampler.setForeground(true)
+  let now=clock.localNow()
+  if RoomResumePolicy.shouldReconnect(hasCredentials:credentials != nil,wasForeground:wasForeground,
+   isConnected:connected,hasSocket:socket != nil,lastMessageAgeMs:now-lastMessageAt,
+   connectionAgeMs:now-connectionStartedAt) {connect()}
+ }
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}
   guard durations.count==2,abs(durations[0]-durations[1])>5000 else {return ""}
