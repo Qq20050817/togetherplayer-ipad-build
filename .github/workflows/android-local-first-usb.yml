@@ -1,7 +1,7 @@
-name: Android local-first and USB resilience 0.6.60.10
+name: Xiaomi Pad7 compressed ARM64 APK 0.6.60.11
 on:
   push:
-    branches: [fix/android-smart-pause-20261104]
+    branches: [delivery/android-pad7-arm64-20261104]
     paths: ['android/**', '.github/workflows/android-local-first-usb.yml']
   workflow_dispatch:
 permissions:
@@ -11,6 +11,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   verify-and-deliver:
+    env:
+      ORG_GRADLE_PROJECT_deliveryCompressedNative: "true"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -45,15 +47,31 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: bash android/decoder-check.sh false
+      - name: Build and validate compact ARM64 delivery
+        working-directory: android
+        run: |
+          gradle --no-daemon -PdeliveryArm64=true assembleDebug
+          python3 - <<'PY'
+          import zipfile,os
+          p='app/build/outputs/apk/debug/app-debug.apk'
+          assert os.path.getsize(p)<100*1024*1024,os.path.getsize(p)
+          with zipfile.ZipFile(p) as z:
+              libs=[x for x in z.infolist() if x.filename.startswith('lib/')]
+              assert libs and all(x.filename.startswith('lib/arm64-v8a/') for x in libs)
+              assert all(x.compress_type==zipfile.ZIP_DEFLATED for x in libs)
+              assert 'assets/voice-cn-model.zip' in z.namelist()
+              import hashlib
+              assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest()=='3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
+          PY
       - name: Preserve candidate APK
         run: |
           mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.10-Local-First-USB.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Xiaomi-Pad7-0.6.60.11.apk
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-sustained-catchup-0610
+          name: android-pad7-arm64-0611
           path: |
             delivery/
             android/app/build/reports/tests/
