@@ -99,3 +99,9 @@
 ### Follow-up evidence correction (same session)
 - Private Go backend server/internal/backend/server.go trims WELCOME history to <=7800 bytes where possible, and server_test.go verifies reconnect using the original credential after disconnection. Thus a normal server WELCOME >8192 bytes is not established; the new bounded envelope allowance is defensive. The exact field root cause remains unconfirmed.
 - Client UI text "连接中断，自动重连" originates in TestClient.reconnect. Scene-active stale-socket resume remains the primary iPad candidate. User-side frames, HTTP status and lifecycle trace remain unavailable; no field-tested claim.
+
+### CI and artifact verification (2026-11-04, same independent branch)
+- Three identical-app-source GitHub Actions candidates: 41833322017 and 41833455531 FAILED solely in legacy AudioSubtitleTests.testMKVRemuxExposesEmbeddedAudioAndSubtitleGroups (two missing timed-cue display assertions); all 14 RoomConnectionTests passed. No changes made to weaken or bypass the legacy test.
+- Run 41833459657 SUCCESS: unsigned iPad device Release build, 76 selected native tests (including 14 RoomConnectionTests and all AudioSubtitleTests), real fullscreen seek UI test, IPA packaging and artifact upload. The two previous failures indicate possible simulator subtitle playback flakiness, not a proven regression of the reconnect patch; continue monitoring.
+- Verified deliverable: TogetherPlayer-iPad-0.6.79-Room-Resume-unsigned.ipa, SHA256 574eabaeef99ba529577e9713e5de4a9ea46a9e148bcc1d8c2a7f2923be24056, ZIP integrity passed; workflow artifact 13324104572 at run 41833459657.
+- Branch remains isolated, no merge, iPad signing/install or live server deployment. Android unchanged. Two-person physical iPad background/rejoin acceptance and precise server-side per-room trace are not yet verified. Keep signed 0.6.78 for safe rollback, retaining application data.
