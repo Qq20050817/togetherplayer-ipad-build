@@ -124,3 +124,21 @@
 - Before native CI: `git diff --check` passed, workflow YAML parsed. Local environment has no Swift/Xcode toolchain. Native app build, XCTest and physical iPad test remain **pending** and must not be called successful.
 - Singapore read-only service `/health` HTTP 200; per-room telemetry and DB inaccessible (permission denied). No server, database, router, Android, signing or production changes.
 - Rollback: previous 0.6.79 artifact and exact `f1e768e703c88fc99e6c1f67bc420b08d015f386` app baseline remain available. Do not uninstall user's signed app or clear room settings. CI result, commit and delivery must be appended after actual verification.
+
+## 2026-11-04 · Installed iOS0.6.80 home Wi-Fi handshake investigation
+- User confirms installed0.6.80; authoritative sourcec516a142790db11ca2febf71776c0c625e9efecc, successful Actions41841128744. Isolated fix/ipad-wifi-tls-recovery-082-20261104, candidate0.6.82/build142 avoids conflicting with separate peer-stall0.6.81 candidate. Preserve installed0.6.80 sync/source/subtitle/lifecycle logic; do not import uninstalled peer-stall behavior.
+- Field evidence: hotspot permits app room connection. Home OpenWrt Wi-Fi uses automatic DNS, proxy off and no iPad VPN; Safari /health on same Wi-Fi returns ok:true; app endpoint identical and full termination/reopen still fails. Router DNS and IPv4/IPv6 HTTPS200 trusted; external TLS1.2/1.3 pass. These do not prove the iPad WebSocket TLS path or a TLS1.3 root cause.
+- Candidate: show numeric NSError/underlying codes without private text or URLs; do not hide actual errors behind a successful HTTP101 upgrade. Only generic NSURLErrorSecureConnectionFailed may select one TLS1.2 retry per session policy, with a fresh URLSession and normal system certificate trust. Certificate/date/auth/HTTP/timeout/DNS errors do not trigger fallback. Manual retry/new registration/clear-room reset policy. No plain HTTP, trust override, endpoint change or server/router mutation.
+- Added native policy/configuration/redaction regressions, version/workflow packaging. Local diff/YAML checks passed; native build/XCTest and physical Wi-Fi acceptance pending. Root cause remains open; this is an isolated compatibility candidate, not a proven repair. Rollback: retain signed0.6.80 and original room data; no uninstall/clear settings.
+
+- Independent Singapore public endpoint probe completed: POST create/join201; authenticated TLS1.2 andTLS1.3 WebSocket WELCOME; same-credential reconnect WELCOME; synthetic room closed. This verifies server protocol capability, not the failing iPad Wi-Fi route.
+
+- Registration coverage: create/join POST now uses the same fresh, normally trusted session policy with one generic-handshake-only retry, preserving a successful TLS1.2 selection for the subsequent WebSocket. No retry on HTTP errors, certificate trust failures or timeouts. Also show safe numeric errors for failed registration. Apple native CI must validate the final commit; earlier queued run18ccd76 does not cover this follow-up.
+
+## 2026-11-04 · Apple runner capacity failure, not a compiler result
+- Runs41853536785/41854620672 reached no build steps and failed acquisition after about15min. Public check annotations explicitly state hosted runner was not acquired and macOS arm64 capacity constraints. The job wrapper reports cancelled, the workflow conclusion failure; neither is a Swift compilation result.
+- Switch targeted native workflow from macos-15 (ARM pool) to macos-15-intel, retaining Xcode26 selection and the same app/tests. Native/IPA verification still pending. No user Mac or signing credential requested; no claim of a successful iPad candidate yet.
+
+## 2026-11-04 · iOS native build remains infrastructure-blocked
+- Intel attempt1 in41857877554 (job126671295353) also reached no build steps; public check annotation: hosted runner not acquired even after multiple attempts. Failed-job rerun accepted, attempt2 job126683449518 remains queued. ARM failed runs likewise had no compiler/test output.
+- Candidate applicationcfe66a15e7e43ccb1a1b151fdba41e147919a13b, workflowd9b870cc08b7ae29982437c7bf198b868a10f568. No unsigned0.6.82 IPA exists; static diff/YAML only. Do not call TLS compatibility root cause proven or iOS fixed. User can temporarily use the already confirmed hotspot path; physical Wi-Fi diagnosis remains open.

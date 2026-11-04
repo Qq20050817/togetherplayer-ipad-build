@@ -282,6 +282,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var credentials: [String:Any]?
  private var socket: URLSessionWebSocketTask?
  private var socketSession:URLSession?
+ private var roomTLS=RoomTLSCompatibility()
  @Published private(set) var p2pStatus="Muse 房间同步"
  private var p2pSupported=false
  private var p2pPeerID=""
@@ -1045,11 +1046,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   request.timeoutInterval=15
   request.httpBody=try? JSONSerialization.data(withJSONObject:join ? [:] : ["mediaUrl":MediaSourceCatalog.resolve(mediaURL)?.absoluteString ?? mediaURL,"title":movieTitle])
   guard join || MediaSourceCatalog.canShare(mediaURL) else {requestStatus="房间片源不能包含账户凭据；请使用公开授权链接，或放入仅本机片源。";return}
-  registering=true;requestStatus="正在处理房间请求…"
+  roomTLS.reset();registering=true;requestStatus="正在处理房间请求…"
   Task {
    defer {registering=false}
    do {
-    let (data,response)=try await URLSession.shared.data(for:request)
+    let (data,response)=try await roomRegistrationData(for:request)
     guard let http=response as? HTTPURLResponse else {requestStatus="服务器没有返回有效响应，请稍后重试";return}
     guard http.statusCode == 201 else {
      if http.statusCode == 503 {requestStatus="同步服务器暂时离线，请稍后重试"}
@@ -1061,12 +1062,26 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     forgetRememberedMovie();releaseLocalFileAccess()
     credentials=next;credentialServer=base;roomID=nextRoom
     UserDefaults.standard.set(data,forKey:"credentials");UserDefaults.standard.set(base,forKey:"server");connect()
-   } catch {requestStatus="房间请求失败：\(error.localizedDescription)"}
+   } catch {requestStatus="房间请求失败：\(RoomTransportFailure.description(error as NSError,httpStatus:nil))"}
+  }
+ }
+ private func roomHTTPData(for request:URLRequest) async throws -> (Data,URLResponse) {
+  let session=URLSession(configuration:roomTLS.configuration())
+  defer {session.finishTasksAndInvalidate()}
+  return try await session.data(for:request)
+ }
+ private func roomRegistrationData(for request:URLRequest) async throws -> (Data,URLResponse) {
+  do {return try await roomHTTPData(for:request)}
+  catch {
+   let failure=error as NSError
+   guard roomTLS.retryAfterHandshakeFailure(failure,httpStatus:nil) else {throw error}
+   requestStatus="\(RoomTransportFailure.description(failure,httpStatus:nil))；尝试 TLS 1.2 兼容连接…"
+   return try await roomHTTPData(for:request)
   }
  }
  func retryRoomConnection() {
   guard credentials != nil else {requestStatus="当前房间没有可复用的凭证，请重新加入房间";return}
-  attempt=0
+  attempt=0;roomTLS.reset()
   connect()
  }
  private func closeRoomTransport() {
@@ -1086,12 +1101,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")
   // A foreground reconnection must not reuse a half-open pooled connection
   // left behind when iPadOS suspends a WebSocket.
-  let configuration=URLSessionConfiguration.ephemeral
-  configuration.waitsForConnectivity=false
-  configuration.timeoutIntervalForRequest=15
+  let configuration=roomTLS.configuration()
   let session=URLSession(configuration:configuration)
   let ws=session.webSocketTask(with:request);socketSession=session;socket=ws;ws.resume()
-  connectionStartedAt=clock.localNow();lastMessageAt=connectionStartedAt;status="正在连接房间…"
+  connectionStartedAt=clock.localNow();lastMessageAt=connectionStartedAt;status=roomTLS.usesTLS12 ? "正在用 TLS 1.2 兼容连接房间…" : "正在连接房间…"
   Task {
    do {
     while g == generation {
@@ -1105,7 +1118,12 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     guard g==generation else{return}
     let httpStatus=(ws.response as? HTTPURLResponse)?.statusCode
     if httpStatus==401 {clearRoom();requestStatus="房间凭证已失效，请创建或加入新房间"}
-    else {reconnect(g,reason:"receive",hint:RoomTransportFailure.description(error as NSError,httpStatus:httpStatus))}
+    else {
+     let failure=error as NSError
+     let retryTLS12=roomTLS.retryAfterHandshakeFailure(failure,httpStatus:httpStatus)
+     let hint=RoomTransportFailure.description(failure,httpStatus:httpStatus)+(retryTLS12 ? "；尝试 TLS 1.2 兼容连接" : "")
+     reconnect(g,reason:"receive",hint:hint)
+    }
    }
   }
  }
@@ -1923,7 +1941,7 @@ extension TestClient {
   externalSubtitles.clear();resetRouterSubtitleDiscovery()
   visualSampler.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
-  mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();closeRoomTransport();credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
+  mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();closeRoomTransport();roomTLS.reset();credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   plotPoll=nil
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }

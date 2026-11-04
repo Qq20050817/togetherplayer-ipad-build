@@ -64,3 +64,7 @@
 - Candidate 0.6.80 branch `fix/ipad-foreground-ws-recovery-20261104`: track prolonged inactivity, recreate an isolated ephemeral URLSession per transport attempt, cancel stale sessions, show categorized status codes, and provide immediate manual reconnect while keeping the room credentials. Add policy and error-message regressions.
 - Read-only Singapore production check: local room service `/health` responded HTTP 200; its room telemetry and database paths explicitly returned permission denied, so no per-room authentication conclusion is possible. No backend, router, Android or production change.
 - Status: candidate pending macOS CI and device acceptance. Keep 0.6.79/139 as rollback. Do not claim resolution until real iPad foreground/background and network transition tests pass.
+
+## TP-IOS-080-WIFI-TLS-20261104 (open)
+- Installed0.6.80: app room TLS failure on home Wi-Fi persists after restart, endpoint matches successful Safari health check. Hotspot connects. DNS automatic/proxy off/no VPN. Router/server HTTPS health pass; exact iPad failure code and protocol path not observed.
+- Candidate0.6.82 preserves numeric handshake diagnostics and permits bounded TLS1.2 fallback only on generic handshake failure with system trust unchanged. Does not claim TLS1.3 as established cause. Native and physical acceptance pending.

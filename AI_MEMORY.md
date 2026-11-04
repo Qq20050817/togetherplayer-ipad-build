@@ -19,3 +19,6 @@
 
 - User chose 3000ms automatic synchronization tolerance. Explicit user SEEK must bypass it. Lagging clients catch up locally with speed; automatic hard-seek loops are prohibited. Pause/question gates, timeline offsets and existing P2P handoff remain authoritative.
 - Coalesce only pending SEEK operations; preserve queued PAUSE/PLAY when a user drags the slider. Native playback time is the display source of truth; predicted pending seek targets must not masquerade as real time.
+
+## Wi-Fi handshake compatibility boundary
+- Safari HTTPS success does not prove native WebSocket reachability on the same Wi-Fi. Retain numeric error evidence, normal certificate validation, a minimum TLS1.2 and bounded compatibility attempts. Never infer global server outage or install speculative trust exceptions from NSURLErrorSecureConnectionFailed alone.

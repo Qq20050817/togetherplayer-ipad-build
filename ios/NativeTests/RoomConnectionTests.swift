@@ -73,6 +73,39 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorTimedOut),httpStatus:503),"服务器入口暂不可用（HTTP 503）")
   XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorTimedOut),httpStatus:401),"房间凭证失效（HTTP 401）")
  }
+ func testTLSCompatibilityRetriesOnlyOneGenericHandshakeFailure() {
+  var policy=RoomTLSCompatibility()
+  let failure=NSError(domain:NSURLErrorDomain,code:NSURLErrorSecureConnectionFailed)
+  XCTAssertFalse(policy.usesTLS12)
+  XCTAssertTrue(policy.retryAfterHandshakeFailure(failure,httpStatus:nil))
+  XCTAssertTrue(policy.usesTLS12)
+  XCTAssertFalse(policy.retryAfterHandshakeFailure(failure,httpStatus:nil))
+  let configuration=policy.configuration()
+  XCTAssertEqual(configuration.tlsMinimumSupportedProtocolVersion,.TLSv12)
+  XCTAssertEqual(configuration.tlsMaximumSupportedProtocolVersion,.TLSv12)
+  XCTAssertEqual(configuration.timeoutIntervalForRequest,15)
+  policy.reset();XCTAssertFalse(policy.usesTLS12)
+  XCTAssertTrue(policy.retryAfterHandshakeFailure(failure,httpStatus:101))
+ }
+ func testTLSCompatibilityDoesNotRetryCertificateHttpOrOtherNetworkErrors() {
+  var policy=RoomTLSCompatibility()
+  for code in [NSURLErrorServerCertificateUntrusted,NSURLErrorServerCertificateHasBadDate,NSURLErrorServerCertificateNotYetValid,NSURLErrorTimedOut,NSURLErrorCannotFindHost] {
+   XCTAssertFalse(policy.retryAfterHandshakeFailure(NSError(domain:NSURLErrorDomain,code:code),httpStatus:nil))
+  }
+  for status in [200,401,403,503] {
+   XCTAssertFalse(policy.retryAfterHandshakeFailure(NSError(domain:NSURLErrorDomain,code:NSURLErrorSecureConnectionFailed),httpStatus:status))
+  }
+  XCTAssertFalse(policy.retryAfterHandshakeFailure(NSError(domain:"UnrelatedError",code:NSURLErrorSecureConnectionFailed),httpStatus:nil))
+  XCTAssertFalse(policy.usesTLS12)
+ }
+ func testSecureFailureShowsOnlyNumericDiagnosticsAndIgnoresSuccessfulUpgrade() {
+  let underlying=NSError(domain:"kCFErrorDomainCFNetwork",code:-9816,userInfo:[NSLocalizedDescriptionKey:"PRIVATE_SOURCE_TOKEN"])
+  let failure=NSError(domain:NSURLErrorDomain,code:NSURLErrorSecureConnectionFailed,userInfo:[NSUnderlyingErrorKey:underlying,NSLocalizedDescriptionKey:"PRIVATE_SOURCE_TOKEN"])
+  let description=RoomTransportFailure.description(failure,httpStatus:101)
+  XCTAssertTrue(description.contains("-1200"));XCTAssertTrue(description.contains("-9816"))
+  XCTAssertFalse(description.contains("PRIVATE_SOURCE_TOKEN"));XCTAssertFalse(description.contains("HTTP 101"))
+  XCTAssertTrue(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorServerCertificateUntrusted),httpStatus:nil).contains("证书不受信任"))
+ }
  @MainActor func testInvalidFramesDoNotDisconnectOrLoseFollowingSnapshot() throws {
   let model=try client();model.receive(welcome(),t4:0)
   for raw in ["","not-json","[]"] {model.receiveFrame(Data(raw.utf8),t4:0)}
