@@ -42,3 +42,10 @@
 ## iPad native Seek candidate validation update
 - Run41739107694 remained failed at pre-Seek initial caption; do not reinterpret as pass. Corrected DEBUG fixture PAUSE intent and real1s seek setup in6f26227.
 - Run41741956555 now passed57 native tests plus unchanged actual fullscreen remaining/subtitle assertions after .2/.8/.5 slider adjustments. Candidate0.6.76 available unsigned. Simulator validation passed; physical-device/network/two-party field cases still open, no blanket completion claim.
+
+## TP-IPAD-BACKGROUND-REJOIN-20261104
+- Affected: iPad 0.6.78/138, source 4d6e880574307442811bca925966bd71ac2308dc. User reproduces by backgrounding app then returning/rejoining, sees connection interruption. Android behavior unverified.
+- Confirmed code defect: RoomEnvelope.decode drops legitimate JSON messages over 8192 bytes; reconnect WELCOME may carry history and then never apply. Foreground event handling can miss stale WebSocket after an inactive transition.
+- Candidate: branch fix/ipad-room-background-rejoin-20261104; allow bounded 1 MiB snapshots, stale-socket resume policy, new targeted XCTest. CI run 41833322017 pending; no successful fix or IPA claim until completion.
+- Server: live /health HTTP 200 and process active, but room-specific auth or lease errors remain unverified due read access restrictions. No server modifications.
+- Status: candidate under automated verification; physical foreground/background/connection-loss test pending.
