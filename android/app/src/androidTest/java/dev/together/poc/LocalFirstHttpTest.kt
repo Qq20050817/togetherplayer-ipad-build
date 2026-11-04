@@ -27,8 +27,9 @@ class LocalFirstHttpTest {
    scenario.onActivity{a->
     val p=playback(a);assertEquals(Uri.fromFile(file).toString(),p.currentMediaItem!!.localConfiguration!!.uri.toString())
     assertEquals("fixture.srt",field(a,"subtitleName").get(a))
-    repeat(20){welcome(a,room)}
-    a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,remote.url,1000.0,true)
+    repeat(20){field(a,"connected").set(a,false);welcome(a,room)}
+    a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,remote.url+"?renewed=1",1000.0,true)
+    a.javaClass.getDeclaredMethod("retryPlayback").apply{isAccessible=true}.invoke(a)
     assertEquals(Uri.fromFile(file).toString(),p.currentMediaItem!!.localConfiguration!!.uri.toString())
    }
    SystemClock.sleep(700)
@@ -72,6 +73,20 @@ class LocalFirstHttpTest {
    SystemClock.sleep(400);assertEquals(count,remote.server.requestCount)
    scenario.onActivity{a->assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("重新选择"));a.javaClass.getDeclaredMethod("clearLocalMovie").apply{isAccessible=true}.invoke(a);assertEquals(remote.url,playback(a).currentMediaItem!!.localConfiguration!!.uri.toString())}
   }}
+ }
+ @Test fun deletedLocalFilePromptsReselectAndDoesNotSilentlyReopenHttp(){
+  val i=InstrumentationRegistry.getInstrumentation();val bytes=i.context.assets.open("local-test.mp4").use{it.readBytes()}
+  val file=java.io.File(i.targetContext.cacheDir,"deleted-local-fixture.mp4");file.writeBytes(bytes)
+  try{FixtureHttpServer(bytes).use{remote->ActivityScenario.launch(MainActivity::class.java).use{scenario->
+   val room=JSONObject().put("roomId","local-delete").put("hostId","peer").put("mediaUrl",remote.url).put("title","Fixture").put("duration",8000).put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1)
+   scenario.onActivity{a->welcome(a,room);a.javaClass.getDeclaredMethod("useLocalMovie",Uri::class.java,Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,Uri.fromFile(file),0,false)}
+   var ready=false;repeat(100){if(!ready){scenario.onActivity{a->ready=(field(a,"localFileUri").get(a) as String).isNotBlank()&&playback(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}}
+   assertTrue(ready);val requests=remote.server.requestCount;assertTrue(file.delete())
+   scenario.onActivity{a->field(a,"connected").set(a,false);a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,remote.url,1000.0,true)}
+   var failed=false;repeat(100){if(!failed){scenario.onActivity{a->failed=playback(a).playerError!=null};SystemClock.sleep(100)}}
+   assertTrue("missing local file must report a real read failure",failed);assertEquals("failure must not silently select or preload HTTP",requests,remote.server.requestCount)
+   scenario.onActivity{a->assertEquals(Uri.fromFile(file).toString(),playback(a).currentMediaItem!!.localConfiguration!!.uri.toString());assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("重新选择"));a.javaClass.getDeclaredMethod("clearLocalMovie").apply{isAccessible=true}.invoke(a);assertEquals(remote.url,playback(a).currentMediaItem!!.localConfiguration!!.uri.toString())}
+  }}}finally{file.delete()}
  }
 
 }

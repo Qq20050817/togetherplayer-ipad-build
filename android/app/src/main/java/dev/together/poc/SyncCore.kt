@@ -35,11 +35,28 @@ class ClockSync(private val monotonicNow: () -> Double = { SystemClock.elapsedRe
  }
  fun reset() { samples.clear() }
 }
+// Require a continuous, fresh stream of real playhead samples. Brief drift,
+// buffering and a suspended UI cannot count as a sustained synchronization gap.
+internal class SustainedCatchupPolicy {
+ private var since:Double?=null;private var last:Double?=null
+ private var rate=1f
+ fun reset(){since=null;last=null;rate=1f}
+ fun speed(error:Double,now:Double):Float {
+  if(!error.isFinite() || !now.isFinite()){reset();return 1f}
+  if(last?.let {now<it || now-it>1000}==true){since=null;rate=1f}
+  last=now
+  if(error<=3000){since=null;rate=1f;return 1f}
+  if(rate>1f)return rate
+  if(error<=5000){since=null;return 1f}
+  if(since==null)since=now
+  if(now-since!!>=5000)rate=if(error>15000)1.25f else 1.10f
+  return rate
+ }
+}
 class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  var room: JSONObject? = null; private set
  private var explicitSeekVersion:Long?=null
- var isSyncWaiting=false;private set
- private var correctionSpeed=1f
+ private val catchup=SustainedCatchupPolicy()
  private var excessiveDriftSince: Double?=null
  private var driftAtWindowStart=0.0
  private var lastAutoSeekAt: Double?=null
@@ -75,12 +92,9 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
    room=next
   }
  }
- private fun resetCorrection() {correctionSpeed=1f;excessiveDriftSince=null;isSyncWaiting=false}
- private fun speed(error: Double): Float {
-  if(correctionSpeed>1 && error>1000)return correctionSpeed
-  correctionSpeed=if(error>3000) {if(error>15000)1.25f else 1.10f} else if(error < -3000) .95f else 1f
-  return correctionSpeed
- }
+ private fun resetCorrection() {catchup.reset();excessiveDriftSince=null}
+ private fun speed(error: Double): Float = catchup.speed(error,clock.localNow())
+
  fun target(): Pair<Double, String>? {
   if (!clock.ready) return null
   val r=room ?: return null; val now=clock.serverNow()
@@ -108,21 +122,13 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
    if(state=="paused")player.pause()else player.play()
    return error
   }
-  if(!player.isReady() || player.isBuffering()){wasUnready=true;isSyncWaiting=false}
+  if(!player.isReady() || player.isBuffering()){wasUnready=true;catchup.reset()}
   else if(wasUnready){wasUnready=false;settleUntil=now+2000}
   if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>3000 && lastAutoSeekAt==null) {lastAutoSeekAt=now;player.seekTo(position.toLong())}; return error }
   if (!player.isReady() || player.isBuffering()) {
    // Preserve ExoPlayer playWhenReady during 2x rebuffering and poll resume.
    if (player.isBuffering()) player.play()
    excessiveDriftSince=null;return null
-  }
-  // Pause only this device; never send a room PAUSE for drift correction.
-  // Check a latched wait before isAdvancing: a deliberately paused decoder
-  // cannot advance until the canonical timeline catches up.
-  if(isSyncWaiting && error >= -1000) isSyncWaiting=false
-  if(isSyncWaiting || (now>=settleUntil && player.isAdvancing() && error < -10000)) {
-   isSyncWaiting=true;correctionSpeed=1f;excessiveDriftSince=null
-   player.pause();player.setPlaybackSpeed(baseRate);return error
   }
   if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if(!player.isAdvancing() || (error>3000 && player.getBufferedAhead()<3000)){

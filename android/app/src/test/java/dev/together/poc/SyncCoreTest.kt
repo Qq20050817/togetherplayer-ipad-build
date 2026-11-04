@@ -14,36 +14,45 @@ class SyncCoreTest {
   override fun setPlaybackSpeed(speed:Float){rate=speed}
  }
  private fun frame(position:Double=10000.0,version:Long=1,at:Double=0.0)=JSONObject().put("roomId","r").put("mediaUrl","https://example.org/movie.mp4").put("version",version).put("executeAt",at).put("state","playing").put("position",position).put("updatedAt",at).put("playbackRate",1).put("before",JSONObject().put("state","playing").put("position",10000).put("updatedAt",0).put("playbackRate",1))
- @Test fun leadingWaitHasStrictEntryAndResumesWhileNativeIsPaused(){
+ @Test fun onlyContinuousGreaterThanFiveSecondLagAccelerates(){
+  val p=SustainedCatchupPolicy()
+  for(t in 0..100)assertEquals(1f,p.speed(5000.0,t*100.0))
+  for(t in 0..49)assertEquals(1f,p.speed(5001.0,10100.0+t*100))
+  assertTrue(p.speed(5001.0,15100.0)>1f)
+  assertTrue(p.speed(4000.0,15200.0)>1f)
+  assertEquals(1f,p.speed(3000.0,15300.0))
+ }
+ @Test fun transientLagAndMissingRealSamplesRestartContinuousWindow(){
+  val p=SustainedCatchupPolicy()
+  for(t in 0..49)assertEquals(1f,p.speed(6000.0,t*100.0))
+  assertEquals(1f,p.speed(5000.0,5000.0))
+  for(t in 0..49)assertEquals(1f,p.speed(6000.0,5100.0+t*100))
+  assertEquals(1f,p.speed(6000.0,12000.0))
+  for(t in 1..49)assertEquals(1f,p.speed(6000.0,12000.0+t*100))
+  assertTrue(p.speed(6000.0,17000.0)>1f)
+ }
+ @Test fun leadingDeviceNeverAutomaticallyPausesOrSlows(){
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  for(gap in listOf(5000L,9000L,10000L,11000L,20000L)){p.pos=10000+gap;e.tick();assertTrue(p.playing);assertEquals(1f,p.rate);assertEquals(0,p.seeks)}
+ }
+ @Test fun explicitSeekAndPauseOverrideActiveCatchup(){
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.pos=20000;e.tick();assertFalse(e.isSyncWaiting);assertTrue(p.playing)
-  p.pos=20001;e.tick();assertTrue(e.isSyncWaiting);assertFalse(p.playing)
-  p.advancing=false;now=9000.0;e.tick();assertTrue(e.isSyncWaiting);assertFalse(p.playing)
-  now=9001.0;e.tick();assertFalse(e.isSyncWaiting);assertTrue(p.playing);assertEquals(0,p.seeks)
+  for(t in 0..50){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()};assertTrue(p.rate>1f)
+  e.receive(frame(12000.0,2,now));e.tick();assertEquals(1,p.seeks);assertEquals(12000L,p.pos);assertEquals(1f,p.rate)
+  p.ready=false;e.receive(frame(12000.0,3,now).put("state","paused"));e.tick();assertFalse(p.playing)
  }
- @Test fun explicitSeekAndPauseOverrideLeadingWait(){
-  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.pos=30000;e.tick();assertTrue(e.isSyncWaiting)
-  e.receive(frame(12000.0,2));e.tick();assertFalse(e.isSyncWaiting);assertTrue(p.playing);assertEquals(12000L,p.pos);assertEquals(1,p.seeks)
-  p.pos=40000;e.tick();assertTrue(e.isSyncWaiting)
-  e.receive(frame(12000.0,3).put("state","paused"));e.tick();assertFalse(e.isSyncWaiting);assertFalse(p.playing)
- }
- @Test fun waitingHonorsOffsetAndSessionReset(){
-  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();val e=SyncEngine(p,c);e.timelineOffset=5000.0;p.pos=15000;e.receive(frame());e.tick()
-  p.pos=25000;e.tick();assertFalse(e.isSyncWaiting)
-  p.pos=25001;e.tick();assertTrue(e.isSyncWaiting)
-  e.resetSession();assertFalse(e.isSyncWaiting);assertNull(e.room)
- }
- @Test fun bufferingClearsIntentionalWaiting(){
-  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.pos=30000;e.tick();assertTrue(e.isSyncWaiting)
-  p.buffering=true;e.tick();assertFalse(e.isSyncWaiting)
+ @Test fun invalidSamplesAndExplicitResetNeverCountAsPersistentDrift(){
+  val p=SustainedCatchupPolicy();for(t in 0..50)p.speed(7000.0,t*100.0)
+  assertEquals(1f,p.speed(Double.NaN,5100.0));assertEquals(1f,p.speed(7000.0,5200.0))
+  p.reset();assertEquals(1f,p.speed(7000.0,10000.0));assertEquals(1f,p.speed(-20000.0,10100.0))
  }
  @Test fun catchupNeedsAdvancingFramesAndBufferReserve(){
-  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.pos=5000;p.reserve=1000;e.tick();assertEquals(1f,p.rate)
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  p.pos=4000;p.reserve=1000;e.tick();assertEquals(1f,p.rate)
   p.reserve=10000;p.advancing=false;e.tick();assertEquals(1f,p.rate)
-  p.advancing=true;e.tick();assertTrue(p.rate>1f);assertEquals(0,p.seeks)
+  p.advancing=true
+  for(t in 0..50){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()}
+  assertTrue(p.rate>1f);assertEquals(0,p.seeks)
  }
  @Test fun rateTransitionSettlesWithoutAutomaticHardSeek() {
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
@@ -107,12 +116,11 @@ class SyncCoreTest {
   assertEquals(2L,engine.version)
   time=2000.0;player.pos=2000;engine.tick();assertFalse(player.playing)
  }
- @Test fun threeSecondToleranceAndCatchupWithoutSeek() {
-  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
-  e.receive(frame());e.tick()
-  for(gap in listOf(-3000L,-1000L,0L,1000L,3000L)){p.pos=10000-gap;e.tick();assertEquals(1f,p.rate);assertEquals(0,p.seeks)}
-  p.pos=6000;e.tick();assertTrue(p.rate>1f);assertEquals(0,p.seeks)
-  p.pos=9500;e.tick();assertEquals(1f,p.rate)
+ @Test fun threeSecondToleranceAndSustainedCatchupWithoutSeek() {
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  for(gap in listOf(-3000L,-1000L,0L,1000L,3000L,4000L,5000L)){p.pos=10000-gap;e.tick();assertEquals(1f,p.rate);assertEquals(0,p.seeks)}
+  for(t in 0..50){now=t*100.0;p.pos=(10000+now-6000).toLong();e.tick()};assertTrue(p.rate>1f);assertEquals(0,p.seeks)
+  p.pos=(10000+now-3000).toLong();e.tick();assertEquals(1f,p.rate)
  }
  @Test fun versionIsScopedToRoom() {
   val engine=SyncEngine(FakePlayer(),ClockSync {0.0})
