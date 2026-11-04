@@ -157,3 +157,5 @@
 - User supplied audio menu: English Dolby Digital5.1 track1 and French Dolby Digital5.1 track2 plus English DTS tracks3/4. Asked user to select English track1 and retry; result pending. This metadata/menu does not yet establish the failed renderer.
 
 - Packaging smoke correction before execution: exact0.6.60.11 is ARM64-only and cannot be installed normally on an x86 emulator. Use verified universal0.6.60.10 artifact13313177972 (APK2753e73c...) as the coexistence fixture with the same dev.together.poc.fluency identity.0.6.60.11 shares that identity and application logic; physical ARM64 coexistence with installed0.6.60.11 remains unverified. No prior ARM64 install success is claimed.
+
+- Parallel packaging runs41856053422/41856214146 failed before compilation: default shallow checkout omitted the verifiedccdeec1 source object used by the equivalence check. Fetch full repository history for that check; retain strict source comparison. No application change or successful parallel install claim from those runs.
