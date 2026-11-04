@@ -27,3 +27,11 @@ struct PendingRoomMedia {
  var operation: [String:Any] {["type":"ROOM_MEDIA","data":["mediaUrl":url,"title":title]]}
  func matches(_ room: Room) -> Bool {room.roomId==roomID && room.mediaUrl==url && (room.title ?? "")==title}
 }
+
+enum RoomResumePolicy {
+ static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double) -> Bool {
+  guard hasCredentials else {return false}
+  // A suspended connection may still look connected after a brief inactive phase.
+  return !wasForeground || !isConnected || !hasSocket || lastMessageAgeMs >= 15_000
+ }
+}
