@@ -57,3 +57,9 @@
 
 ## ANDROID-ORDINARY-SEEK-CONFIRM · 2026-11-04
 - Source audit: normal server-driven seeks went directly from Media3Adapter to Player, bypassing the UI native-position confirmation/15s failure tracker used by instant controls. Route them through seekManually. Real paused-room HTTP seek now confirms, and a simulated ignored native request reports failure while clock/playhead remain real. New native test passes in41812565306. Existing local/SAF/compatibility/rapid-seek/clock regressions retained.
+
+## TP-ANDROID-USB-DECODER-20261104 (open)
+- Installed0.6.60.11: router USB HTTP movie reports ERROR_CODE_DECODING_FAILED. Exact failed renderer unknown; prior media evidence suggests HEVC Main10/DTS compatibility risks. Candidate0.6.60.12 distinguishes renderer/MIME/decoder, adds once-per-source same-language compatible audio recovery on DTS/TrueHD audio failure. Native verification and real Pad7 movie acceptance pending.
+
+## TP-IOS-080-WIFI-TLS-20261104 (open)
+- Installed0.6.80: room secure connection fails on home Wi-Fi, works on phone hotspot. DNS automatic, proxy off, no iPad VPN (user confirmed). External server health/TLS pass; exact home path unconfirmed. No TLS validation bypass, DNS/router mutation or speculative iOS release.

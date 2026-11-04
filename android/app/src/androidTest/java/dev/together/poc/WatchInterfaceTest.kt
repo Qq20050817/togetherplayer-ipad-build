@@ -251,7 +251,7 @@ class WatchInterfaceTest {
      override fun onRenderedFirstFrame(){if(recovered)restarted.countDown()else first.countDown()}
      override fun onPlayerError(error:androidx.media3.common.PlaybackException){failure=error.errorCodeName;first.countDown();restarted.countDown()}
     })
-    activity.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply {isAccessible=true}.invoke(activity,android.net.Uri.fromFile(fixture).toString(),1000.0,false)
+    activity.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType,activity.javaClass.declaredClasses.single {it.simpleName=="AudioChoice"}).apply {isAccessible=true}.invoke(activity,android.net.Uri.fromFile(fixture).toString(),1000.0,false,null)
     activity.javaClass.getDeclaredField("external").apply {isAccessible=true}.set(activity,subtitle)
     p.play()
    }
