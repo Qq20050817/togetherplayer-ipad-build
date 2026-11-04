@@ -214,6 +214,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var lastStepTime=0.0
  private var speedHoldReleaseUntil=0.0
  private var foreground=true
+ private var inactiveAt:Double?
  private var lastTyping=0.0
  private var prerolling=false
  private var prerollGeneration=0
@@ -280,6 +281,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var credentialServer=UserDefaults.standard.string(forKey:"server") ?? "https://together.xiaokai123.de5.net"
  private var credentials: [String:Any]?
  private var socket: URLSessionWebSocketTask?
+ private var socketSession:URLSession?
  @Published private(set) var p2pStatus="Muse 房间同步"
  private var p2pSupported=false
  private var p2pPeerID=""
@@ -480,7 +482,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   self.timer=timer;RunLoop.main.add(timer,forMode:.common)
   if automaticallyConnect,credentials != nil {connect()}
  }
- deinit {if let transport=initializedP2PTransport {Task {@MainActor in transport.dispose()}};timer?.invalidate();restoreMovieTask?.cancel();saveMovieTask?.cancel();if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()};for observer in observers {NotificationCenter.default.removeObserver(observer)}}
+ deinit {if let transport=initializedP2PTransport {Task {@MainActor in transport.dispose()}};timer?.invalidate();socketSession?.invalidateAndCancel();restoreMovieTask?.cancel();saveMovieTask?.cancel();if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()};for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func plotDisplayPosition()->PlotDisplayPosition? {
   guard adapter.player.currentItem != nil else{return nil}
   let identity=engine.room?.mediaUrl ?? currentOriginalURL?.absoluteString ?? loadedURL
@@ -1062,17 +1064,33 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    } catch {requestStatus="房间请求失败：\(error.localizedDescription)"}
   }
  }
+ func retryRoomConnection() {
+  guard credentials != nil else {requestStatus="当前房间没有可复用的凭证，请重新加入房间";return}
+  attempt=0
+  connect()
+ }
+ private func closeRoomTransport() {
+  socket?.cancel(with:.goingAway,reason:nil);socket=nil
+  socketSession?.invalidateAndCancel();socketSession=nil
+ }
  func connect() {
   stopP2P()
   supportsInstantControls=false;localVideoTest=false;localPlayIntent=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
   guard foreground,let token=credentials?["token"] as? String else {return}
   plotIntelligence.preserveCurrentFilmEvidence()
-  generation += 1;let g=generation;socket?.cancel(with:.goingAway,reason:nil);connected=false;engine.resetSession();pending=nil;requestStatus=""
+  generation += 1;let g=generation;closeRoomTransport();connected=false;engine.resetSession();pending=nil;requestStatus=""
   guard var components=URLComponents(string:credentialServer) else {status="无效 URL";return}
   components.scheme=components.scheme == "https" ? "wss" : "ws";components.path="/ws";components.query=nil
   guard let url=components.url else {return}
-  var request=URLRequest(url:url);request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")
-  let ws=URLSession.shared.webSocketTask(with:request);socket=ws;ws.resume()
+  var request=URLRequest(url:url,cachePolicy:.reloadIgnoringLocalCacheData,timeoutInterval:15)
+  request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")
+  // A foreground reconnection must not reuse a half-open pooled connection
+  // left behind when iPadOS suspends a WebSocket.
+  let configuration=URLSessionConfiguration.ephemeral
+  configuration.waitsForConnectivity=false
+  configuration.timeoutIntervalForRequest=15
+  let session=URLSession(configuration:configuration)
+  let ws=session.webSocketTask(with:request);socketSession=session;socket=ws;ws.resume()
   connectionStartedAt=clock.localNow();lastMessageAt=connectionStartedAt;status="正在连接房间…"
   Task {
    do {
@@ -1083,23 +1101,29 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
      guard g==generation else {return}
      receiveFrame(data,t4:t4)
     }
-   } catch {if g==generation {if let http=ws.response as? HTTPURLResponse,http.statusCode==401 {clearRoom();requestStatus="房间已过期，请重新创建或加入"} else {reconnect(g)}}}
+   } catch {
+    guard g==generation else{return}
+    let httpStatus=(ws.response as? HTTPURLResponse)?.statusCode
+    if httpStatus==401 {clearRoom();requestStatus="房间凭证已失效，请创建或加入新房间"}
+    else {reconnect(g,reason:"receive",hint:RoomTransportFailure.description(error as NSError,httpStatus:httpStatus))}
+   }
   }
  }
- private func reconnect(_ g: Int,reason: String="receive") {
+ private func reconnect(_ g: Int,reason: String="receive",hint: String?=nil) {
   guard g==generation,foreground,credentials != nil else {return}
   setSpeedHold(false)
   voice.cancel(message:"连接中断，当前录音已取消，未发送")
    plotIntelligence.preserveCurrentFilmEvidence()
   // Invalidate both send and receive callbacks before scheduling one retry.
-  generation += 1;let next=generation;socket?.cancel(with:.goingAway,reason:nil);socket=nil
+  generation += 1;let next=generation;closeRoomTransport()
   stopP2P();connected=false;engine.resetSession();playbackRecovery.reset();setPlaybackRecoveryVisible(false);attempt += 1
   disconnectCount += 1;lastDisconnectReason=reason
   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
   clearOptimisticPlayback();lastStepTarget=nil
-  status="连接中断，自动重连"
   if pendingRoomMedia != nil {mediaFeedback.requestStatus="连接中断，换片请求已保留；重连后继续确认…"}
   let delay=min(15.0,pow(2.0,Double(min(attempt,5)))*0.5)
+  let detail=hint.map {"（\($0)）"} ?? ""
+  status="连接中断\(detail)，\(Int(ceil(delay)))秒后自动重连"
   Task {try? await Task.sleep(nanoseconds:UInt64(delay*1e9));if next==generation {connect()} }
  }
  private func send(_ value: [String:Any]) {
@@ -1242,7 +1266,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  #endif
  func checkLocalVideo() {
-  generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;clock.reset();localVideoTest=true;localPlayIntent=true;recoveryRebuilds=0
+  generation += 1;closeRoomTransport();connected=false;clock.reset();localVideoTest=true;localPlayIntent=true;recoveryRebuilds=0
   guard let url=HTTPSource().resolve(mediaURL) else {status="无效测试视频 URL";return}
   adapter.setPlaybackSpeed(1);loadedURL=mediaURL;loadMedia(url)
   status="本机视频验证：可测试 PLAY / PAUSE / SEEK；尚未加入同步房间"
@@ -1350,7 +1374,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  func approve() {guard let p=pending else {return};control(p["type"] as? String ?? "",position:p["position"] as? Double ?? 0);pending=nil}
  func disconnectForTest() {
-  generation += 1;socket?.cancel(with:.goingAway,reason:nil);connected=false;adapter.pause();let g=generation
+  generation += 1;closeRoomTransport();connected=false;adapter.pause();let g=generation
   Task {try? await Task.sleep(nanoseconds:3_000_000_000);if g==generation {connect()} }
  }
  private func cancelRecoveryPreroll() {
@@ -1899,7 +1923,7 @@ extension TestClient {
   externalSubtitles.clear();resetRouterSubtitleDiscovery()
   visualSampler.clear()
   releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
-  mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();socket?.cancel(with:.goingAway,reason:nil);socket=nil;credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
+  mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();closeRoomTransport();credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   plotPoll=nil
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
@@ -1944,14 +1968,17 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;socket?.cancel(with:.goingAway,reason:nil);socket=nil;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleInactive() {inactiveAt=clock.localNow()}
  func handleForeground() {
   let wasForeground=foreground
   foreground=true;chat.visible=true;visualSampler.setForeground(true)
   let now=clock.localNow()
+  let inactiveDuration=inactiveAt.map {max(0,now-$0)} ?? 0
+  inactiveAt=nil
   if RoomResumePolicy.shouldReconnect(hasCredentials:credentials != nil,wasForeground:wasForeground,
    isConnected:connected,hasSocket:socket != nil,lastMessageAgeMs:now-lastMessageAt,
-   connectionAgeMs:now-connectionStartedAt) {connect()}
+   connectionAgeMs:now-connectionStartedAt,inactiveDurationMs:inactiveDuration) {connect()}
  }
  var durationWarning: String {
   let durations=members.filter {$0.duration>0}.map {$0.duration-$0.timelineOffset}

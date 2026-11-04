@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
   WindowGroup {TestView(model:model,chat:model.chat)}
    .onChange(of:scenePhase) {phase in
     if phase == .background {model.handleBackground()}
+    if phase == .inactive {model.handleInactive()}
     if phase == .active {model.handleForeground()}
    }
  }
@@ -1078,6 +1079,10 @@ struct RoomActionStyle:ButtonStyle {
      }
      HStack {Image(systemName:"number.circle").foregroundStyle(.blue);TextField("房间编号",text:$model.roomID).textInputAutocapitalization(.never).autocorrectionDisabled();Button {UIPasteboard.general.string=model.roomID} label:{Image(systemName:"doc.on.doc")}.accessibilityLabel("复制房间编号").disabled(model.roomID.isEmpty)}.padding(12).background(Color.white.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius:10))
      HStack {ConnectionFeedback(model:model,feedback:model.feedback);Spacer();if model.isConnected {Button(model.isRoomHost ? "离开并关闭房间" : "离开房间",role:.destructive) {model.leaveRoom()}.accessibilityIdentifier("room-page-leave") }}
+     if !model.isConnected && !model.roomID.isEmpty {
+      Button {model.retryRoomConnection()} label:{Label("立即重连",systemImage:"arrow.clockwise")}
+       .accessibilityIdentifier("room-page-retry-connection")
+     }
      RequestFeedback(feedback:model.feedback)
      DisclosureGroup("连接设置") {
       VStack(alignment:.leading,spacing:14) {

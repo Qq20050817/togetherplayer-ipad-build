@@ -114,3 +114,13 @@
 - Signed time-limited 168-hour direct HTTP path on usb-media.xiaokai123.de5.net:49185. Remote check: HTTP 200, application/octet-stream, Content-Length 17650754, Accept-Ranges; a 1 MiB Range request returned 206; full remote SHA256 matched. Cross-border Singapore sample speed only ~276 KB/s; actual mainland hotspot throughput remains unmeasured and should be reported by user.
 - Existing config check found one original listed media file present and seven historical entries absent, corresponding to original HEAD 200/503 statuses. These original entries and film data were not modified. Avoid attributing historical stale entries to delivery change.
 - Rollback of new public delivery only: restore backed-up config after checking intervening edits, remove exact IPA /mnt/sda1/Installers/TogetherPlayer-iPad-0.6.79-Room-Resume-unsigned.ipa once user no longer needs it. Never roll back media server/film services wholesale.
+
+## 2026-11-04 · iPad foreground WebSocket reconnection, candidate 0.6.80
+
+- User reopened persistent background/foreground room reconnection failure after 0.6.79 candidate. Exact installed build and actual WebSocket error code remain unknown.
+- Source baseline: `fix/ipad-room-background-rejoin-20261104` HEAD `3af73989c37b78fc5ea0a0131a215480aeacc8dd` (documentation-only follow-up); application test and IPA baseline `f1e768e703c88fc99e6c1f67bc420b08d015f386`, Actions 41833459657 SUCCESS, unsigned 0.6.79/139.
+- New independent branch `fix/ipad-foreground-ws-recovery-20261104` with no original source or production service overwritten. Changed `ios/TogetherPoC/RoomTransport.swift`, `TestClient.swift`, `TogetherPoCApp.swift`, `ios/NativeTests/RoomConnectionTests.swift`, `ios/project.yml`, and `.github/workflows/ipad-seek-clock.yml`.
+- Purpose: preserve same room identity across application resume; reconnect after prolonged inactive scene; retire URLSession WebSocket transport state on every retry; show sanitized transport failure types; add a visible retry action; build an unsigned 0.6.80/140 candidate. The actual server/network cause is not yet proven.
+- Before native CI: `git diff --check` passed, workflow YAML parsed. Local environment has no Swift/Xcode toolchain. Native app build, XCTest and physical iPad test remain **pending** and must not be called successful.
+- Singapore read-only service `/health` HTTP 200; per-room telemetry and DB inaccessible (permission denied). No server, database, router, Android, signing or production changes.
+- Rollback: previous 0.6.79 artifact and exact `f1e768e703c88fc99e6c1f67bc420b08d015f386` app baseline remain available. Do not uninstall user's signed app or clear room settings. CI result, commit and delivery must be appended after actual verification.

@@ -59,6 +59,19 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertTrue(reconnect(true,false,true,100,10_000))
   XCTAssertFalse(reconnect(true,true,true,14_999,100_000))
   XCTAssertTrue(reconnect(true,true,true,15_000,100_000))
+  XCTAssertFalse(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:true,
+   hasSocket:true,lastMessageAgeMs:100,connectionAgeMs:500,inactiveDurationMs:2999))
+  XCTAssertTrue(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:true,
+   hasSocket:true,lastMessageAgeMs:100,connectionAgeMs:500,inactiveDurationMs:3000))
+  XCTAssertTrue(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:false,
+   hasSocket:true,lastMessageAgeMs:100,connectionAgeMs:500,inactiveDurationMs:6000))
+ }
+ func testReconnectFailuresShowSanitizedNetworkReasons() {
+  XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorTimedOut),httpStatus:nil),"连接超时")
+  XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorNetworkConnectionLost),httpStatus:nil),"网络连接中断")
+  XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorCannotFindHost),httpStatus:nil),"无法解析服务器地址")
+  XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorTimedOut),httpStatus:503),"服务器入口暂不可用（HTTP 503）")
+  XCTAssertEqual(RoomTransportFailure.description(NSError(domain:NSURLErrorDomain,code:NSURLErrorTimedOut),httpStatus:401),"房间凭证失效（HTTP 401）")
  }
  @MainActor func testInvalidFramesDoNotDisconnectOrLoseFollowingSnapshot() throws {
   let model=try client();model.receive(welcome(),t4:0)

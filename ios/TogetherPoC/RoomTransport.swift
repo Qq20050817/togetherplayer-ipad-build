@@ -20,6 +20,29 @@ enum RoomConnectionHealth {
  }
 }
 
+enum RoomTransportFailure {
+ static func description(_ error: NSError, httpStatus: Int?) -> String {
+  if let httpStatus {
+   if httpStatus == 401 {return "房间凭证失效（HTTP 401）"}
+   if httpStatus == 403 {return "服务器拒绝连接（HTTP 403）"}
+   if [502,503,504].contains(httpStatus) {return "服务器入口暂不可用（HTTP \(httpStatus)）"}
+   return "服务器响应 HTTP \(httpStatus)"
+  }
+  if error.domain == NSURLErrorDomain {
+   switch error.code {
+   case NSURLErrorTimedOut:return "连接超时"
+   case NSURLErrorNotConnectedToInternet:return "当前网络不可用"
+   case NSURLErrorNetworkConnectionLost:return "网络连接中断"
+   case NSURLErrorCannotFindHost,NSURLErrorDNSLookupFailed:return "无法解析服务器地址"
+   case NSURLErrorCannotConnectToHost:return "无法连接服务器"
+   case NSURLErrorSecureConnectionFailed,NSURLErrorServerCertificateUntrusted:return "安全连接失败"
+   default:return "网络错误 \(error.code)"
+   }
+  }
+  return "连接错误 \(error.code)"
+ }
+}
+
 struct PendingRoomMedia {
  let roomID: String
  let url: String
@@ -29,9 +52,12 @@ struct PendingRoomMedia {
 }
 
 enum RoomResumePolicy {
- static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double,connectionAgeMs: Double) -> Bool {
+ static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double,connectionAgeMs: Double,inactiveDurationMs: Double=0) -> Bool {
   guard hasCredentials else {return false}
   if !wasForeground || !hasSocket {return true}
+  // iPad multiwindow and app switching may go inactive without entering background.
+  // Reopen the transport after a meaningful inactive interval to avoid a half-open socket.
+  if inactiveDurationMs >= 3000 {return true}
   // A resumed inactive scene may hold a stale socket even while still marked connected.
   // Avoid disrupting a genuinely healthy socket or a handshake still in progress.
   return isConnected ? lastMessageAgeMs >= 15_000 : connectionAgeMs >= 10_000

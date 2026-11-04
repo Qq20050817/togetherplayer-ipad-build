@@ -56,3 +56,11 @@
 - Status: build + simulator regression PASS in run 41833459657. Field resolution remains OPEN until the user signs/installs 0.6.79 and tests background/foreground rejoining on the same real room. Server per-room logs were inaccessible and no server contribution has been conclusively excluded. No server changes or Android changes.
 
 - Distribution note (2026-11-04): user could not open ChatGPT sandbox IPA link and previously measured <500 KB/s over mobile hotspot through foreign download service. Isolated domestic-path alternative now staged on user's GL-MT3000 USB HTTP 49185, SHA256 verified, Range/HEAD 200/206 passed from Singapore. Real mainland hotspot speed and mobile IPv6 availability require field verification; do not claim high-speed confirmed. Existing media service config backed up and previous entries unchanged.
+
+## TP-IPAD-BACKGROUND-REJOIN-20261104 · Reopened after field report
+
+- User reported the connection remains interrupted after backgrounding even following the 0.6.79 candidate delivery. The screenshot shows an existing room ID and repeated automatic reconnect; installed build number and network-layer failure code are not independently verified.
+- Existing source only observes `.background` and `.active`. An iPad scene that becomes `.inactive` without `.background` can retain a half-open WebSocket; all retries use `URLSession.shared`, and errors are collapsed into a generic message. These are concrete recovery/diagnostic gaps; the exact production failure remains unknown.
+- Candidate 0.6.80 branch `fix/ipad-foreground-ws-recovery-20261104`: track prolonged inactivity, recreate an isolated ephemeral URLSession per transport attempt, cancel stale sessions, show categorized status codes, and provide immediate manual reconnect while keeping the room credentials. Add policy and error-message regressions.
+- Read-only Singapore production check: local room service `/health` responded HTTP 200; its room telemetry and database paths explicitly returned permission denied, so no per-room authentication conclusion is possible. No backend, router, Android or production change.
+- Status: candidate pending macOS CI and device acceptance. Keep 0.6.79/139 as rollback. Do not claim resolution until real iPad foreground/background and network transition tests pass.
