@@ -64,3 +64,11 @@
 - Candidate 0.6.80 branch `fix/ipad-foreground-ws-recovery-20261104`: track prolonged inactivity, recreate an isolated ephemeral URLSession per transport attempt, cancel stale sessions, show categorized status codes, and provide immediate manual reconnect while keeping the room credentials. Add policy and error-message regressions.
 - Read-only Singapore production check: local room service `/health` responded HTTP 200; its room telemetry and database paths explicitly returned permission denied, so no per-room authentication conclusion is possible. No backend, router, Android or production change.
 - Status: candidate pending macOS CI and device acceptance. Keep 0.6.79/139 as rollback. Do not claim resolution until real iPad foreground/background and network transition tests pass.
+
+- CI closure: 0.6.80/140 Actions run `41841128744` passed Release build, targeted XCTest, full-screen UI test and unsigned IPA packaging. Field reconnect confirmation still open.
+
+## TP-PEER-STALL-20261104 · Automatic paired pause requires client playhead preservation
+- User rule: a peer with continuous valid but unmoving progress for over 10 seconds pauses both devices; a lagging yet moving peer only performs speed catch-up; a third-party assistant sends a reason danmaku.
+- Service candidate branch: `Qq20050817/togetherplayer` `fix/stall-pause-system-danmaku-20261104`. UI and logic in iPad branch `fix/ipad-peer-stall-preserve-20261104` build 0.6.81/141.
+- Regression risk: a normal room `PAUSE` previously hard-seeked the other player to the canonical room position, skipping missed content on the stalled device. Special-case `peer_stalled` preserves actual local position on each device; manual PLAY allows catch-up.
+- Status: candidate pending CI, matching Android client adaptation, backend release authorization and actual paired-device verification. Do not claim resolved.

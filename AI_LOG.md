@@ -124,3 +124,15 @@
 - Before native CI: `git diff --check` passed, workflow YAML parsed. Local environment has no Swift/Xcode toolchain. Native app build, XCTest and physical iPad test remain **pending** and must not be called successful.
 - Singapore read-only service `/health` HTTP 200; per-room telemetry and DB inaccessible (permission denied). No server, database, router, Android, signing or production changes.
 - Rollback: previous 0.6.79 artifact and exact `f1e768e703c88fc99e6c1f67bc420b08d015f386` app baseline remain available. Do not uninstall user's signed app or clear room settings. CI result, commit and delivery must be appended after actual verification.
+
+### 2026-11-04 · iPad foreground recovery CI closure
+- Exact GitHub source commit: `c516a142790db11ca2febf71776c0c625e9efecc` on `fix/ipad-foreground-ws-recovery-20261104`.
+- GitHub Actions `41841128744`: macOS Release build, targeted native regressions, fullscreen seek UI test and unsigned IPA packaging all SUCCESS. Artifact `13329553996`, `ipad-room-reconnect-080-unsigned`, ZIP digest `sha256:9899e8698d4d94e6bda1093449c955df5cba28b3583b787a4ae5340ef6c86785` (archive digest, not IPA digest).
+- Candidate 0.6.80/140 delivered as GitHub artifact link. Device signing/install and real background reconnection remain unverified; no production changes.
+
+## 2026-11-04 · iPad system stall pause integration candidate 0.6.81
+- Independent branch `fix/ipad-peer-stall-preserve-20261104` based on verified iPad 0.6.80/140 source tree `432069319e66c222088f53dcc2ebd0fa785a193a` (remote HEAD `c516a142790db11ca2febf71776c0c625e9efecc`).
+- Files: `ios/TogetherPoC/SyncCore.swift`, `TestClient.swift`, `ios/NativeTests/ThreeSecondSyncTests.swift`, `ios/project.yml`, `.github/workflows/ipad-seek-clock.yml`.
+- The server's new `peer_stalled` reason pauses each device at its **own actual position**, preventing the regular paused-state sync seek from skipping video on the stalled peer. Manual resume retains existing sustained speed catch-up. The existing 0.6.80 reconnect changes remain intact.
+- New targeted XCTest checks scheduled pause, no implicit seek, and post-resume catch-up. App candidate version 0.6.81/141; **native CI and real device acceptance pending**. Backend `peer_stalled` candidate also requires its own CI and separately authorized deployment.
+- Recovery: leave 0.6.80 (Actions 41841128744) or earlier signed app installed. No merge, signing, server or router modification.

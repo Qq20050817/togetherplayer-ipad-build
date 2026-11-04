@@ -325,6 +325,13 @@ final class SyncEngine {
   let now=clock.localNow()
   let timeline=clock.serverNow() < (room?.executeAt ?? 0) ? room?.before.playbackRate : room?.playbackRate
   let baseRate:Float=timeline == 2 ? 2 : 1
+  // A shared pause due to a frozen peer must preserve each device's actual
+  // playhead. Seeking both viewers to the canonical room clock would skip the
+  // missing section on the stalled device and can restart its failing decoder.
+  if state == "paused" && room?.pauseReason == "peer_stalled" {
+   explicitSeekVersion=nil;resetCorrection();player.pause();player.setPlaybackSpeed(1)
+   return error
+  }
   if explicitSeekVersion != nil {
    // Suppress old before-timeline correction after a local optimistic seek.
    guard clock.serverNow() >= (room?.executeAt ?? 0) else {if state == "playing" {player.play()} else {player.pause()};return error}

@@ -67,4 +67,22 @@ final class ThreeSecondSyncTests:XCTestCase {
   XCTAssertEqual(p.seeks,0);p.ready=true;e.tick()
   XCTAssertEqual(p.seeks,1);XCTAssertEqual(p.position,80500)
  }
+ func testPeerStallPausePreservesPlayheadAndManualResumeCatchesUp() {
+  var now=0.0;let clock=ClockSync{now};clock.add(0,0,0,0)
+  let p=Player();let engine=SyncEngine(p,clock)
+  engine.receive(frame(10000));engine.tick()
+  XCTAssertEqual(p.seeks,0)
+  let paused=Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:2,executeAt:750,state:"paused",position:30750,updatedAt:750,playbackRate:1,before:Timeline(state:"playing",position:30000,updatedAt:0,playbackRate:1),pauseReason:"peer_stalled")
+  engine.receive(paused)
+  now=500;engine.tick();XCTAssertTrue(p.playing,"pause must honor the scheduled execution time")
+  now=1000;engine.tick()
+  XCTAssertFalse(p.playing);XCTAssertEqual(p.position,10000);XCTAssertEqual(p.seeks,0,"stalled device must not jump forward")
+  for t in 1...20 {now=1000+Double(t)*100;engine.tick()}
+  XCTAssertEqual(p.seeks,0,"paused clock drift must not trigger an implicit seek")
+  let resumed=Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:3,executeAt:3000,state:"playing",position:30750,updatedAt:3000,playbackRate:1,before:Timeline(state:"paused",position:30750,updatedAt:1000,playbackRate:1))
+  engine.receive(resumed)
+  for step in 1...125 {now=3000+Double(step)*100;p.position=10000+Double(step)*100;engine.tick()}
+  XCTAssertTrue(p.playing);XCTAssertGreaterThan(p.rate,1,"resumed lag should use sustained speed catch-up")
+  XCTAssertEqual(p.seeks,0,"manual resume must not discard the stalled peer's unwatched section")
+ }
 }
