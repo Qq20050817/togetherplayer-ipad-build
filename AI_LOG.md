@@ -86,3 +86,12 @@
 ## 2026-11-04 · User confirms ten-second persistence
 - Supersedes candidate5s duration: lag must be strictly>5000ms continuously for at least10000ms before local rate catch-up starts. A return to<=5000ms before activation clears the timer; active catch-up returns to1x within3000ms. No automatic pause. Manual SEEK remains immediate.
 - Earlier5s-duration CI candidates are superseded, not final deliverables. Update native/standalone boundary and interruption tests; rerun required.
+
+## 2026-11-04 · iPad background room reconnection candidate
+- User report: iPad 0.6.78 reconnect fails after app backgrounding, UI indicates connection interrupted. Android counterpart unconfirmed and unchanged.
+- Verified application baseline: 4d6e880574307442811bca925966bd71ac2308dc, Actions 41812241613 SUCCESS, iPad 0.6.78/138. New isolated branch: fix/ipad-room-background-rejoin-20261104.
+- Source inspection: RoomEnvelope.decode discarded all valid JSON frames larger than 8192 bytes. Reconnected WELCOME may include room history; a discarded WELCOME leaves the room disconnected until heartbeat timeout. Scene active handler skipped stale foreground socket states.
+- Changed ios/TogetherPoC/RoomTransport.swift and ios/TogetherPoC/TestClient.swift to accept bounded 1 MiB room frames and renew stale session on activation while retaining fresh handshakes. Added iOS native tests for large WELCOME after background, malformed/oversized frame and resume decision. Bumped isolated iPad candidate to 0.6.79/139; updated CI verification and unsigned packaging.
+- Production server remained untouched. Read-only checks: Singapore TogetherPlayer process running and local /health HTTP 200, public TogetherPlayer endpoint reachable (root 404 expected); room-specific auth/lease logs were not accessible, server-side contribution not excluded.
+- Verification: GitHub Actions run 41833322017 started on commit c0c7e6dc23980883c78b5972785b01b16dd4ebbf, pending result. Device lifecycle and two-device field test unverified. No install, merge or deployment.
+- Recovery: retain existing 0.6.78 IPA and application baseline SHA; revert candidate branch to 4d6e880574307442811bca925966bd71ac2308dc. Do not uninstall user's signed app or delete data.
