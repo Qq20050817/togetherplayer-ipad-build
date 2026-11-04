@@ -82,3 +82,7 @@
 - Latest user instruction: no automatic pause for ordinary drift or peer buffering; pause belongs to users; explicit SEEK goes to both. Historical smart-pause text was supplied as reference, subsequently superseded by this clarification. Remove the erroneous >10s automatic local pause.
 - Candidate uses lag>5000ms continuously for5000ms, resets on brief recovery, invalid/gapped samples or buffering; normal speed within3000ms. Sustained duration awaits user preference; candidate default5s. Leading device keeps normal requested speed, no automatic backward SEEK/pause.
 - Preserve verified manual SEEK confirmation, live clock, fullscreen native slider and Android local-first routing/reconnect/permission/identity/subtitle/audio behavior. Native regression/build pending for this candidate.
+
+## 2026-11-04 · User confirms ten-second persistence
+- Supersedes candidate5s duration: lag must be strictly>5000ms continuously for at least10000ms before local rate catch-up starts. A return to<=5000ms before activation clears the timer; active catch-up returns to1x within3000ms. No automatic pause. Manual SEEK remains immediate.
+- Earlier5s-duration CI candidates are superseded, not final deliverables. Update native/standalone boundary and interruption tests; rerun required.

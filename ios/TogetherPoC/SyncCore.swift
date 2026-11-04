@@ -249,7 +249,7 @@ final class ClockSync {
   offset=samples.min(by: {$0.1 < $1.1})!.0; rtt=latency
  }
 }
-// A sampled five-second gap must persist for five seconds before catch-up.
+// A sampled five-second gap must persist for ten seconds before catch-up.
 // User SEEK bypasses this policy; only the lagging device changes speed.
 struct SustainedCatchupPolicy {
  private var since:Double?;private var last:Double?;private var rate:Float=1
@@ -262,7 +262,7 @@ struct SustainedCatchupPolicy {
   if rate>1 {return rate}
   if error<=5000 {since=nil;return 1}
   if since==nil {since=now}
-  if now-(since ?? now)>=5000 {rate=error>15000 ? 1.25 : 1.10}
+  if now-(since ?? now)>=10000 {rate=error>15000 ? 1.25 : 1.10}
   return rate
  }
 }

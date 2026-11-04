@@ -11,7 +11,7 @@ final class FakePlayer:PlayerAdapter {
   e.receive(room());e.tick()
   for gap in [-3000.0,-1000,0,1000,3000]{p.position=10000-gap;e.tick();precondition(p.rate==1 && p.seeks==0)}
   for gap in [4000.0,5000] {p.position=10000-gap;e.tick();precondition(p.rate==1 && p.playing && p.seeks==0)}
-  for t in 0...50 {now=Double(t)*100;p.position=10000+now-6000;e.tick();if t<50 {precondition(p.rate==1)}}
+  for t in 0...100 {now=Double(t)*100;p.position=10000+now-6000;e.tick();if t<100 {precondition(p.rate==1)}}
   precondition(p.rate>1 && p.seeks==0)
   p.position=10000+now-3000;e.tick();precondition(p.rate==1)
   now=0;p.position=9500
