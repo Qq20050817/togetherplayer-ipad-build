@@ -95,3 +95,7 @@
 - Production server remained untouched. Read-only checks: Singapore TogetherPlayer process running and local /health HTTP 200, public TogetherPlayer endpoint reachable (root 404 expected); room-specific auth/lease logs were not accessible, server-side contribution not excluded.
 - Verification: GitHub Actions run 41833322017 started on commit c0c7e6dc23980883c78b5972785b01b16dd4ebbf, pending result. Device lifecycle and two-device field test unverified. No install, merge or deployment.
 - Recovery: retain existing 0.6.78 IPA and application baseline SHA; revert candidate branch to 4d6e880574307442811bca925966bd71ac2308dc. Do not uninstall user's signed app or delete data.
+
+### Follow-up evidence correction (same session)
+- Private Go backend server/internal/backend/server.go trims WELCOME history to <=7800 bytes where possible, and server_test.go verifies reconnect using the original credential after disconnection. Thus a normal server WELCOME >8192 bytes is not established; the new bounded envelope allowance is defensive. The exact field root cause remains unconfirmed.
+- Client UI text "连接中断，自动重连" originates in TestClient.reconnect. Scene-active stale-socket resume remains the primary iPad candidate. User-side frames, HTTP status and lifecycle trace remain unavailable; no field-tested claim.
