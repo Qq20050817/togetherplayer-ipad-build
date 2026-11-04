@@ -72,3 +72,5 @@
 - Service candidate branch: `Qq20050817/togetherplayer` `fix/stall-pause-system-danmaku-20261104`. UI and logic in iPad branch `fix/ipad-peer-stall-preserve-20261104` build 0.6.81/141.
 - Regression risk: a normal room `PAUSE` previously hard-seeked the other player to the canonical room position, skipping missed content on the stalled device. Special-case `peer_stalled` preserves actual local position on each device; manual PLAY allows catch-up.
 - Status: candidate pending CI, matching Android client adaptation, backend release authorization and actual paired-device verification. Do not claim resolved.
+
+- iPad 0.6.81/141 CI closure: exact source `937a821b00a52b5685cf7a0e84d17134e599bfc0`, Actions `41845237664` SUCCESS, unsigned IPA SHA256 `7219e076df45f08e373e8428fe9c1723272064ee2517160e0c94727a012f0fea`. USB HTTP HEAD `200`, 1 MiB external Range `206` verified. Production backend remains unchanged and real two-device automatic pause/danmaku behavior is unverified; issue remains OPEN. Android package delivery was paused by user.
