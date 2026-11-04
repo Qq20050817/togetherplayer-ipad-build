@@ -34,7 +34,7 @@ jobs:
           python3 - <<'PY'
           import pathlib,hashlib,subprocess
           p=pathlib.Path('android/app/src/main/java/dev/together/poc/MainActivity.kt')
-          assert p.read_bytes()==subprocess.check_output(['git','show','ccdeec1ac043fba72f74a35d39474f0d3ac38d3d:'+str(p)])
+          assert p.read_bytes()==subprocess.check_output(['git','show','9354947e379eb617d69d23b14eeb4b32078d6866:'+str(p)])
           print('Verified application source SHA256:',hashlib.sha256(p.read_bytes()).hexdigest())
           p=pathlib.Path('android/app/build.gradle.kts');s=p.read_text()
           assert s.count('applicationIdSuffix = ".fluency"')==1
