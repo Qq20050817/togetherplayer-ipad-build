@@ -22,8 +22,8 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
-class Media3Adapter(private val p: Player): PlayerAdapter {
- override fun play(){if(!p.playWhenReady)p.play()};override fun pause(){if(p.playWhenReady)p.pause()};override fun seekTo(positionMs: Long){p.seekTo(positionMs)}
+class Media3Adapter(private val p: Player,private val onSeek:((Long)->Unit)?=null): PlayerAdapter {
+ override fun play(){if(!p.playWhenReady)p.play()};override fun pause(){if(p.playWhenReady)p.pause()};override fun seekTo(positionMs: Long){if(onSeek!=null)onSeek.invoke(positionMs)else p.seekTo(positionMs)}
  override fun isAdvancing()=p.isPlaying
  override fun getBufferedAhead()=(p.bufferedPosition-p.currentPosition).coerceAtLeast(0)
  override fun getPosition()=p.currentPosition;override fun getDuration()=p.duration.coerceAtLeast(0);override fun isBuffering()=p.playbackState==Player.STATE_BUFFERING
@@ -130,7 +130,7 @@ class MainActivity: Activity() {
   val renderers=PlaybackRenderers.create(this,decoderRecovery)
   player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,HttpMediaDataSource.factory()))).build()
   playback=CompatiblePlayback(this,player,{active->nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error))})
-  engine=SyncEngine(Media3Adapter(playback),clock)
+  engine=SyncEngine(Media3Adapter(playback){seekManually(it)},clock)
   voice=VoiceDanmakuController(this,playback,{if(connected)engine.room?.optString("roomId") ?: "" else ""},{sendVoice(it)},{voiceViews.forEach {it.render()};if(voice.busy){main.removeCallbacks(hideControls);fullscreenControls?.visibility=View.VISIBLE}else if(fullscreenDialog!=null)revealControls()})
   buildInterface()
   savedInstanceState?.let {state->

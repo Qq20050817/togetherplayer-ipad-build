@@ -115,3 +115,7 @@
 ## 2026-11-04 · User confirms ten-second persistence
 - Supersedes candidate5s duration: lag must be strictly>5000ms continuously for at least10000ms before local rate catch-up starts. A return to<=5000ms before activation clears the timer; active catch-up returns to1x within3000ms. No automatic pause. Manual SEEK remains immediate.
 - Earlier5s-duration CI candidates are superseded, not final deliverables. Update native/standalone boundary and interruption tests; rerun required.
+
+## 2026-11-04 · Ordinary room SEEK confirmation gap
+- Source audit found Media3Adapter.seekTo called Player directly, so normal server-driven explicit SEEK bypassed the MainActivity native-position confirmation/15s failure tracker used by instant control. Route adapter seeks through seekManually; default adapter behavior remains available to independent users/tests.
+- Add real HTTP paused-room small SEEK confirmation plus a simulated ignored native request deadline: require failure feedback and actual clock/position rather than a fabricated pending target. New native test/build required; not yet marked passed.
