@@ -16,6 +16,50 @@ final class RoomConnectionTests: XCTestCase {
   }
   XCTAssertEqual(RoomEnvelope.decode(Data("{\"type\":\"PONG\",\"t1\":1}".utf8))?["type"] as? String,"PONG")
  }
+ func testLargeReconnectWelcomeAndBoundedDecoder() throws {
+  var frame=welcome()
+  frame["messages"]=(1...36).map { index in
+   ["id":index,"userId":"guest","name":"好友",
+    "text":String(repeating:"聊天记录",count:80),
+    "clientMessageId":"history-\(index)","timestamp":Double(index)] as [String:Any]
+  }
+  let payload=try JSONSerialization.data(withJSONObject:frame)
+  XCTAssertGreaterThan(payload.count,8192)
+  XCTAssertLessThan(payload.count,1_048_576)
+  XCTAssertEqual(RoomEnvelope.decode(payload)?["type"] as? String,"WELCOME")
+  XCTAssertNil(RoomEnvelope.decode(Data(repeating:0x20,count:1_048_577)))
+ }
+ @MainActor func testBackgroundReconnectAcceptsLargeValidWelcome() throws {
+  let model=try client()
+  model.receive(welcome(),t4:0)
+  model.handleBackground()
+  var frame=welcome()
+  frame["messages"]=(1...36).map { index in
+   ["id":index,"userId":"guest","name":"好友",
+    "text":String(repeating:"聊天记录",count:80),
+    "clientMessageId":"history-\(index)","timestamp":Double(index)] as [String:Any]
+  }
+  let payload=try JSONSerialization.data(withJSONObject:frame)
+  XCTAssertGreaterThan(payload.count,8192)
+  model.receiveFrame(payload,t4:0)
+  XCTAssertTrue(model.isConnected)
+  XCTAssertEqual(model.engine.room?.roomId,"connection-test")
+  XCTAssertEqual(model.chat.messages.count,36)
+ }
+ func testActiveSceneResumesStaleSocketWithoutRestartingFreshHandshake() {
+  func reconnect(_ wasForeground:Bool,_ connected:Bool,_ hasSocket:Bool,_ messageAge:Double,_ connectionAge:Double) -> Bool {
+   RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:wasForeground,isConnected:connected,
+    hasSocket:hasSocket,lastMessageAgeMs:messageAge,connectionAgeMs:connectionAge)
+  }
+  XCTAssertFalse(RoomResumePolicy.shouldReconnect(hasCredentials:false,wasForeground:false,isConnected:false,
+   hasSocket:false,lastMessageAgeMs:100_000,connectionAgeMs:100_000))
+  XCTAssertTrue(reconnect(false,true,true,100,100))
+  XCTAssertTrue(reconnect(true,false,false,100,100))
+  XCTAssertFalse(reconnect(true,false,true,100,100))
+  XCTAssertTrue(reconnect(true,false,true,100,10_000))
+  XCTAssertFalse(reconnect(true,true,true,14_999,100_000))
+  XCTAssertTrue(reconnect(true,true,true,15_000,100_000))
+ }
  @MainActor func testInvalidFramesDoNotDisconnectOrLoseFollowingSnapshot() throws {
   let model=try client();model.receive(welcome(),t4:0)
   for raw in ["","not-json","[]"] {model.receiveFrame(Data(raw.utf8),t4:0)}
