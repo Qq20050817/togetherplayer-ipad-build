@@ -88,3 +88,9 @@
 
 ## Candidate consolidation
 - Current application9a36b3f7c43e487d9c527daa81442b5dc21c442d, Android0.6.60.8/128, full run41742801175. Earlier c863015 and0999f58 runs superseded/cancelled after additional code findings; their partial build success does not verify this application. Record final counts only after current completion. All changes remain on independent branch/PR32, unmerged/undeployed.
+
+## Android0.6.60.8 verified candidate checkpoint
+- App9a36b3f7c43e487d9c527daa81442b5dc21c442d; run41742801175 SUCCESS. HTML unit summary137 tests,0 failures/ignored; native XML38 tests,0 failures/skips. Includes matching HTTP/local binding, SAF MP4/MKV decode+Seek, reconnect picker, forcedHTTP prevention, explicit invalid-grant fallback, real-position/subtitle retry retention, sourceFault READY clear and actual HTTP error-page/data-source checks. APK compilation and existing decoder/voice/UI scripts passed.
+- Archive13282653792 SHA256265e67deac8f86808eacab323a7588c99730d219a54c39283683f7156ca602cf verified. APK292,693,449 bytes SHA256abd3076925d0a379fc244e2282f551727e5b4b372447f1918d6a080c03ab8ff5. Version0.6.60.8/128 retains .fluency test suffix; ephemeral CI signer may require separate handling from an installed preview. Never uninstall user app automatically.
+- Independent PR32; no main merge/deployment/install. Physical Android HEVC/HDR/DTS/TrueHD combinations, long playback, large MP4 field test and actual two-device mobile network tests remain open. Private server9bd65d45 protocol counterpart not deployed, so healthy-peer source-fault isolation is not yet active in production. Greater-than10s automatic pause-intent distinction is not implemented in this phase.
+- Recovery: prior independently verified delivery remains available; source rollback9a36b3f or initial6363aad as appropriate, retaining local grants/data. Main-only AI Journal has not synced this feature branch; GitHub logs are committed, no false main ingestion.
