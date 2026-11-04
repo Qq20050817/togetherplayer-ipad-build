@@ -49,14 +49,14 @@ jobs:
           mkdir -p android/app/src/main/assets baseline
           curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
           echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
-          gh api repos/Qq20050817/togetherplayer-ipad-build/actions/artifacts/13316215327/zip > baseline/original.zip
+          gh api repos/Qq20050817/togetherplayer-ipad-build/actions/artifacts/13313177972/zip > baseline/original.zip
           python3 - <<'PY'
           import zipfile,pathlib,hashlib
           with zipfile.ZipFile('baseline/original.zip') as z:
               names=[n for n in z.namelist() if n.endswith('.apk')];assert len(names)==1
               data=z.read(names[0])
-              assert hashlib.sha256(data).hexdigest()=='4eb4e200fc0fec63b575ff144c4e558f65ef995787c541ece08dbe1ea3aa269b'
-              pathlib.Path('baseline/original-0611.apk').write_bytes(data)
+              assert hashlib.sha256(data).hexdigest()=='2753e73c61eed20aef104e78a51be0d74274bcad3b58259ac348192be40b389e'
+              pathlib.Path('baseline/original-0610.apk').write_bytes(data)
           PY
       - name: Build universal smoke package
         working-directory: android
@@ -74,7 +74,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            adb install baseline/original-0611.apk
+            adb install baseline/original-0610.apk
             adb install android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm list packages | grep -x 'package:dev.together.poc.fluency'
             adb shell pm list packages | grep -x 'package:dev.together.poc.decoder12'
