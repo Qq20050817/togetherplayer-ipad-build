@@ -49,3 +49,5 @@
 - Candidate: branch fix/ipad-room-background-rejoin-20261104; allow bounded 1 MiB snapshots, stale-socket resume policy, new targeted XCTest. CI run 41833322017 pending; no successful fix or IPA claim until completion.
 - Server: live /health HTTP 200 and process active, but room-specific auth or lease errors remain unverified due read access restrictions. No server modifications.
 - Status: candidate under automated verification; physical foreground/background/connection-loss test pending.
+
+- Evidence correction: backend snapshot() trims ordinary WELCOME history to roughly 7800 bytes. Large WELCOME rejection is a possible edge case, not a demonstrated explanation. Server reconnect with existing token passes its protocol unit test. Prior wording calling it a confirmed cause is superseded; stale client lifecycle state remains suspected.
