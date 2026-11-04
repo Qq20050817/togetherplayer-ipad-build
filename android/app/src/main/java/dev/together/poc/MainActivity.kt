@@ -34,6 +34,7 @@ class MainActivity: Activity() {
  private val diagnosticJournal by lazy {PlaybackDiagnosticJournal(java.io.File(filesDir,"playback-diagnostics.jsonl"))}
  private val main=Handler(Looper.getMainLooper());private val http=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
  private val decoderRecovery=VideoDecoderRecovery();private var videoDecoderName="";private var decoderRecoveryPending=false
+ private var audioFallbackAttemptedSource=""
  private lateinit var player: ExoPlayer;private lateinit var playback:CompatiblePlayback;private var nativeVideoView:PlayerView?=null;private var independentVideoView:org.videolan.libvlc.util.VLCVideoLayout?=null;private lateinit var engine: SyncEngine;private val clock=ClockSync();private val chat=ChatEngine()
  private lateinit var server: EditText;private lateinit var media: EditText;private lateinit var roomInput: EditText;private lateinit var seek: EditText
  private lateinit var status: TextView;private lateinit var requestStatus: TextView;private lateinit var titleField: EditText;private lateinit var nickname: EditText
@@ -168,6 +169,7 @@ class MainActivity: Activity() {
     diagnostic("playerError",details)
     if(scheduleHttpErrorRecovery(error.errorCode,httpStatus,diagnosis.retryable))return
      if(tryRecoverMalformedLocalContainer(error.errorCode))return
+    if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverCompatibleAudio(format))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(diagnosis.category=="LOCAL_UNAVAILABLE")diagnosis.message else if(diagnosis.category=="DECODER") "$kind 解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。已记录具体编码信息；可点“重试播放”，或尝试其它音轨及 H.264/AAC 兼容片源。" else if(httpHealth.isHttp)"${diagnosis.message}（${error.errorCodeName}）。可点重试播放。" else if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
@@ -1027,6 +1029,28 @@ class MainActivity: Activity() {
   diagnostic("localContainerFallback",JSONObject().put("errorCode",errorCode).put("sourceScheme",uri.scheme ?: ""))
   return true
  }
+ private fun tryRecoverCompatibleAudio(failed:androidx.media3.common.Format?):Boolean {
+  val uri=playback.currentMediaItem?.localConfiguration?.uri?.toString() ?: return false
+  if(audioFallbackAttemptedSource==uri)return false
+  val tracks=playback.currentTracks.groups.filter {it.type==androidx.media3.common.C.TRACK_TYPE_AUDIO}
+   .flatMap {group->(0 until group.length).map {index->group.getTrackFormat(index) to group.isTrackSupported(index)}}
+  val choice=AudioTrackFallback.select(failed?.sampleMimeType,failed?.language ?: playback.audioFormat?.language,
+   tracks.map {AudioTrackFallback.Option(it.first.sampleMimeType,it.first.language,it.second)})
+   ?: return false
+  val selected=tracks[choice].first
+  val position=playback.currentPosition.coerceAtLeast(0L)
+  val sourceRoom=engine.room?.optString("roomId")
+  audioFallbackAttemptedSource=uri
+  diagnostic("audioDecoderFallback",JSONObject().put("fromMime",failed?.sampleMimeType).put("toMime",selected.sampleMimeType).put("language",selected.language))
+  requestStatus.text="DTS/TrueHD 音轨解码异常，尝试同语言的 AC3/AAC 兼容音轨…"
+  main.post {
+   if(stopped || !foreground || engine.room?.optString("roomId")!=sourceRoom ||
+      playback.currentMediaItem?.localConfiguration?.uri?.toString()!=uri)return@post
+   loadMedia(uri,position.toDouble(),preserveSubtitles=true,
+    preferredAudio=AudioChoice(selected.id,selected.language,selected.label,selected.sampleMimeType,selected.channelCount))
+  }
+  return true
+ }
  private fun tryRecoverVideoDecoder(format:androidx.media3.common.Format?,failed:String):Boolean {
   if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending)return false
   val fallbackURI=playback.currentMediaItem?.localConfiguration?.uri?.toString()
@@ -1111,7 +1135,7 @@ class MainActivity: Activity() {
    else if(source.isNotBlank())playback.currentPosition.coerceAtLeast(0).toDouble()
    else engine.target()?.first ?: 0.0
  }
- private fun loadMedia(url:String,position:Double,preserveSubtitles:Boolean=false){
+ private fun loadMedia(url:String,position:Double,preserveSubtitles:Boolean=false,preferredAudio:AudioChoice?=null){
   val room=engine.room
   val route=LocalSourcePriority.decide(url,room?.optString("roomId").orEmpty(),room?.optString("mediaUrl").orEmpty(),localSourceRoomID,localSourceRoom,localFileUri,savedLocalPermissionMissing)
   if(route==LocalSourcePriority.Action.RESELECT){playback.pause();requestStatus.text="本地影片读取授权已失效，请重新选择，或点清除本地影片切回U盘";return}
@@ -1120,13 +1144,14 @@ class MainActivity: Activity() {
   val changed=playback.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved
   val previousAudio=playback.audioFormat ?: if(preserveSubtitles)lastGoodAudio else null
   val audioLanguage=previousAudio?.language
-  pendingAudioChoice=if(preserveSubtitles && previousAudio!=null)AudioChoice(previousAudio.id,previousAudio.language,previousAudio.label,previousAudio.sampleMimeType,previousAudio.channelCount)else null
+  pendingAudioChoice=preferredAudio ?: if(preserveSubtitles && previousAudio!=null)AudioChoice(previousAudio.id,previousAudio.language,previousAudio.label,previousAudio.sampleMimeType,previousAudio.channelCount)else null
   networkRecoveryGeneration++;networkRecoveryScheduled=false;manualSeek=null
   playbackRecovery.reset();playbackNeedsRecovery=false
   if(!preserveSubtitles)playerRebuildCount=0
   decoderRecovery.beginSource(resolved)
   if(changed || !preserveSubtitles){httpHealth.reset(resolved);httpRetryBudget.reset();httpStablePosition=0}
   videoDecoderName=""
+  if(changed){audioFallbackAttemptedSource=""}
   if(changed && !preserveSubtitles){clearSubtitle();lastGoodAudio=null}
   playback.pause()
   if(changed){sourceFault=false;playback.stop();playback.clearMediaItems();lastGoodSource=resolved;lastGoodPosition=position.coerceAtLeast(0.0).toLong()}
