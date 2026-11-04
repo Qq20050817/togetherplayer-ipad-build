@@ -31,3 +31,6 @@
 
 ## Decoder recovery evidence boundaries
 - Decoder error alone does not establish audio versus video failure. Only audio DTS/TrueHD failures qualify for bounded same-language AC3/EAC3/AAC fallback; unknown language or unsupported tracks never silently switch language. Preserve installed0.6.60.11 sync/SEEK/local-first rules when integrating older experimental fixes.
+
+## HTTP video recovery and delivery checkpoint
+- Android installed0.6.60.11 baseline is78ea830, not old main. Verified0.6.60.12 application9354947 adds ordinary-HTTP HEVC independent recovery; its native test checkpoint387cee0 passes148 JVM+42 native, physical field acceptance open. Use parallel.decoder12 package because ephemeral CI signers differ; never require uninstalling the installed.fluency app.
