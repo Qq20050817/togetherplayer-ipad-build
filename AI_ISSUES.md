@@ -57,3 +57,14 @@
 
 ## ANDROID-ORDINARY-SEEK-CONFIRM · 2026-11-04
 - Source audit: normal server-driven seeks went directly from Media3Adapter to Player, bypassing the UI native-position confirmation/15s failure tracker used by instant controls. Route them through seekManually. Real paused-room HTTP seek now confirms, and a simulated ignored native request reports failure while clock/playhead remain real. New native test passes in41812565306. Existing local/SAF/compatibility/rapid-seek/clock regressions retained.
+
+## TP-ANDROID-USB-DECODER-20261104 (open)
+- Installed0.6.60.11: router USB HTTP movie reports ERROR_CODE_DECODING_FAILED. Exact failed renderer unknown; prior media evidence suggests HEVC Main10/DTS compatibility risks. Candidate0.6.60.12 distinguishes renderer/MIME/decoder, adds once-per-source same-language compatible audio recovery on DTS/TrueHD audio failure. Native verification and real Pad7 movie acceptance pending.
+
+## TP-IOS-080-WIFI-TLS-20261104 (open)
+- Installed0.6.80: room secure connection fails on home Wi-Fi, works on phone hotspot. DNS automatic, proxy off, no iPad VPN (user confirmed). External server health/TLS pass; exact home path unconfirmed. No TLS validation bypass, DNS/router mutation or speculative iOS release.
+
+## TP-ANDROID-HTTP-HEVC-RECOVERY-0612 · Native verified, physical acceptance OPEN
+- Confirmed source gap: HTTP playback could not enter the independently bundled HEVC software path, which only accepted file/content. User's installed0.6.60.11 failed on router HTTP and English Dolby Digital switching did not restore playback; actual failed renderer remains unobserved on the device.
+- Application9354947 enables explicit ordinary-HTTP recovery after actual HEVC runtime failure/exhausted OS alternatives, excludes account/header/URI-credential sources, preserves native position/subtitle/pause intent, and clears fault on actual independent READY. New source-policy and HTTP Main10 native regression now pass (test checkpoint387cee0, run41861295638).148 JVM+42 native0 failures/errors/skips, plus scoped Main10 test. Physical Pad7 original-film/HDR/performance acceptance remains open.
+- Parallel packaging cb62178/run41859361593 preserves application code and verified coexistence with prior.fluency identity; package.decoder12 / Together解码测试. Existing0.6.60.11 remains intact; user must enter/select a room in the independent test app. No uninstall/migration.

@@ -28,7 +28,7 @@ class LocalFirstHttpTest {
     val p=playback(a);assertEquals(Uri.fromFile(file).toString(),p.currentMediaItem!!.localConfiguration!!.uri.toString())
     assertEquals("fixture.srt",field(a,"subtitleName").get(a))
     repeat(20){field(a,"connected").set(a,false);welcome(a,room)}
-    a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,remote.url+"?renewed=1",1000.0,true)
+    a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType,a.javaClass.declaredClasses.single {it.simpleName=="AudioChoice"}).apply{isAccessible=true}.invoke(a,remote.url+"?renewed=1",1000.0,true,null)
     a.javaClass.getDeclaredMethod("retryPlayback").apply{isAccessible=true}.invoke(a)
     assertEquals(Uri.fromFile(file).toString(),p.currentMediaItem!!.localConfiguration!!.uri.toString())
    }
@@ -69,7 +69,7 @@ class LocalFirstHttpTest {
    val room=JSONObject().put("roomId","grant-reselect").put("hostId","peer").put("mediaUrl",remote.url).put("title","Fixture").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1)
    scenario.onActivity{a->welcome(a,room);field(a,"connected").set(a,false);playback(a).stop();field(a,"savedLocalPermissionMissing").set(a,true);field(a,"localSourceRoomID").set(a,"grant-reselect");field(a,"localSourceRoom").set(a,remote.url)}
    SystemClock.sleep(400);val count=remote.server.requestCount
-   scenario.onActivity{a->a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,remote.url,0.0,true)}
+   scenario.onActivity{a->a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType,a.javaClass.declaredClasses.single {it.simpleName=="AudioChoice"}).apply{isAccessible=true}.invoke(a,remote.url,0.0,true,null)}
    SystemClock.sleep(400);assertEquals(count,remote.server.requestCount)
    scenario.onActivity{a->assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("重新选择"));a.javaClass.getDeclaredMethod("clearLocalMovie").apply{isAccessible=true}.invoke(a);assertEquals(remote.url,playback(a).currentMediaItem!!.localConfiguration!!.uri.toString())}
   }}
@@ -82,7 +82,7 @@ class LocalFirstHttpTest {
    scenario.onActivity{a->welcome(a,room);a.javaClass.getDeclaredMethod("useLocalMovie",Uri::class.java,Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,Uri.fromFile(file),0,false)}
    var ready=false;repeat(100){if(!ready){scenario.onActivity{a->ready=(field(a,"localFileUri").get(a) as String).isNotBlank()&&playback(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}}
    assertTrue(ready);val requests=remote.server.requestCount;assertTrue(file.delete())
-   scenario.onActivity{a->field(a,"connected").set(a,false);a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,remote.url,1000.0,true)}
+   scenario.onActivity{a->field(a,"connected").set(a,false);a.javaClass.getDeclaredMethod("loadMedia",String::class.java,Double::class.javaPrimitiveType,Boolean::class.javaPrimitiveType,a.javaClass.declaredClasses.single {it.simpleName=="AudioChoice"}).apply{isAccessible=true}.invoke(a,remote.url,1000.0,true,null)}
    var failed=false;repeat(100){if(!failed){scenario.onActivity{a->failed=playback(a).playerError!=null};SystemClock.sleep(100)}}
    assertTrue("missing local file must report a real read failure",failed);assertEquals("failure must not silently select or preload HTTP",requests,remote.server.requestCount)
    scenario.onActivity{a->assertEquals(Uri.fromFile(file).toString(),playback(a).currentMediaItem!!.localConfiguration!!.uri.toString());assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("重新选择"));a.javaClass.getDeclaredMethod("clearLocalMovie").apply{isAccessible=true}.invoke(a);assertEquals(remote.url,playback(a).currentMediaItem!!.localConfiguration!!.uri.toString())}
@@ -111,6 +111,34 @@ class LocalFirstHttpTest {
     assertNull(field(a,"manualSeek").get(a));assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("跳转未获播放器确认"))
     assertTrue("failure must not fabricate the pending seek target",kotlin.math.abs(playback(a).currentPosition-before)<300)
     assertEquals("00:01",(field(a,"timeLabel").get(a) as android.widget.TextView).text.toString())
+   }
+  }}
+ }
+
+ @Test fun dtsAudioFallbackKeepsHttpPositionSubtitleAndPauseAndIsBounded(){
+  val i=InstrumentationRegistry.getInstrumentation()
+  val bytes=i.context.assets.open("audio-fallback-test.mp4").use{it.readBytes()}
+  FixtureHttpServer(bytes).use{remote->ActivityScenario.launch(MainActivity::class.java).use{scenario->
+   val room=JSONObject().put("roomId","audio-fallback").put("hostId","peer").put("mediaUrl",remote.url).put("title","Fixture").put("version",1).put("executeAt",0).put("updatedAt",0).put("state","paused").put("position",0).put("playbackRate",1)
+   scenario.onActivity{a->welcome(a,room);field(a,"connected").set(a,false)}
+   var ready=false;repeat(100){if(!ready){scenario.onActivity{a->ready=playback(a).playbackState==Player.STATE_READY && playback(a).currentTracks.groups.any{it.type==androidx.media3.common.C.TRACK_TYPE_AUDIO}};SystemClock.sleep(100)}}
+   assertTrue("HTTP fixture must expose real audio tracks",ready)
+   scenario.onActivity{a->playback(a).seekTo(1500);field(a,"subtitleName").set(a,"preserved.srt")}
+   var positioned=false;repeat(50){if(!positioned){scenario.onActivity{a->positioned=playback(a).currentPosition>=1400};SystemClock.sleep(100)}}
+   assertTrue(positioned)
+   val failed=androidx.media3.common.Format.Builder().setSampleMimeType("audio/vnd.dts.hd").setLanguage("eng").build()
+   scenario.onActivity{a->
+    val recover=a.javaClass.getDeclaredMethod("tryRecoverCompatibleAudio",androidx.media3.common.Format::class.java).apply{isAccessible=true}
+    assertEquals(true,recover.invoke(a,failed))
+    assertEquals("duplicate error must not schedule another recovery",false,recover.invoke(a,failed))
+   }
+   i.waitForIdleSync()
+   var recovered=false;repeat(100){if(!recovered){scenario.onActivity{a->recovered=playback(a).playbackState==Player.STATE_READY && playback(a).audioFormat?.sampleMimeType=="audio/mp4a-latm"};SystemClock.sleep(100)}}
+   assertTrue("same-language AAC fallback must prepare",recovered)
+   scenario.onActivity{a->
+    val p=playback(a);assertEquals(remote.url,p.currentMediaItem!!.localConfiguration!!.uri.toString());assertTrue(p.currentPosition>=1400);assertFalse("fallback must not autoplay",p.playWhenReady)
+    assertEquals("preserved.srt",field(a,"subtitleName").get(a));assertEquals("audio-fallback",(field(a,"engine").get(a) as SyncEngine).room!!.optString("roomId"))
+    assertEquals(failed.language,p.audioFormat?.language)
    }
   }}
  }

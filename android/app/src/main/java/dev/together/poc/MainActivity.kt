@@ -33,7 +33,7 @@ class Media3Adapter(private val p: Player,private val onSeek:((Long)->Unit)?=nul
 class MainActivity: Activity() {
  private val diagnosticJournal by lazy {PlaybackDiagnosticJournal(java.io.File(filesDir,"playback-diagnostics.jsonl"))}
  private val main=Handler(Looper.getMainLooper());private val http=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
- private val decoderRecovery=VideoDecoderRecovery();private var videoDecoderName="";private var decoderRecoveryPending=false
+ private val decoderRecovery=VideoDecoderRecovery();private var videoDecoderName="";private var audioDecoderName="";private var audioFallbackAttemptedSource="";private var decoderRecoveryPending=false
  private lateinit var player: ExoPlayer;private lateinit var playback:CompatiblePlayback;private var nativeVideoView:PlayerView?=null;private var independentVideoView:org.videolan.libvlc.util.VLCVideoLayout?=null;private lateinit var engine: SyncEngine;private val clock=ClockSync();private val chat=ChatEngine()
  private lateinit var server: EditText;private lateinit var media: EditText;private lateinit var roomInput: EditText;private lateinit var seek: EditText
  private lateinit var status: TextView;private lateinit var requestStatus: TextView;private lateinit var titleField: EditText;private lateinit var nickname: EditText
@@ -129,7 +129,7 @@ class MainActivity: Activity() {
   val buffering=AdaptiveHttpLoadControl(httpHealth)
   val renderers=PlaybackRenderers.create(this,decoderRecovery)
   player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,HttpMediaDataSource.factory()))).build()
-  playback=CompatiblePlayback(this,player,{active->nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error))})
+  playback=CompatiblePlayback(this,player,{active->if(active && ::playback.isInitialized && playback.playbackState==Player.STATE_READY)sourceFault=false;nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error))})
   engine=SyncEngine(Media3Adapter(playback){seekManually(it)},clock)
   voice=VoiceDanmakuController(this,playback,{if(connected)engine.room?.optString("roomId") ?: "" else ""},{sendVoice(it)},{voiceViews.forEach {it.render()};if(voice.busy){main.removeCallbacks(hideControls);fullscreenControls?.visibility=View.VISIBLE}else if(fullscreenDialog!=null)revealControls()})
   buildInterface()
@@ -139,6 +139,7 @@ class MainActivity: Activity() {
    state.getString("localPickerUri")?.let {pendingLocalMovie=android.net.Uri.parse(it) to state.getInt("localPickerFlags",0)}
   }
   playback.addAnalyticsListener(object: AnalyticsListener {
+   override fun onAudioDecoderInitialized(eventTime:AnalyticsListener.EventTime,decoderName:String,initializedTimestampMs:Long,initializationDurationMs:Long){audioDecoderName=decoderName;diagnostic("audioDecoderInitialized",JSONObject().put("codecName",decoderName))}
    override fun onVideoDecoderInitialized(eventTime:AnalyticsListener.EventTime,decoderName:String,initializedTimestampMs:Long,initializationDurationMs:Long){videoDecoderName=decoderName;diagnostic("videoDecoderInitialized",JSONObject().put("codecName",decoderName).put("deviceModel",android.os.Build.MODEL).put("manufacturer",android.os.Build.MANUFACTURER))}
    override fun onBandwidthEstimate(eventTime: AnalyticsListener.EventTime,totalLoadTimeMs: Int,totalBytesLoaded: Long,bitrateEstimate: Long){httpHealth.onBandwidthEstimate(totalLoadTimeMs,totalBytesLoaded,bitrateEstimate);diagnostic("bandwidthEstimate",JSONObject().put("loadTimeMs",totalLoadTimeMs).put("bytesLoaded",totalBytesLoaded).put("bitrateEstimate",bitrateEstimate))}
    override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime,droppedFrames: Int,elapsedMs: Long){diagnostic("droppedVideoFrames",JSONObject().put("droppedFrames",droppedFrames))}
@@ -156,7 +157,7 @@ class MainActivity: Activity() {
     var cause:Throwable?=error.cause
     while(cause!=null){if(cause is androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException){details.put("codecName",cause.codecInfo?.name ?: "none").put("decoderMimeType",cause.mimeType);break};cause=cause.cause}
     val format=exo?.rendererFormat
-    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name ?: videoDecoderName
+    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name ?: if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO)audioDecoderName else videoDecoderName
     details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
     format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
     val httpStatus=generateSequence(error.cause){it.cause}
@@ -168,8 +169,9 @@ class MainActivity: Activity() {
     diagnostic("playerError",details)
     if(scheduleHttpErrorRecovery(error.errorCode,httpStatus,diagnosis.retryable))return
      if(tryRecoverMalformedLocalContainer(error.errorCode))return
+    if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverCompatibleAudio(format))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
-    requestStatus.text=if(diagnosis.category=="LOCAL_UNAVAILABLE")diagnosis.message else if(httpHealth.isHttp)"${diagnosis.message}（${error.errorCodeName}）。可点重试播放。" else if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
+    requestStatus.text=if(diagnosis.category=="LOCAL_UNAVAILABLE")diagnosis.message else if(diagnosis.category=="DECODER") "$kind 解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可尝试其他音轨；已记录编码信息。" else if(httpHealth.isHttp)"${diagnosis.message}（${error.errorCodeName}）。可点重试播放。" else if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
    override fun onPlaybackStateChanged(playbackState: Int){if(playbackState==Player.STATE_READY)sourceFault=false;httpHealth.onPlaybackState(playbackState,playback.playWhenReady,android.os.SystemClock.elapsedRealtime());diagnostic("playbackStateChanged")}
    override fun onTracksChanged(tracks:androidx.media3.common.Tracks){
@@ -1027,8 +1029,30 @@ class MainActivity: Activity() {
   diagnostic("localContainerFallback",JSONObject().put("errorCode",errorCode).put("sourceScheme",uri.scheme ?: ""))
   return true
  }
+ private fun tryRecoverCompatibleAudio(failed:androidx.media3.common.Format?):Boolean {
+  val uri=playback.currentMediaItem?.localConfiguration?.uri?.toString() ?: return false
+  if(audioFallbackAttemptedSource==uri)return false
+  val tracks=playback.currentTracks.groups.filter {it.type==androidx.media3.common.C.TRACK_TYPE_AUDIO}
+   .flatMap {group->(0 until group.length).map {index->group.getTrackFormat(index) to group.isTrackSupported(index)}}
+  val choice=AudioTrackFallback.select(failed?.sampleMimeType,failed?.language ?: playback.audioFormat?.language,
+   tracks.map {AudioTrackFallback.Option(it.first.sampleMimeType,it.first.language,it.second)})
+   ?: return false
+  val selected=tracks[choice].first
+  val position=playback.currentPosition.coerceAtLeast(0L)
+  val sourceRoom=engine.room?.optString("roomId")
+  audioFallbackAttemptedSource=uri
+  diagnostic("audioDecoderFallback",JSONObject().put("mimeType",failed?.sampleMimeType).put("decoderMimeType",selected.sampleMimeType))
+  requestStatus.text="DTS/TrueHD 音轨解码异常，尝试同语言的 AC3/AAC 兼容音轨…"
+  main.post {
+   if(stopped || !foreground || engine.room?.optString("roomId")!=sourceRoom ||
+      playback.currentMediaItem?.localConfiguration?.uri?.toString()!=uri)return@post
+   loadMedia(uri,position.toDouble(),preserveSubtitles=true,
+    preferredAudio=AudioChoice(selected.id,selected.language,selected.label,selected.sampleMimeType,selected.channelCount))
+  }
+  return true
+ }
  private fun tryRecoverVideoDecoder(format:androidx.media3.common.Format?,failed:String):Boolean {
-  if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending)return false
+  if(format?.sampleMimeType!="video/hevc" || decoderRecoveryPending || playback.compatibleActive)return false
   val fallbackURI=playback.currentMediaItem?.localConfiguration?.uri?.toString()
   if(format.codecs?.let {it.startsWith("hvc1.2.") || it.startsWith("hev1.2.")}==true && fallbackURI!=null && android.net.Uri.parse(fallbackURI).scheme in listOf("content","file") && playback.activateCompatibility(fallbackURI,playback.currentPosition)) {
    diagnostic("independentDecoderSelected",JSONObject().put("failedCodec",failed).put("mimeType",format.sampleMimeType))
@@ -1039,7 +1063,16 @@ class MainActivity: Activity() {
   // Only offer another decoder that reports support for this exact profile/size.
   // Secure/tunneled playback is not used by our local and authorized sources.
   val alternatives=runCatching {androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false).filter {it.isFormatSupported(format)}.map {it.name}}.getOrElse {emptyList()}
-  val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives) ?: return false
+  val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives)
+  if(next==null){
+   val accountSource=baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL)
+   if(!accountSource && android.net.Uri.parse(uri).scheme in listOf("http","https") && playback.activateCompatibility(uri,playback.currentPosition,allowHttp=true)){
+    requestStatus.text="系统 HEVC 解码失败，正在尝试独立兼容播放…"
+    diagnostic("independentHttpDecoderSelected",JSONObject().put("failedCodec",failed).put("mimeType",format.sampleMimeType))
+    return true
+   }
+   return false
+  }
   val position=playback.currentPosition.coerceAtLeast(0)
   val retryURL=if(baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL))baiduURL else uri
   decoderRecoveryPending=true
@@ -1111,7 +1144,7 @@ class MainActivity: Activity() {
    else if(source.isNotBlank())playback.currentPosition.coerceAtLeast(0).toDouble()
    else engine.target()?.first ?: 0.0
  }
- private fun loadMedia(url:String,position:Double,preserveSubtitles:Boolean=false){
+ private fun loadMedia(url:String,position:Double,preserveSubtitles:Boolean=false,preferredAudio:AudioChoice?=null){
   val room=engine.room
   val route=LocalSourcePriority.decide(url,room?.optString("roomId").orEmpty(),room?.optString("mediaUrl").orEmpty(),localSourceRoomID,localSourceRoom,localFileUri,savedLocalPermissionMissing)
   if(route==LocalSourcePriority.Action.RESELECT){playback.pause();requestStatus.text="本地影片读取授权已失效，请重新选择，或点清除本地影片切回U盘";return}
@@ -1120,17 +1153,21 @@ class MainActivity: Activity() {
   val changed=playback.currentMediaItem?.localConfiguration?.uri?.toString()!=resolved
   val previousAudio=playback.audioFormat ?: if(preserveSubtitles)lastGoodAudio else null
   val audioLanguage=previousAudio?.language
-  pendingAudioChoice=if(preserveSubtitles && previousAudio!=null)AudioChoice(previousAudio.id,previousAudio.language,previousAudio.label,previousAudio.sampleMimeType,previousAudio.channelCount)else null
+  pendingAudioChoice=preferredAudio ?: if(preserveSubtitles && previousAudio!=null)AudioChoice(previousAudio.id,previousAudio.language,previousAudio.label,previousAudio.sampleMimeType,previousAudio.channelCount)else null
   networkRecoveryGeneration++;networkRecoveryScheduled=false;manualSeek=null
   playbackRecovery.reset();playbackNeedsRecovery=false
   if(!preserveSubtitles)playerRebuildCount=0
   decoderRecovery.beginSource(resolved)
   if(changed || !preserveSubtitles){httpHealth.reset(resolved);httpRetryBudget.reset();httpStablePosition=0}
-  videoDecoderName=""
+  videoDecoderName="";audioDecoderName=""
+  if(changed)audioFallbackAttemptedSource=""
   if(changed && !preserveSubtitles){clearSubtitle();lastGoodAudio=null}
   playback.pause()
   if(changed){sourceFault=false;playback.stop();playback.clearMediaItems();lastGoodSource=resolved;lastGoodPosition=position.coerceAtLeast(0.0).toLong()}
   if(preserveSubtitles && !audioLanguage.isNullOrBlank() && audioLanguage!="und")playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setPreferredAudioLanguage(audioLanguage).build()
+  if(preferredAudio?.mime!=null)playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon()
+   .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_AUDIO)
+   .setPreferredAudioMimeTypes(preferredAudio.mime).setPreferredAudioLanguage(preferredAudio.language).build()
   val item=MediaItem.fromUri(android.net.Uri.parse(resolved))
   if(selected==baiduURL){
    val network=HttpMediaDataSource.factory("pan.baidu.com")

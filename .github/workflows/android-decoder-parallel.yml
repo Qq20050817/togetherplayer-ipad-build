@@ -1,0 +1,121 @@
+name: Android decoder parallel-install package 0.6.60.12
+on:
+  push:
+    branches: [fix/android-usb-decoding-06012-20261104]
+    paths: ['.github/workflows/android-decoder-parallel.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: android-decoder-parallel-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ORG_GRADLE_PROJECT_deliveryCompressedNative: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        timeout-minutes: 5
+        with:
+          cache-disabled: true
+          gradle-version: '8.9'
+      - name: Preserve verified behavior and isolate installation identity
+        run: |
+          python3 - <<'PY'
+          import pathlib,hashlib,subprocess
+          p=pathlib.Path('android/app/src/main/java/dev/together/poc/MainActivity.kt')
+          assert p.read_bytes()==subprocess.check_output(['git','show','9354947e379eb617d69d23b14eeb4b32078d6866:'+str(p)])
+          print('Verified application source SHA256:',hashlib.sha256(p.read_bytes()).hexdigest())
+          p=pathlib.Path('android/app/build.gradle.kts');s=p.read_text()
+          assert s.count('applicationIdSuffix = ".fluency"')==1
+          p.write_text(s.replace('applicationIdSuffix = ".fluency"','applicationIdSuffix = ".decoder12"'))
+          p=pathlib.Path('android/app/src/main/AndroidManifest.xml');s=p.read_text()
+          assert s.count('android:label="TogetherPlayer"')==1
+          p.write_text(s.replace('android:label="TogetherPlayer"','android:label="Together 解码测试"'))
+          p=pathlib.Path('android/app/src/debug/AndroidManifest.xml');s=p.read_text()
+          assert s.count('android:label="TogetherPlayer 流畅预览"')==1
+          p.write_text(s.replace('android:label="TogetherPlayer 流畅预览"','android:label="Together 解码测试"'))
+          PY
+          git diff --exit-code -- android/app/src/main/java android/app/src/main/res
+      - name: Bundle verified offline voice model and previous install fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p android/app/src/main/assets baseline
+          curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
+          gh api repos/Qq20050817/togetherplayer-ipad-build/actions/artifacts/13313177972/zip > baseline/original.zip
+          python3 - <<'PY'
+          import zipfile,pathlib,hashlib
+          with zipfile.ZipFile('baseline/original.zip') as z:
+              names=[n for n in z.namelist() if n.endswith('.apk')];assert len(names)==1
+              data=z.read(names[0])
+              assert hashlib.sha256(data).hexdigest()=='2753e73c61eed20aef104e78a51be0d74274bcad3b58259ac348192be40b389e'
+              pathlib.Path('baseline/original-0610.apk').write_bytes(data)
+          PY
+      - name: Build universal smoke package
+        working-directory: android
+        run: gradle --no-daemon assembleDebug
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify real coexistence and launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install baseline/original-0610.apk
+            adb install android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm list packages | grep -x 'package:dev.together.poc.fluency'
+            adb shell pm list packages | grep -x 'package:dev.together.poc.decoder12'
+            adb shell am start -W -n dev.together.poc.decoder12/dev.together.poc.MainActivity
+            sleep 3
+            adb shell pidof dev.together.poc.decoder12
+            adb shell uiautomator dump /sdcard/decoder-launch.xml
+            adb pull /sdcard/decoder-launch.xml baseline/decoder-launch.xml
+            python3 -c 'from pathlib import Path; assert "一起看" in Path("baseline/decoder-launch.xml").read_text()'
+      - name: Build and validate compact ARM64 parallel package
+        working-directory: android
+        run: |
+          gradle --no-daemon -PdeliveryArm64=true assembleDebug
+          mkdir -p ../delivery
+          cp app/build/outputs/apk/debug/app-debug.apk ../delivery/TogetherPlayer-Android-0.6.60.12-Decoder-Test-Parallel.apk
+          aapt="$(find "$ANDROID_HOME/build-tools" -name aapt | sort -V | tail -1)"
+          "$aapt" dump badging ../delivery/*.apk > ../delivery/package-identity.txt
+          python3 - <<'PY'
+          import zipfile,pathlib,hashlib
+          p=pathlib.Path('../delivery/TogetherPlayer-Android-0.6.60.12-Decoder-Test-Parallel.apk')
+          assert p.stat().st_size<100*1024*1024
+          with zipfile.ZipFile(p) as z:
+              libs=[x for x in z.infolist() if x.filename.startswith('lib/')]
+              assert libs and all(x.filename.startswith('lib/arm64-v8a/') and x.compress_type==8 for x in libs)
+              assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest()=='3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
+          identity=pathlib.Path('../delivery/package-identity.txt').read_text()
+          assert "name='dev.together.poc.decoder12'" in identity
+          assert "versionName='0.6.60.12'" in identity
+          assert "Together 解码测试" in identity
+          PY
+          (cd ../delivery && sha256sum *.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-decoder-parallel-0612
+          path: |
+            delivery/
+            baseline/decoder-launch.xml
+          retention-days: 7
