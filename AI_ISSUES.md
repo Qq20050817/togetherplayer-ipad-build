@@ -51,3 +51,6 @@
 - Status: candidate under automated verification; physical foreground/background/connection-loss test pending.
 
 - Evidence correction: backend snapshot() trims ordinary WELCOME history to roughly 7800 bytes. Large WELCOME rejection is a possible edge case, not a demonstrated explanation. Server reconnect with existing token passes its protocol unit test. Prior wording calling it a confirmed cause is superseded; stale client lifecycle state remains suspected.
+
+- Follow-up CI: runs 41833322017 and 41833455531 had the same two legacy MKV caption playback assertions fail (AudioSubtitleTests lines 72/75); room reconnection tests passed both times. Run 41833459657 passed all 76 native tests and one actual fullscreen UI test with the same app-source changes, and produced verified unsigned iPad 0.6.79 IPA artifact 13324104572. Retain flakiness note; do not suppress the subtitle test.
+- Status: build + simulator regression PASS in run 41833459657. Field resolution remains OPEN until the user signs/installs 0.6.79 and tests background/foreground rejoining on the same real room. Server per-room logs were inaccessible and no server contribution has been conclusively excluded. No server changes or Android changes.
