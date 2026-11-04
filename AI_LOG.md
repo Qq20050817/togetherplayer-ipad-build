@@ -65,3 +65,9 @@
 - Application/source6f26227ec5897e8f4a0bbd46d3273ffc016d0a6c, run41741956555 success: Release device build;57 native tests; actual fullscreen .2/.8/.5 progress gestures with remaining6/7 and subtitle adjustment assertions passed (one UI test,76s). Historic baseline reproduction/preserved recovery checks also passed. Earlier0.6.75 and failed41739107694 remain superseded and are not recommended.
 - Artifact13281738313 archive digest1303c4a1c0a60b6bb981f2fa97321114f8049bd48523b270e40e14221b245578 verified after download. IPA17,649,137 bytes SHA2562384aef7a125ecc3522bf855ca3f6e1b0ec403932843e541fb70e3b9fa8b4eeb. Info.plist0.6.76/136, isolated dev.together.poc.asrtest, original comparison display name retained. Unsigned, requires compatible device signing.
 - Physical iPad long playback/background/network/repeated-seek matrix and real two-device synchronization remain unverified; successful simulator run does not establish those results. No main merge or production install. Rollback remains the prior separately validated delivery; source snapshot at this commit is reviewable via PR33. Main-only AI Journal has not ingested this branch.
+
+## 2026-11-04 · Leading-device wait candidate
+- Baseline 8e283e492cb038e04c18e02a639b1793aaefbe52; independent leading-wait branch. Candidate only, no deployment or installation.
+- Local ahead >10000ms pauses only this device; resume at <=1000ms ahead. Check latch before native-running gate; preserve manual SEEK, room PAUSE, question gates, offsets and source errors.
+- Exclude intentional wait from stall recovery. Optional syncWaiting status is diagnostic; do not report it as buffering or a shared PAUSE.
+- Regression/build pending; hardware pair and long playback unverified.

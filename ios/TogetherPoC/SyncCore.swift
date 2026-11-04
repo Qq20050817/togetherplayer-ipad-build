@@ -253,6 +253,7 @@ final class SyncEngine {
  private(set) var room: Room?
  var timelineOffset=0.0 {didSet {if oldValue != timelineOffset {resetCorrection();lastAutoSeekAt=nil}}}
  private var explicitSeekVersion: Int64?
+ private(set) var isSyncWaiting=false
  private var correctionSpeed: Float = 1
  private var excessiveDriftSince: Double?
  private var driftAtWindowStart=0.0
@@ -289,7 +290,7 @@ final class SyncEngine {
    room=next
   }
  }
- private func resetCorrection() { correctionSpeed=1;excessiveDriftSince=nil }
+ private func resetCorrection() { correctionSpeed=1;excessiveDriftSince=nil;isSyncWaiting=false }
  // Keep a correction speed until the error is well inside the lower band.
  // AVPlayer rate changes can stall briefly; switching at a single threshold
  // can undo the progress of the preceding speed correction.
@@ -325,7 +326,7 @@ final class SyncEngine {
    if state == "paused" {player.pause()} else {player.play()}
    return error
   }
-  if !player.ready || player.buffering {wasUnready=true}
+  if !player.ready || player.buffering {wasUnready=true;isSyncWaiting=false}
   else if wasUnready {wasUnready=false;settleUntil=now+2000}
   if state == "paused" { resetCorrection();player.pause();player.setPlaybackSpeed(1);guard player.ready else {return nil};if abs(error)>3000 && lastAutoSeekAt == nil {lastAutoSeekAt=now;player.seekTo(position)};return error }
   guard player.ready else {excessiveDriftSince=nil;return nil}
@@ -333,6 +334,13 @@ final class SyncEngine {
    // Preserve play intent while AVPlayer waits for data. The player can
    // otherwise remain stuck in waiting with no subsequent play attempt.
    player.play();excessiveDriftSince=nil;return nil
+  }
+  // A deliberate local wait must precede the native-running startup gate.
+  // It preserves the room PLAY intent and never emits a shared PAUSE.
+  if isSyncWaiting && error >= -1000 {isSyncWaiting=false}
+  if isSyncWaiting || (now>=settleUntil && player.nativePlaybackRunning && error < -10000) {
+   isSyncWaiting=true;correctionSpeed=1;excessiveDriftSince=nil
+   player.pause();player.setPlaybackSpeed(baseRate);return error
   }
   // A ready HLS item can hold dozens of seconds of buffered media yet still
   // have rendered no first frame. Hard-seeking every three seconds in that
