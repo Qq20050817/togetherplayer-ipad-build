@@ -38,6 +38,7 @@ class ClockSync(private val monotonicNow: () -> Double = { SystemClock.elapsedRe
 class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  var room: JSONObject? = null; private set
  private var explicitSeekVersion:Long?=null
+ var isSyncWaiting=false;private set
  private var correctionSpeed=1f
  private var excessiveDriftSince: Double?=null
  private var driftAtWindowStart=0.0
@@ -74,7 +75,7 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
    room=next
   }
  }
- private fun resetCorrection() {correctionSpeed=1f;excessiveDriftSince=null}
+ private fun resetCorrection() {correctionSpeed=1f;excessiveDriftSince=null;isSyncWaiting=false}
  private fun speed(error: Double): Float {
   if(correctionSpeed>1 && error>1000)return correctionSpeed
   correctionSpeed=if(error>3000) {if(error>15000)1.25f else 1.10f} else if(error < -3000) .95f else 1f
@@ -107,13 +108,21 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
    if(state=="paused")player.pause()else player.play()
    return error
   }
-  if(!player.isReady() || player.isBuffering())wasUnready=true
+  if(!player.isReady() || player.isBuffering()){wasUnready=true;isSyncWaiting=false}
   else if(wasUnready){wasUnready=false;settleUntil=now+2000}
   if (state=="paused") { resetCorrection();player.pause(); player.setPlaybackSpeed(1f); if (!player.isReady()) return null; if(abs(error)>3000 && lastAutoSeekAt==null) {lastAutoSeekAt=now;player.seekTo(position.toLong())}; return error }
   if (!player.isReady() || player.isBuffering()) {
    // Preserve ExoPlayer playWhenReady during 2x rebuffering and poll resume.
    if (player.isBuffering()) player.play()
    excessiveDriftSince=null;return null
+  }
+  // Pause only this device; never send a room PAUSE for drift correction.
+  // Check a latched wait before isAdvancing: a deliberately paused decoder
+  // cannot advance until the canonical timeline catches up.
+  if(isSyncWaiting && error >= -1000) isSyncWaiting=false
+  if(isSyncWaiting || (now>=settleUntil && player.isAdvancing() && error < -10000)) {
+   isSyncWaiting=true;correctionSpeed=1f;excessiveDriftSince=null
+   player.pause();player.setPlaybackSpeed(baseRate);return error
   }
   if(now<settleUntil){resetCorrection();player.setPlaybackSpeed(baseRate);player.play();return error}
   if(!player.isAdvancing() || (error>3000 && player.getBufferedAhead()<3000)){

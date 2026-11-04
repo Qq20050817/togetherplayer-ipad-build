@@ -14,6 +14,31 @@ class SyncCoreTest {
   override fun setPlaybackSpeed(speed:Float){rate=speed}
  }
  private fun frame(position:Double=10000.0,version:Long=1,at:Double=0.0)=JSONObject().put("roomId","r").put("mediaUrl","https://example.org/movie.mp4").put("version",version).put("executeAt",at).put("state","playing").put("position",position).put("updatedAt",at).put("playbackRate",1).put("before",JSONObject().put("state","playing").put("position",10000).put("updatedAt",0).put("playbackRate",1))
+ @Test fun leadingWaitHasStrictEntryAndResumesWhileNativeIsPaused(){
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  p.pos=20000;e.tick();assertFalse(e.isSyncWaiting);assertTrue(p.playing)
+  p.pos=20001;e.tick();assertTrue(e.isSyncWaiting);assertFalse(p.playing)
+  p.advancing=false;now=9000.0;e.tick();assertTrue(e.isSyncWaiting);assertFalse(p.playing)
+  now=9001.0;e.tick();assertFalse(e.isSyncWaiting);assertTrue(p.playing);assertEquals(0,p.seeks)
+ }
+ @Test fun explicitSeekAndPauseOverrideLeadingWait(){
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  p.pos=30000;e.tick();assertTrue(e.isSyncWaiting)
+  e.receive(frame(12000.0,2));e.tick();assertFalse(e.isSyncWaiting);assertTrue(p.playing);assertEquals(12000L,p.pos);assertEquals(1,p.seeks)
+  p.pos=40000;e.tick();assertTrue(e.isSyncWaiting)
+  e.receive(frame(12000.0,3).put("state","paused"));e.tick();assertFalse(e.isSyncWaiting);assertFalse(p.playing)
+ }
+ @Test fun waitingHonorsOffsetAndSessionReset(){
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();val e=SyncEngine(p,c);e.timelineOffset=5000.0;p.pos=15000;e.receive(frame());e.tick()
+  p.pos=25000;e.tick();assertFalse(e.isSyncWaiting)
+  p.pos=25001;e.tick();assertTrue(e.isSyncWaiting)
+  e.resetSession();assertFalse(e.isSyncWaiting);assertNull(e.room)
+ }
+ @Test fun bufferingClearsIntentionalWaiting(){
+  val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
+  p.pos=30000;e.tick();assertTrue(e.isSyncWaiting)
+  p.buffering=true;e.tick();assertFalse(e.isSyncWaiting)
+ }
  @Test fun catchupNeedsAdvancingFramesAndBufferReserve(){
   val c=ClockSync{0.0};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c);e.receive(frame());e.tick()
   p.pos=5000;p.reserve=1000;e.tick();assertEquals(1f,p.rate)

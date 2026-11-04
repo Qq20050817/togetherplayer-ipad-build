@@ -94,3 +94,9 @@
 - Archive13282653792 SHA256265e67deac8f86808eacab323a7588c99730d219a54c39283683f7156ca602cf verified. APK292,693,449 bytes SHA256abd3076925d0a379fc244e2282f551727e5b4b372447f1918d6a080c03ab8ff5. Version0.6.60.8/128 retains .fluency test suffix; ephemeral CI signer may require separate handling from an installed preview. Never uninstall user app automatically.
 - Independent PR32; no main merge/deployment/install. Physical Android HEVC/HDR/DTS/TrueHD combinations, long playback, large MP4 field test and actual two-device mobile network tests remain open. Private server9bd65d45 protocol counterpart not deployed, so healthy-peer source-fault isolation is not yet active in production. Greater-than10s automatic pause-intent distinction is not implemented in this phase.
 - Recovery: prior independently verified delivery remains available; source rollback9a36b3f or initial6363aad as appropriate, retaining local grants/data. Main-only AI Journal has not synced this feature branch; GitHub logs are committed, no false main ingestion.
+
+## 2026-11-04 · Leading-device wait candidate
+- Baseline 31d5c468c67420fc150e17de45415f0d36963be2; independent leading-wait branch. Candidate only, no deployment or installation.
+- Local ahead >10000ms pauses only this device; resume at <=1000ms ahead. Check latch before native-running gate; preserve manual SEEK, room PAUSE, question gates, offsets and source errors.
+- Exclude intentional wait from stall recovery. Optional syncWaiting status is diagnostic; do not report it as buffering or a shared PAUSE.
+- Regression/build pending; hardware pair and long playback unverified.
