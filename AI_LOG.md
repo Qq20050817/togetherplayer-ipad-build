@@ -134,3 +134,7 @@
 - Independent Singapore public endpoint probe completed: POST create/join201; authenticated TLS1.2 andTLS1.3 WebSocket WELCOME; same-credential reconnect WELCOME; synthetic room closed. This verifies server protocol capability, not the failing iPad Wi-Fi route.
 
 - Registration coverage: create/join POST now uses the same fresh, normally trusted session policy with one generic-handshake-only retry, preserving a successful TLS1.2 selection for the subsequent WebSocket. No retry on HTTP errors, certificate trust failures or timeouts. Also show safe numeric errors for failed registration. Apple native CI must validate the final commit; earlier queued run18ccd76 does not cover this follow-up.
+
+## 2026-11-04 · Apple runner capacity failure, not a compiler result
+- Runs41853536785/41854620672 reached no build steps and failed acquisition after about15min. Public check annotations explicitly state hosted runner was not acquired and macOS arm64 capacity constraints. The job wrapper reports cancelled, the workflow conclusion failure; neither is a Swift compilation result.
+- Switch targeted native workflow from macos-15 (ARM pool) to macos-15-intel, retaining Xcode26 selection and the same app/tests. Native/IPA verification still pending. No user Mac or signing credential requested; no claim of a successful iPad candidate yet.
