@@ -13,38 +13,44 @@ final class ThreeSecondSyncTests:XCTestCase {
  func frame(_ position:Double=10000,_ version:Int64=1,_ at:Double=0)->Room {
   Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:version,executeAt:at,state:"playing",position:position,updatedAt:at,playbackRate:1,before:Timeline(state:"playing",position:10000,updatedAt:0,playbackRate:1))
  }
- func testLeadingWaitEntryAndResumeWhileNativePaused() {
+ func testOnlyContinuousGreaterThanFiveSecondLagAccelerates() {
+  var p=SustainedCatchupPolicy()
+  for t in 0...100 {XCTAssertEqual(p.speed(error:5000,now:Double(t)*100),1)}
+  for t in 0..<100 {XCTAssertEqual(p.speed(error:5001,now:10100+Double(t)*100),1)}
+  XCTAssertGreaterThan(p.speed(error:5001,now:20100),1)
+  XCTAssertGreaterThan(p.speed(error:4000,now:20200),1)
+  XCTAssertEqual(p.speed(error:3000,now:20300),1)
+ }
+ func testTransientLagAndMissingSamplesRestartContinuousWindow() {
+  var p=SustainedCatchupPolicy()
+  for t in 0..<50 {XCTAssertEqual(p.speed(error:6000,now:Double(t)*100),1)}
+  XCTAssertEqual(p.speed(error:5000,now:5000),1)
+  for t in 0..<50 {XCTAssertEqual(p.speed(error:6000,now:5100+Double(t)*100),1)}
+  XCTAssertEqual(p.speed(error:6000,now:12000),1)
+  for t in 1..<100 {XCTAssertEqual(p.speed(error:6000,now:12000+Double(t)*100),1)}
+  XCTAssertGreaterThan(p.speed(error:6000,now:22000),1)
+ }
+ func testLeadingDeviceNeverAutomaticallyPausesOrSlows() {
+  let c=ClockSync{0};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c);e.receive(frame());e.tick()
+  for gap in [5000.0,9000,10000,11000,20000] {p.position=10000+gap;e.tick();XCTAssertTrue(p.playing);XCTAssertEqual(p.rate,1);XCTAssertEqual(p.seeks,0)}
+ }
+ func testExplicitSeekAndPauseOverrideActiveCatchup() {
   var now=0.0;let c=ClockSync{now};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.position=20000;e.tick();XCTAssertFalse(e.isSyncWaiting);XCTAssertTrue(p.playing)
-  p.position=20001;e.tick();XCTAssertTrue(e.isSyncWaiting);XCTAssertFalse(p.playing)
-  p.running=false;now=9000;e.tick();XCTAssertTrue(e.isSyncWaiting);XCTAssertFalse(p.playing)
-  now=9001;e.tick();XCTAssertFalse(e.isSyncWaiting);XCTAssertTrue(p.playing);XCTAssertEqual(p.seeks,0)
+  for t in 0...100 {now=Double(t)*100;p.position=10000+now-6000;e.tick()};XCTAssertGreaterThan(p.rate,1)
+  e.receive(frame(12000,2,now));e.tick();XCTAssertEqual(p.seeks,1);XCTAssertEqual(p.position,12000);XCTAssertEqual(p.rate,1)
+  let paused=Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:3,executeAt:now,state:"paused",position:12000,updatedAt:now,playbackRate:1,before:Timeline(state:"playing",position:12000,updatedAt:now,playbackRate:1))
+  p.ready=false;e.receive(paused);e.tick();XCTAssertFalse(p.playing)
  }
- func testExplicitSeekAndPauseOverrideLeadingWait() {
-  let c=ClockSync{0};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.position=30000;e.tick();XCTAssertTrue(e.isSyncWaiting)
-  e.receive(frame(12000,2));e.tick();XCTAssertFalse(e.isSyncWaiting);XCTAssertTrue(p.playing);XCTAssertEqual(p.position,12000);XCTAssertEqual(p.seeks,1)
-  p.position=40000;e.tick();XCTAssertTrue(e.isSyncWaiting)
-  let paused=Room(roomId:"r",hostId:"h",mediaUrl:"https://example.org/movie.mp4",version:3,executeAt:0,state:"paused",position:12000,updatedAt:0,playbackRate:1,before:Timeline(state:"playing",position:12000,updatedAt:0,playbackRate:1))
-  e.receive(paused);e.tick();XCTAssertFalse(e.isSyncWaiting);XCTAssertFalse(p.playing)
+ func testInvalidSamplesAndResetNeverCountAsPersistentDrift() {
+  var p=SustainedCatchupPolicy();for t in 0...100 {_=p.speed(error:7000,now:Double(t)*100)}
+  XCTAssertEqual(p.speed(error:.nan,now:10100),1);XCTAssertEqual(p.speed(error:7000,now:10200),1)
+  p.reset();XCTAssertEqual(p.speed(error:7000,now:20000),1);XCTAssertEqual(p.speed(error:-20000,now:20100),1)
  }
- func testWaitingHonorsOffsetAndSessionReset() {
-  let c=ClockSync{0};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c);e.timelineOffset=5000;p.position=15000;e.receive(frame());e.tick()
-  p.position=25000;e.tick();XCTAssertFalse(e.isSyncWaiting)
-  p.position=25001;e.tick();XCTAssertTrue(e.isSyncWaiting)
-  e.resetSession();XCTAssertFalse(e.isSyncWaiting);XCTAssertNil(e.room)
- }
- func testBufferingClearsIntentionalWaiting() {
-  let c=ClockSync{0};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c);e.receive(frame());e.tick()
-  p.position=30000;e.tick();XCTAssertTrue(e.isSyncWaiting)
-  p.buffering=true;e.tick();XCTAssertFalse(e.isSyncWaiting)
- }
- func testToleranceAndCatchupNeverHardSeek() {
-  let c=ClockSync{0};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c)
-  e.receive(frame());e.tick()
-  for gap in [-3000.0,-1000,0,1000,3000] {p.position=10000-gap;e.tick();XCTAssertEqual(p.rate,1);XCTAssertEqual(p.seeks,0)}
-  p.position=6000;e.tick();XCTAssertGreaterThan(p.rate,1);XCTAssertEqual(p.seeks,0)
-  p.position=9500;e.tick();XCTAssertEqual(p.rate,1)
+ func testToleranceAndSustainedCatchupNeverHardSeek() {
+  var now=0.0;let c=ClockSync{now};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c);e.receive(frame());e.tick()
+  for gap in [-3000.0,-1000,0,1000,3000,4000,5000] {p.position=10000-gap;e.tick();XCTAssertEqual(p.rate,1);XCTAssertEqual(p.seeks,0)}
+  for t in 0...100 {now=Double(t)*100;p.position=10000+now-6000;e.tick()};XCTAssertGreaterThan(p.rate,1);XCTAssertEqual(p.seeks,0)
+  p.position=10000+now-3000;e.tick();XCTAssertEqual(p.rate,1)
  }
  func testSmallScheduledManualSeekBypassesToleranceOnce() {
   var now=0.0;let c=ClockSync{now};c.add(0,0,0,0);let p=Player();let e=SyncEngine(p,c)

@@ -42,3 +42,8 @@
 ## iPad native Seek candidate validation update
 - Run41739107694 remained failed at pre-Seek initial caption; do not reinterpret as pass. Corrected DEBUG fixture PAUSE intent and real1s seek setup in6f26227.
 - Run41741956555 now passed57 native tests plus unchanged actual fullscreen remaining/subtitle assertions after .2/.8/.5 slider adjustments. Candidate0.6.76 available unsigned. Simulator validation passed; physical-device/network/two-party field cases still open, no blanket completion claim.
+
+## SYNC-SUSTAINED-CATCHUP · 2026-11-04
+- Problem: immediate correction and automatic wait/pause conflicted with the final user requirement. Root: instantaneous error thresholds plus peer-readiness shared PAUSE and a mistaken local >10s auto-pause.
+- Final application4d6e880574307442811bca925966bd71ac2308dc: lag>5s continuously>=10s before local rate correction; no automatic pause/seek; settle within3s. Native boundary/interruption/reset/manual-control regressions pass in Actions41812241613. Server peer-pause removed/deployed with84 tests and live public protocol proof.
+- Status: native/emulator/control-protocol verified; physical playback/long field tests unverified.
