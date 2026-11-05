@@ -76,14 +76,15 @@ class CompatiblePlaybackTest {
     if(view is android.view.ViewGroup)for(n in 0 until view.childCount){videoOutput(view.getChildAt(n))?.let{return it}}
     return null
    }
-   var originalSurface:android.graphics.SurfaceTexture?=null
-   fun assertColors(){
+   var originalSurface:android.graphics.SurfaceTexture?=null;var lastDisplayed=0;var previousMotion:Int?=null;var motionChanges=0
+   fun assertColors(advancing:Boolean=false){
     val area=android.graphics.Rect();var position=0L;var outputDetails=""
     scenario.onActivity{a->
      val view=field(a,"independentVideoView").get(a) as android.view.View
      val output=videoOutput(view);assertNotNull("Compatibility output must use TextureView",output)
      assertTrue(output!!.getGlobalVisibleRect(area));position=player(a).currentPosition
      if(movieRate){val surface=output.surfaceTexture;assertNotNull(surface);if(originalSurface==null)originalSurface=surface else assertSame("Fullscreen must preserve the native video producer without disabling its track",originalSurface,surface)}
+     if(movieRate && advancing){val frames=player(a).displayedFrames();assertTrue("Displayed frames must advance after each output transition",frames>lastDisplayed);lastDisplayed=frames}
      val core=player(a).javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(player(a)) as org.videolan.libvlc.MediaPlayer
      outputDetails="videoTrack=${core.videoTrack},attached=${core.vlcVout.areViewsAttached()},playing=${core.isPlaying}"
     }
@@ -125,6 +126,12 @@ class CompatiblePlaybackTest {
        java.io.File(dir,"main10-color-failure.png").outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
       }
       assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails",matching>=15)
+     }
+     if(movieRate && advancing){
+      var signature=17
+      for(x in 1..16)for(y in 17..29)signature=signature*31+bitmap.getPixel(area.left+area.width()*x/17,area.top+area.height()*y/32)
+      if(previousMotion!=null && previousMotion!=signature)motionChanges++
+      previousMotion=signature
      }
     } finally {bitmap.recycle()}
    }
@@ -170,12 +177,13 @@ class CompatiblePlaybackTest {
      else if(SystemClock.elapsedRealtime()-start>22000 && !restored){(field(a,"fullscreenDialog").get(a) as android.app.Dialog).dismiss();restored=true}
      else if(!movieRate || elapsed>=nextSample){sample=true;samples++;nextSample=elapsed+2500}
     }
-    if(sample)assertColors()
+    if(sample)assertColors(movieRate)
    }
    scenario.onActivity{a->val p=player(a);assertTrue("Native clock must advance through at least30s",p.currentPosition>=30000);p.pause();assertFalse(p.playWhenReady)}
    assertColors()
    assertTrue("Check color planes repeatedly, not only first-frame count",samples>=8);assertTrue(reparented&&restored)
    if(movieRate){
+    assertTrue("The actual composed movie must keep moving after fullscreen, not freeze on a colored frame",motionChanges>=6)
     assertTrue("Sustained real HTTP lag must change the actual independent decoder rate",accelerated)
     assertTrue("Recovered drift must restore the actual decoder rate",normalized)
     scenario.onActivity{a->player(a).seekTo(5000)}

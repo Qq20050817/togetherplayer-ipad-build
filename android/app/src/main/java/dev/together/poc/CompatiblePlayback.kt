@@ -78,7 +78,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private fun restoreRetainedOutput(){
   if(!compatibleActive || source==null)return
   val view=outputTexture ?: return;val saved=retainedSurface ?: return
-  if(!saved.isReleased && view.surfaceTexture!==saved){view.surfaceTexture=saved;surfaceRestores++}
+  if(!saved.isReleased && view.surfaceTexture!==saved){view.setSurfaceTexture(saved);surfaceRestores++}
  }
  private fun retainVideoOutput(view:VLCVideoLayout){
   val texture=findTexture(view) ?: return
@@ -88,7 +88,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    override fun onSurfaceTextureAvailable(surface:android.graphics.SurfaceTexture,width:Int,height:Int){
     val saved=retainedSurface
     if(compatibleActive && source!=null && saved!=null && !saved.isReleased){
-     if(surface!==saved){texture.surfaceTexture=saved;surfaceRestores++}
+     if(surface!==saved){texture.setSurfaceTexture(saved);surfaceRestores++}
      return // The native Surface remains attached to this exact producer.
     }
     retainedSurface=surface;delegate.onSurfaceTextureAvailable(surface,width,height)
