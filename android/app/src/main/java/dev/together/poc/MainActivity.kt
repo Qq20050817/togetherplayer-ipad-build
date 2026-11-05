@@ -157,7 +157,9 @@ class MainActivity: Activity() {
     var cause:Throwable?=error.cause
     while(cause!=null){if(cause is androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException){details.put("codecName",cause.codecInfo?.name ?: "none").put("decoderMimeType",cause.mimeType);break};cause=cause.cause}
     val format=exo?.rendererFormat
-    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name ?: if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO)audioDecoderName else videoDecoderName
+    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name
+     ?: generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException>().firstOrNull()?.codecInfo?.name
+     ?: if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO)audioDecoderName else videoDecoderName
     details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
     format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
     val httpStatus=generateSequence(error.cause){it.cause}
@@ -170,7 +172,9 @@ class MainActivity: Activity() {
     if(scheduleHttpErrorRecovery(error.errorCode,httpStatus,diagnosis.retryable))return
      if(tryRecoverMalformedLocalContainer(error.errorCode))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverCompatibleAudio(format))return
-    if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
+    if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode in listOf(
+     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(diagnosis.category=="LOCAL_UNAVAILABLE")diagnosis.message else if(diagnosis.category=="DECODER") "$kind 解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可尝试其他音轨；已记录编码信息。" else if(httpHealth.isHttp)"${diagnosis.message}（${error.errorCodeName}）。可点重试播放。" else if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
    override fun onPlaybackStateChanged(playbackState: Int){if(playbackState==Player.STATE_READY)sourceFault=false;httpHealth.onPlaybackState(playbackState,playback.playWhenReady,android.os.SystemClock.elapsedRealtime());diagnostic("playbackStateChanged")}
@@ -1065,9 +1069,26 @@ class MainActivity: Activity() {
   }
   val item=playback.currentMediaItem ?: return false
   val uri=item.localConfiguration?.uri?.toString() ?: return false
-  // Only offer another decoder that reports support for this exact profile/size.
-  // Secure/tunneled playback is not used by our local and authorized sources.
-  val alternatives=runCatching {androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false).filter {it.isFormatSupported(format)}.map {it.name}}.getOrElse {emptyList()}
+  // Prefer exact support. Only after a known software decoder has actually
+  // failed may a vendor Main10 decoder be tried despite an absent HDR10 flag.
+  // The probe is never passed to playback: original HDR metadata stays intact.
+  val alternatives=runCatching {
+   val codecs=androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false)
+   val failedSoftware=codecs.firstOrNull {it.name==failed}?.softwareOnly==true
+   val probe=HevcHdrRecovery.main10Probe(format)
+   val report=org.json.JSONArray()
+   val selected=codecs.filter {codec->
+    val exact=runCatching {codec.isFormatSupported(format)}.getOrDefault(false)
+    val main10=probe!=null && runCatching {codec.isFormatSupported(probe)}.getOrDefault(false)
+    val eligible=HevcHdrRecovery.accepts(exact,failedSoftware,codec.hardwareAccelerated,probe!=null,main10)
+    report.put(JSONObject().put("name",codec.name).put("hardware",codec.hardwareAccelerated)
+     .put("software",codec.softwareOnly).put("exactSupport",exact).put("main10Support",main10).put("eligible",eligible))
+    eligible
+   }.map {it.name}
+   diagnostic("hevcRecoveryCapabilities",JSONObject().put("failedCodec",failed).put("failedSoftware",failedSoftware)
+    .put("main10Probe",probe!=null).put("candidates",report))
+   selected
+  }.getOrElse {diagnostic("hevcRecoveryQueryFailed",JSONObject().put("exceptionType",it.javaClass.simpleName));emptyList()}
   val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives)
   if(next==null){
    val accountSource=baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL)

@@ -12,6 +12,9 @@ object PlaybackRenderers {
    // Decode DTS/TrueHD with FFmpeg. Keep native DD+/AAC, preserving the
    // platform's spatial-audio path where supported. Video uses codec fallback.
    if(mime in listOf("audio/vnd.dts","audio/vnd.dts.hd","audio/true-hd"))emptyList()
-   else MediaCodecSelector.DEFAULT.getDecoderInfos(mime,secure,tunneling).filter {recovery.allowed(it.name)}
+   else MediaCodecSelector.DEFAULT.getDecoderInfos(mime,secure,tunneling).let {codecs->
+    val offered=recovery.offeredToRenderer(mime,codecs.map {it.name}).toSet()
+    codecs.filter {it.name in offered}
+   }
   })
 }
