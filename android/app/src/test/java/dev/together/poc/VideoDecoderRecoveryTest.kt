@@ -2,6 +2,17 @@ package dev.together.poc
 import org.junit.Assert.*
 import org.junit.Test
 class VideoDecoderRecoveryTest {
+ @Test fun chosenHardwareCannotBeResortedBehindAnotherSoftwareDecoder() {
+  val p=VideoDecoderRecovery();p.beginSource("https://example.org/synthetic.mkv")
+  assertEquals("hardware",p.recover("video/hevc","software",listOf("hardware","other-software")))
+  assertEquals(listOf("hardware"),p.offeredToRenderer("video/hevc",listOf("other-software","software","hardware")))
+  assertEquals(listOf("audio"),p.offeredToRenderer("audio/aac",listOf("audio")))
+  assertEquals(listOf("avc"),p.offeredToRenderer("video/avc",listOf("avc")))
+  assertEquals("other-software",p.recover("video/hevc","hardware",listOf("other-software")))
+  assertEquals(listOf("other-software"),p.offeredToRenderer("video/hevc",listOf("hardware","software","other-software")))
+  p.beginSource("https://example.org/another.mkv")
+  assertEquals(listOf("software","hardware"),p.offeredToRenderer("video/hevc",listOf("software","hardware")))
+ }
  @Test fun runtimeRecoveryExcludesFailuresAndStopsAfterTwoAttempts() {
   val p=VideoDecoderRecovery();p.beginSource("content://movie/1")
   assertEquals("alternate",p.recover("video/hevc","hardware",listOf("hardware","alternate","software")))
