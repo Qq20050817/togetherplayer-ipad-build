@@ -68,7 +68,7 @@ class CompatiblePlaybackTest {
  @Test fun hdr10RecoveryRequestsNativeSurfaceWhileKeepingOriginalFormat() {
   val i=InstrumentationRegistry.getInstrumentation()
   val bytes=i.context.assets.open("hevc-main10-24fps-av-test.mkv").use {it.readBytes()}
-  FixtureHttpServer(bytes).use {remote->ActivityScenario.launch(MainActivity::class.java).use {scenario->
+  FixtureHttpServer(bytes).use {remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use {scenario->
    scenario.onActivity {a->
     val field=a.javaClass.getDeclaredField("playback").apply {isAccessible=true}
     val p=field.get(a) as CompatiblePlayback
@@ -77,8 +77,8 @@ class CompatiblePlaybackTest {
      .setColorInfo(androidx.media3.common.ColorInfo.Builder()
       .setColorSpace(androidx.media3.common.C.COLOR_SPACE_BT2020)
       .setColorTransfer(androidx.media3.common.C.COLOR_TRANSFER_ST2084).build()).build()
-    p.setMediaItem(MediaItem.fromUri(remote.url),0)
-    assertTrue(p.activateCompatibility(remote.url,0,allowHttp=true,failedVideoFormat=format))
+    p.setMediaItem(MediaItem.fromUri(uri),0)
+    assertTrue(p.activateCompatibility(uri,0,allowHttp=true,failedVideoFormat=format))
     assertEquals(format,p.videoFormat)
     assertEquals(true,p.outputHealth()["hdrHardwareSurfaceRequested"])
     fun surface(v:android.view.View):android.view.SurfaceView? {
