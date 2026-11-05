@@ -249,3 +249,5 @@
 - Strengthen24fps native regression to require the exact same SurfaceTexture identity before/fullscreen/return in addition to actual composed chroma, real clock, actual catch-up rate and audio assertions. New source/lifecycle candidate pending complete native and exact-source parallel validation.
 
 - Retained-surface1d199e9 native compilation fails before tests: Kotlin treats TextureView.surfaceTexture as read-only because getter/setter nullability differ. Call the public setSurfaceTexture method explicitly; no playback test has run for this lifecycle candidate yet. Also require increasing displayed frame counts and changing actual composed lower-picture motion across samples, so a frozen colored frame plus audio clock cannot pass the picture regression.
+
+- Source audit before full regression found the existing ignored-seek test reflects the old four-field ManualSeek constructor. Update only its fixture for the added origin flag; verify distinct room-sync/user failure messages while retaining native-position/time-label/no-fabricated-target assertions. No application source change; exact-source parallel package remains pinned to b6c1395.
