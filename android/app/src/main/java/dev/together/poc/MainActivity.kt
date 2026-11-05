@@ -1065,9 +1065,26 @@ class MainActivity: Activity() {
   }
   val item=playback.currentMediaItem ?: return false
   val uri=item.localConfiguration?.uri?.toString() ?: return false
-  // Only offer another decoder that reports support for this exact profile/size.
-  // Secure/tunneled playback is not used by our local and authorized sources.
-  val alternatives=runCatching {androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false).filter {it.isFormatSupported(format)}.map {it.name}}.getOrElse {emptyList()}
+  // Prefer exact support. Only after a known software decoder has actually
+  // failed may a vendor Main10 decoder be tried despite an absent HDR10 flag.
+  // The probe is never passed to playback: original HDR metadata stays intact.
+  val alternatives=runCatching {
+   val codecs=androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false)
+   val failedSoftware=codecs.firstOrNull {it.name==failed}?.softwareOnly==true
+   val probe=HevcHdrRecovery.main10Probe(format)
+   val report=org.json.JSONArray()
+   val selected=codecs.filter {codec->
+    val exact=runCatching {codec.isFormatSupported(format)}.getOrDefault(false)
+    val main10=probe!=null && runCatching {codec.isFormatSupported(probe)}.getOrDefault(false)
+    val eligible=HevcHdrRecovery.accepts(exact,failedSoftware,codec.hardwareAccelerated,probe!=null,main10)
+    report.put(JSONObject().put("name",codec.name).put("hardware",codec.hardwareAccelerated)
+     .put("software",codec.softwareOnly).put("exactSupport",exact).put("main10Support",main10).put("eligible",eligible))
+    eligible
+   }.map {it.name}
+   diagnostic("hevcRecoveryCapabilities",JSONObject().put("failedCodec",failed).put("failedSoftware",failedSoftware)
+    .put("main10Probe",probe!=null).put("candidates",report))
+   selected
+  }.getOrElse {diagnostic("hevcRecoveryQueryFailed",JSONObject().put("exceptionType",it.javaClass.simpleName));emptyList()}
   val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives)
   if(next==null){
    val accountSource=baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL)
