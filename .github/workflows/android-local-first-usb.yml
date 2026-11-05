@@ -53,11 +53,7 @@ jobs:
             adb shell wm dismiss-keyguard
             adb shell am force-stop com.android.launcher3
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            result=0
-            gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.HevcHdrCapabilityTest,dev.together.poc.Main10DecoderTest,dev.together.poc.LocalDocumentPlaybackTest,dev.together.poc.CompatiblePlaybackTest,dev.together.poc.CompatibleHttpRecoveryTest || result=$?
-            mkdir -p android-delivery/screenshots
-            adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true
-            test "$result" -eq 0
+            result=0; gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.HevcHdrCapabilityTest,dev.together.poc.Main10DecoderTest,dev.together.poc.LocalDocumentPlaybackTest,dev.together.poc.CompatiblePlaybackTest,dev.together.poc.CompatibleHttpRecoveryTest || result=$?; mkdir -p android-delivery/screenshots; adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true; test "$result" -eq 0
       - name: Build and validate compact ARM64 delivery
         working-directory: android
         run: |
