@@ -36,27 +36,9 @@ jobs:
           mkdir -p android/app/src/main/assets
           curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
           echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
-      - name: Test and assemble isolated ARM64 preview
+      - name: Test and assemble universal emulator preview
         working-directory: android
-        run: gradle --no-daemon -PdeliveryArm64=true testDebugUnitTest assembleDebug
-      - name: Verify isolated APK identity and native contents
-        run: |
-          mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.17-HDR-Field-Diagnostic.apk
-          aapt="$(find "$ANDROID_HOME/build-tools" -name aapt | sort -V | tail -1)"
-          "$aapt" dump badging delivery/*.apk > delivery/package-identity.txt
-          python3 - <<'PY'
-          import zipfile,pathlib,hashlib
-          p=pathlib.Path('delivery/TogetherPlayer-Android-0.6.60.17-HDR-Field-Diagnostic.apk')
-          assert p.stat().st_size < 100*1024*1024
-          with zipfile.ZipFile(p) as z:
-              libs=[x for x in z.infolist() if x.filename.startswith('lib/')]
-              assert libs and all(x.filename.startswith('lib/arm64-v8a/') and x.compress_type==8 for x in libs)
-              assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest()=='3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
-          identity=pathlib.Path('delivery/package-identity.txt').read_text()
-          assert "name='dev.together.poc.hdrtrial17'" in identity
-          assert "versionName='0.6.60.17'" in identity
-          PY
+        run: gradle --no-daemon testDebugUnitTest assembleDebug
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -76,6 +58,27 @@ jobs:
             adb shell am start -W -n dev.together.poc.hdrtrial17/dev.together.poc.MainActivity
             sleep 3
             adb shell pidof dev.together.poc.hdrtrial17
+      - name: Build ARM64 device package after emulator smoke
+        working-directory: android
+        run: gradle --no-daemon -PdeliveryArm64=true clean assembleDebug
+      - name: Verify isolated APK identity and native contents
+        run: |
+          mkdir -p delivery
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.17-HDR-Field-Diagnostic.apk
+          aapt="$(find "$ANDROID_HOME/build-tools" -name aapt | sort -V | tail -1)"
+          "$aapt" dump badging delivery/*.apk > delivery/package-identity.txt
+          python3 - <<'PY'
+          import zipfile,pathlib,hashlib
+          p=pathlib.Path('delivery/TogetherPlayer-Android-0.6.60.17-HDR-Field-Diagnostic.apk')
+          assert p.stat().st_size < 100*1024*1024
+          with zipfile.ZipFile(p) as z:
+              libs=[x for x in z.infolist() if x.filename.startswith('lib/')]
+              assert libs and all(x.filename.startswith('lib/arm64-v8a/') and x.compress_type==8 for x in libs)
+              assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest()=='3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
+          identity=pathlib.Path('delivery/package-identity.txt').read_text()
+          assert "name='dev.together.poc.hdrtrial17'" in identity
+          assert "versionName='0.6.60.17'" in identity
+          PY
       - name: Record exact diagnostic bytes
         run: |
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
