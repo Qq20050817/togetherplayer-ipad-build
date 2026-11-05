@@ -194,3 +194,5 @@
 - User reports iOS resolved and requests only the Android build. Stop iOS investigation and builds.
 - 0.6.60.13 run41871520730 compiled and passed unit tests but failed its new first TextureView color read immediately after decoder READY. Do not call native validation passed. Start playback before the first timed color sample (2.5s), retaining repeated color, duration and reparent assertions, and report actual RGB on failure. Full regression pending.
 - Build parallel `.decoder13` / Together 画面测试 to preserve both installed apps and their data; complete app source is checked against a7aba03. No sync change.
+
+- Run41993207241 installed both identities and launched successfully, but its UI XML shows the emulator Quickstep ANR overlay, not an app crash. Add a preflight that dismisses only this known launcher dialog. Run41993207204 color test returned transparent TextureView bitmap; switch to actual composed-screen color checks off the main thread, keeping the same color majority/long run/fullscreen assertions and preserving a synthetic failure screenshot. Both native checks require rerun; no physical fix claim.

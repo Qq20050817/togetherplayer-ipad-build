@@ -47,8 +47,8 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            adb shell am force-stop com.android.launcher3
-            gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.CompatiblePlaybackTest#textureOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent
+            python3 android/emulator-preflight.py
+            result=0; gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.CompatiblePlaybackTest#textureOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent || result=$?; mkdir -p android-delivery/screenshots; adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true; test "$result" -eq 0
             bash android/decoder-check.sh false
       - name: Build and validate compact ARM64 delivery
         working-directory: android
@@ -77,6 +77,7 @@ jobs:
           name: android-main10-texture-0613
           path: |
             delivery/
+            android-delivery/screenshots/
             android/app/build/reports/tests/
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/
