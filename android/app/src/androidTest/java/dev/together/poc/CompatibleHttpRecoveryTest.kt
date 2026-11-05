@@ -44,7 +44,7 @@ class CompatibleHttpRecoveryTest {
  }
  @Test fun failedIndependentHttpReopensAtRealPositionKeepsPauseTracksAndBoundedBudget(){
   val i=InstrumentationRegistry.getInstrumentation();i.targetContext.getSharedPreferences("MainActivity",0).edit().clear().commit()
-  val bytes=i.context.assets.open("hevc-main10-http-test.mp4").use{it.readBytes()}
+  val bytes=i.context.assets.open("hevc-main10-soak-test.mp4").use{it.readBytes()}
   FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{s->
    s.onActivity{start(it,uri)};awaitReady(s)
    var old:Any?=null;var audio=-1
@@ -60,7 +60,7 @@ class CompatibleHttpRecoveryTest {
  }
  @Test fun sourceSwitchCancelsQueuedIndependentRecovery(){
   val i=InstrumentationRegistry.getInstrumentation();i.targetContext.getSharedPreferences("MainActivity",0).edit().clear().commit()
-  val bytes=i.context.assets.open("hevc-main10-http-test.mp4").use{it.readBytes()}
+  val bytes=i.context.assets.open("hevc-main10-soak-test.mp4").use{it.readBytes()}
   FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{s->
    s.onActivity{start(it,uri)};awaitReady(s)
    val replacement="https://example.invalid/replacement.mp4"

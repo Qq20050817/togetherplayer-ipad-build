@@ -78,7 +78,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   closeInput();ready=false;buffering=0f;state=Player.STATE_BUFFERING;failure=null
   compatibleActive=true;changed(true)
   try {
-   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats"));vlc=VLCPlayer(core!!).also {p->
+   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats","--vout=gles2","--android-display-chroma=RV32"));vlc=VLCPlayer(core!!).also {p->
     p.vlcVout.addCallback(object:org.videolan.libvlc.interfaces.IVLCVout.Callback {
      override fun onSurfacesDestroyed(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {rebindVideoOutput()}}
      override fun onSurfacesCreated(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {
@@ -105,8 +105,6 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    // Keep Main10 reference pictures owned by the decoder rather than reuse
    // display buffers while Android replaces/resizes the output surface.
    source!!.addOption(":avcodec-dr=0")
-   // Disable hurry-up packet skipping while preserving full software decoding.
-   source!!.addOption(":avcodec-hurry-up=0")
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
    if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")
