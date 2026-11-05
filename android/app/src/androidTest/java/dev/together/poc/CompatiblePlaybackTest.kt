@@ -76,12 +76,14 @@ class CompatiblePlaybackTest {
     if(view is android.view.ViewGroup)for(n in 0 until view.childCount){videoOutput(view.getChildAt(n))?.let{return it}}
     return null
    }
+   var originalSurface:android.graphics.SurfaceTexture?=null
    fun assertColors(){
     val area=android.graphics.Rect();var position=0L;var outputDetails=""
     scenario.onActivity{a->
      val view=field(a,"independentVideoView").get(a) as android.view.View
      val output=videoOutput(view);assertNotNull("Compatibility output must use TextureView",output)
      assertTrue(output!!.getGlobalVisibleRect(area));position=player(a).currentPosition
+     if(movieRate){val surface=output.surfaceTexture;assertNotNull(surface);if(originalSurface==null)originalSurface=surface else assertSame("Fullscreen must preserve the native video producer without disabling its track",originalSurface,surface)}
      val core=player(a).javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(player(a)) as org.videolan.libvlc.MediaPlayer
      outputDetails="videoTrack=${core.videoTrack},attached=${core.vlcVout.areViewsAttached()},playing=${core.isPlaying}"
     }
