@@ -63,4 +63,74 @@ class CompatiblePlaybackTest {
   }}
  }
 
+ @Test fun independentOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent(){
+  val i=InstrumentationRegistry.getInstrumentation()
+  val bytes=i.context.assets.open("hevc-main10-soak-test.mp4").use{it.readBytes()}
+  FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
+   fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
+   fun player(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
+   fun videoOutput(view:android.view.View):android.view.TextureView? {
+    if(view is android.view.TextureView && view.isShown)return view
+    if(view is android.view.ViewGroup)for(n in 0 until view.childCount){videoOutput(view.getChildAt(n))?.let{return it}}
+    return null
+   }
+   fun assertColors(){
+    val area=android.graphics.Rect();var position=0L;var outputDetails=""
+    scenario.onActivity{a->
+     val view=field(a,"independentVideoView").get(a) as android.view.View
+     val output=videoOutput(view);assertNotNull("Compatibility output must use TextureView",output)
+     assertTrue(output!!.getGlobalVisibleRect(area));position=player(a).currentPosition
+     val core=player(a).javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(player(a)) as org.videolan.libvlc.MediaPlayer
+     outputDetails="videoTrack=${core.videoTrack},attached=${core.vlcVout.areViewsAttached()},playing=${core.isPlaying}"
+    }
+    // Read the actual composed screen off the main thread, including video.
+    val bitmap=i.uiAutomation.takeScreenshot() ?: throw AssertionError("No composed screenshot")
+    try {
+     fun high(c:Int,mask:Int)=((c shr mask) and 255)>140
+     fun low(c:Int,mask:Int)=((c shr mask) and 255)<110
+     fun matches(n:Int,c:Int)=when(n){
+      0->high(c,16)&&low(c,8)&&low(c,0)
+      1->high(c,8)&&low(c,16)&&low(c,0)
+      2->high(c,16)&&high(c,8)&&low(c,0)
+      3->high(c,0)&&low(c,16)&&low(c,8)
+      4->high(c,16)&&high(c,0)&&low(c,8)
+      else->high(c,8)&&high(c,0)&&low(c,16)
+     }
+     for(n in 0 until 6){
+      var matching=0
+      for(x in 6..14 step 2)for(y in 28..36 step 2){
+       val c=bitmap.getPixel(area.left+(n*20+x)*area.width()/120,area.top+y*area.height()/64)
+       if(matches(n,c))matching++
+      }
+      if(matching<15){
+       val dir=java.io.File("/sdcard/Pictures/TogetherUITests").apply{mkdirs()}
+       java.io.File(dir,"main10-color-failure.png").outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
+      }
+      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails",matching>=15)
+     }
+    } finally {bitmap.recycle()}
+   }
+   scenario.onActivity{a->val p=player(a);p.setMediaItem(MediaItem.fromUri(uri),0);assertTrue(p.activateCompatibility(uri,0,allowHttp=true))}
+   var ready=false;val preparedDeadline=SystemClock.elapsedRealtime()+45000
+   while(!ready && SystemClock.elapsedRealtime()<preparedDeadline){scenario.onActivity{a->assertNull(player(a).playerError);ready=player(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
+   assertTrue("Long Main10 fixture must prepare",ready)
+   scenario.onActivity{a->player(a).play()}
+   val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0
+   while(SystemClock.elapsedRealtime()-start<38000){
+    SystemClock.sleep(2500)
+    var sample=false
+    scenario.onActivity{a->
+     val p=player(a);assertNull(p.playerError);assertTrue("Long Main10 decode must continue",p.displayedFrames()>0)
+     if(SystemClock.elapsedRealtime()-start>12000 && !reparented){a.javaClass.getDeclaredMethod("showFullscreen").apply{isAccessible=true}.invoke(a);reparented=true}
+     else if(SystemClock.elapsedRealtime()-start>22000 && !restored){(field(a,"fullscreenDialog").get(a) as android.app.Dialog).dismiss();restored=true}
+     else {sample=true;samples++}
+    }
+    if(sample)assertColors()
+   }
+   scenario.onActivity{a->val p=player(a);assertTrue("Native clock must advance through at least30s",p.currentPosition>=30000);p.pause();assertFalse(p.playWhenReady)}
+   assertColors()
+   assertTrue("Check color planes repeatedly, not only first-frame count",samples>=8);assertTrue(reparented&&restored)
+  }}
+ }
+
 }
