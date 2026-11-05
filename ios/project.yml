@@ -6,8 +6,8 @@ options:
 settings:
  base:
   SWIFT_VERSION: "5.0"
-  MARKETING_VERSION: "0.6.80"
-  CURRENT_PROJECT_VERSION: "140"
+  MARKETING_VERSION: "0.6.83"
+  CURRENT_PROJECT_VERSION: "143"
   TARGETED_DEVICE_FAMILY: "1,2"
 packages:
  PrismCore:
@@ -54,7 +54,10 @@ targets:
  TogetherPoCCoreTests:
   type: bundle.unit-test
   platform: iOS
-  sources: [NativeTests]
+  sources:
+   - path: NativeTests
+     excludes: [Fixtures]
+  resources: [NativeTests/Fixtures]
   dependencies:
    - target: TogetherPoC
   settings:

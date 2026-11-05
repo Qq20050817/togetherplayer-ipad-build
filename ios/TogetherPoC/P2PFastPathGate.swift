@@ -84,3 +84,13 @@ struct P2PFastPathGate {
   return .accepted
  }
 }
+
+/// Avoid rebuilding WebRTC every15s throughout a failed STUN route.
+struct P2PRetryBackoff {
+ private(set) var intervalMs:Double=15_000
+ func due(now:Double,lastAttempt:Double)->Bool {
+  now.isFinite && lastAttempt.isFinite && now>=lastAttempt && now-lastAttempt>=intervalMs
+ }
+ mutating func advance(){intervalMs=min(120_000,intervalMs*2)}
+ mutating func reset(){intervalMs=15_000}
+}

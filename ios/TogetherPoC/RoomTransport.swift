@@ -55,11 +55,28 @@ enum RoomResumePolicy {
  static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double,connectionAgeMs: Double,inactiveDurationMs: Double=0) -> Bool {
   guard hasCredentials else {return false}
   if !wasForeground || !hasSocket {return true}
-  // iPad multiwindow and app switching may go inactive without entering background.
-  // Reopen the transport after a meaningful inactive interval to avoid a half-open socket.
-  if inactiveDurationMs >= 3000 {return true}
+  // An inactive scene can keep receiving healthy room messages. Use actual
+  // transport freshness rather than the duration of an overlay or split view.
   // A resumed inactive scene may hold a stale socket even while still marked connected.
   // Avoid disrupting a genuinely healthy socket or a handshake still in progress.
   return isConnected ? lastMessageAgeMs >= 15_000 : connectionAgeMs >= 10_000
  }
+}
+
+/// A single bounded foreground outage; retries cannot renew its deadline.
+struct RoomReconnectContinuity {
+ private(set) var roomID:String?
+ private(set) var mediaURL:String?
+ private(set) var deadline:Double?
+ mutating func begin(roomID:String,mediaURL:String,now:Double,canContinue:Bool)->Bool {
+  if deadline != nil {return preserves(roomID:roomID,mediaURL:mediaURL,now:now) && canContinue}
+  guard canContinue,now.isFinite,!roomID.isEmpty,!mediaURL.isEmpty else{return false}
+  self.roomID=roomID;self.mediaURL=mediaURL;deadline=now+8000
+  return true
+ }
+ func preserves(roomID:String,mediaURL:String,now:Double)->Bool {
+  guard let deadline,now.isFinite else{return false}
+  return self.roomID==roomID && self.mediaURL==mediaURL && now<deadline
+ }
+ mutating func reset(){roomID=nil;mediaURL=nil;deadline=nil}
 }

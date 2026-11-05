@@ -288,6 +288,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var p2pRoomID=""
  private var p2pEstablished=false
  private var p2pLastOfferAt=0.0
+ private var p2pRetry=P2PRetryBackoff()
  private var p2pHandoff=P2PMuseHandoff()
  private var p2pGate=P2PFastPathGate()
  private var initializedP2PTransport:P2PWebRTCTransport?
@@ -301,9 +302,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   transport.onState={ [weak self] state in
    guard let self else{return}
    self.p2pEstablished=state == "open"
+   if self.p2pEstablished {self.p2pRetry.reset()}
    self.p2pGate.setChannelAlive(self.p2pEstablished)
    self.p2pGate.verifyPeer(fromAuthoritativeRoster:self.p2pEstablished && self.p2pKnownPeerOnline())
-   self.p2pStatus=state == "open" ? "P2P 直连" : "Muse 备用（P2P \(state)）"
+   let label=state == "open" ? "P2P 直连" : "Muse 备用（P2P \(state)）"
+   if self.p2pStatus != label {self.p2pStatus=label}
   }
   transport.onControl={ [weak self] frame in self?.receiveP2PControl(frame) }
   initializedP2PTransport=transport
@@ -319,6 +322,8 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var disconnectCount=0
  private var lastDisconnectReason=""
  private var ignoredFrames=0
+ private var reconnectContinuity=RoomReconnectContinuity()
+ private var reconnectPauseIntent:(roomID:String,mediaURL:String)?
  private let messageSender: (([String:Any])->Void)?
  private var bankSamplingSubscription:AnyCancellable?
  private var generation=0;private var attempt=0;private var sequence: Int64=0
@@ -1073,12 +1078,19 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   socket?.cancel(with:.goingAway,reason:nil);socket=nil
   socketSession?.invalidateAndCancel();socketSession=nil
  }
+ private func preservePlaybackForReconnect()->Bool {
+  guard foreground,let room=engine.room,room.roomId==(credentials?["roomId"] as? String) else{return false}
+  return reconnectContinuity.begin(roomID:room.roomId,mediaURL:room.mediaUrl,now:clock.localNow(),
+   canContinue:room.state=="playing" && adapter.ready && !adapter.buffering && adapter.player.rate>0 &&
+    !plotPollWaiting && !holdingLocalPause && inFlight==nil && queuedOperations.isEmpty && reconnectPauseIntent==nil)
+ }
  func connect() {
+  let preservePlayback=preservePlaybackForReconnect()
   stopP2P()
   supportsInstantControls=false;localVideoTest=false;localPlayIntent=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
   guard foreground,let token=credentials?["token"] as? String else {return}
   plotIntelligence.preserveCurrentFilmEvidence()
-  generation += 1;let g=generation;closeRoomTransport();connected=false;engine.resetSession();pending=nil;requestStatus=""
+  generation += 1;let g=generation;closeRoomTransport();connected=false;if !preservePlayback {engine.resetSession()};pending=nil;requestStatus=""
   guard var components=URLComponents(string:credentialServer) else {status="无效 URL";return}
   components.scheme=components.scheme == "https" ? "wss" : "ws";components.path="/ws";components.query=nil
   guard let url=components.url else {return}
@@ -1105,25 +1117,26 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     guard g==generation else{return}
     let httpStatus=(ws.response as? HTTPURLResponse)?.statusCode
     if httpStatus==401 {clearRoom();requestStatus="房间凭证已失效，请创建或加入新房间"}
-    else {reconnect(g,reason:"receive",hint:RoomTransportFailure.description(error as NSError,httpStatus:httpStatus))}
+    else {let failure=error as NSError;reconnect(g,reason:"receive:\(failure.code):ws\(ws.closeCode.rawValue)",hint:RoomTransportFailure.description(failure,httpStatus:httpStatus))}
    }
   }
  }
  private func reconnect(_ g: Int,reason: String="receive",hint: String?=nil) {
   guard g==generation,foreground,credentials != nil else {return}
+  let preservePlayback=preservePlaybackForReconnect()
   setSpeedHold(false)
   voice.cancel(message:"连接中断，当前录音已取消，未发送")
    plotIntelligence.preserveCurrentFilmEvidence()
   // Invalidate both send and receive callbacks before scheduling one retry.
   generation += 1;let next=generation;closeRoomTransport()
-  stopP2P();connected=false;engine.resetSession();playbackRecovery.reset();setPlaybackRecoveryVisible(false);attempt += 1
+  stopP2P();connected=false;if !preservePlayback {engine.resetSession()};playbackRecovery.reset();setPlaybackRecoveryVisible(false);attempt += 1
   disconnectCount += 1;lastDisconnectReason=reason
   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[]
   clearOptimisticPlayback();lastStepTarget=nil
   if pendingRoomMedia != nil {mediaFeedback.requestStatus="连接中断，换片请求已保留；重连后继续确认…"}
   let delay=min(15.0,pow(2.0,Double(min(attempt,5)))*0.5)
   let detail=hint.map {"（\($0)）"} ?? ""
-  status="连接中断\(detail)，\(Int(ceil(delay)))秒后自动重连"
+  status="连接中断\(detail)，\(Int(ceil(delay)))秒后自动重连"+(preservePlayback ? "；影片短暂继续播放" : "")
   Task {try? await Task.sleep(nanoseconds:UInt64(delay*1e9));if next==generation {connect()} }
  }
  private func send(_ value: [String:Any]) {
@@ -1161,7 +1174,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     let expected=rememberedMovie?.context
     if localFileURL != nil || expected?.roomID != room.roomId || expected?.mediaID != room.mediaUrl {forgetRememberedMovie();releaseLocalFileAccess()}
    }
-   engine.receive(room);isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
+   engine.receive(room);if connected {reconnectContinuity.reset()};isHost=room.hostId == (credentials?["userId"] as? String);if isRoomHost != isHost {isRoomHost=isHost}
    p2pGate.serverState(version:room.version)
    if plotPollWaiting {clearOptimisticPlayback()}
    if usingDifferentQuality,variantReferenceDuration<=0,let duration=room.duration,duration>0 {variantReferenceDuration=duration}
@@ -1313,6 +1326,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if localVideoTest {
    switch type {case "PLAY":adapter.play();case "PAUSE":adapter.pause();case "SEEK":adapter.seekTo(position);default:break};return
   }
+  if !connected,reconnectContinuity.deadline != nil,type=="PAUSE",let room=engine.room {
+   reconnectPauseIntent=(room.roomId,room.mediaUrl);reconnectContinuity.reset();adapter.pause()
+   requestStatus="已暂停本机；连接恢复后同步暂停请求";feedback.showPlaybackAction(requestStatus);return
+  }
   guard connected && clock.ready else {requestStatus="尚未连接或正在校准时钟";feedback.showPlaybackAction(requestStatus);return}
   if supportsInstantControls,["PLAY","PAUSE","SEEK","REPLAY"].contains(type),let room=engine.room {
    guard variantDurationCheck == .compatible else {requestStatus="请先确认影片版本";return}
@@ -1374,8 +1391,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  func approve() {guard let p=pending else {return};control(p["type"] as? String ?? "",position:p["position"] as? Double ?? 0);pending=nil}
  func disconnectForTest() {
-  generation += 1;closeRoomTransport();connected=false;adapter.pause();let g=generation
-  Task {try? await Task.sleep(nanoseconds:3_000_000_000);if g==generation {connect()} }
+  reconnect(generation,reason:"manual_transport_test")
  }
  private func cancelRecoveryPreroll() {
   guard prerolling else {return}
@@ -1481,6 +1497,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
  }
  private func tick() {
+  if let deadline=reconnectContinuity.deadline,clock.localNow()>=deadline {
+   reconnectContinuity.reset();engine.resetSession()
+   status="房间连接尚未恢复，已暂停等待同步"
+  }
   tickWatchMemory()
   if localVideoTest {ticks += 1;monitorLocalPlaybackRecovery();if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
@@ -1488,6 +1508,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
   }
   guard connected else {return}
+  if let pause=reconnectPauseIntent {
+   guard let room=engine.room else{return}
+   if room.roomId != pause.roomID || room.mediaUrl != pause.mediaURL || room.state=="paused" {reconnectPauseIntent=nil}
+   else {adapter.pause();if clock.ready {reconnectPauseIntent=nil;control("PAUSE")};return}
+  }
   if engine.target()?.1 == "playing" || adapter.isSeeking {cancelRecoveryPreroll()}
   if speedHoldID != nil,engine.target()?.1 == "paused" {setSpeedHold(false)}
   let error: Double?
@@ -1912,6 +1937,7 @@ extension TestClient {
  func react(_ emoji: String) {send(["type":"REACTION","data":["emoji":emoji]])}
  func leaveRoom() {forgetRememberedMovie();voice.disable();guard connected else {clearRoom();return};send(["type":"ROOM_LEAVE"])}
  private func clearRoom() {
+  reconnectContinuity.reset();reconnectPauseIntent=nil
   stopP2P()
   forgetRememberedMovie()
   supportsBlockingPolls=false
@@ -1968,7 +1994,7 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {reconnectContinuity.reset();reconnectPauseIntent=nil;stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleInactive() {inactiveAt=clock.localNow()}
  func handleForeground() {
   let wasForeground=foreground
@@ -1997,7 +2023,7 @@ extension TestClient {
   initializedP2PTransport?.close()
   p2pGate.reset();p2pSupported=false;p2pPeerID="";p2pRoomID=""
   p2pEstablished=false;p2pHandoff.reset()
-  p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
+  p2pRetry.reset();p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
  }
  private func refreshP2P() {
   guard connected,foreground,p2pSupported,
@@ -2014,12 +2040,12 @@ extension TestClient {
   if p2pPeerID != remote || p2pRoomID != room.roomId {
    p2pPeerID=remote;p2pRoomID=room.roomId;p2pEstablished=false
    p2pGate.attach(roomID:room.roomId,hostUserID:room.hostId,localUserID:me,serverVersion:room.version)
-   p2pLastOfferAt=clock.localNow()
+   p2pRetry.reset();p2pLastOfferAt=clock.localNow()
    p2pTransport.start(host:room.hostId==me,peerUserID:remote)
   } else {
    p2pGate.serverState(version:room.version)
-   if room.hostId==me && !p2pEstablished && clock.localNow()-p2pLastOfferAt>15_000 {
-    p2pLastOfferAt=clock.localNow()
+   if room.hostId==me && !p2pEstablished && p2pRetry.due(now:clock.localNow(),lastAttempt:p2pLastOfferAt) {
+    p2pRetry.advance();p2pLastOfferAt=clock.localNow()
     p2pTransport.start(host:true,peerUserID:remote)
    }
   }
