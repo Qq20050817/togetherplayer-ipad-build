@@ -39,6 +39,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private var failure:PlaybackException?=null
  private var nativeVideo:Format?=null
  private var nativeAudio:Format?=null
+ private var hdrHardwareSurface=false
  private var pendingSeek:Long?=null
  private var pendingUntil=0L
  private var requestedSubtitle:Int?=null
@@ -61,7 +62,8 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private fun rebindVideoOutput(){
   val p=vlc ?: return;val view=layout ?: return
   if(!compatibleActive || source==null || !view.isAttachedToWindow || p.vlcVout.areViewsAttached())return
-  p.detachViews();forgetRetainedOutput();p.attachViews(view,null,true,true);retainVideoOutput(view)
+  p.detachViews();forgetRetainedOutput();p.attachViews(view,null,true,!hdrHardwareSurface)
+  if(!hdrHardwareSurface)retainVideoOutput(view)
   applySubtitleSelection()
  }
  private fun findTexture(view:android.view.View):android.view.TextureView? {
@@ -108,11 +110,12 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   val id=requestedSubtitle ?: if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))-1 else return
   vlc?.let {p->if(id<0 || p.spuTracks?.any {it.id==id}==true)p.setSpuTrack(id)}
  }
- fun activateCompatibility(uri:String,positionMs:Long,allowHttp:Boolean=false):Boolean {
+ fun activateCompatibility(uri:String,positionMs:Long,allowHttp:Boolean=false,failedVideoFormat:Format?=null):Boolean {
   if(layout==null || compatibleActive || !CompatibilitySourcePolicy.allows(uri,allowHttp))return false
-  nativeVideo=native.videoFormat;nativeAudio=native.audioFormat
+  nativeVideo=failedVideoFormat ?: native.videoFormat;nativeAudio=native.audioFormat
   item=native.currentMediaItem ?: return false
   if(item?.localConfiguration?.uri?.toString()!=uri)return false
+  hdrHardwareSurface=HdrCompatibilityPolicy.useHardwareSurface(allowHttp,nativeVideo)
   native.pause();native.stop();compatibleSources.add(uri)
   startPosition=positionMs.coerceAtLeast(0);wanted=false
   return openIndependent(uri)
@@ -130,7 +133,8 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      }}
     })
    }}
-   val p=vlc!!;p.detachViews();forgetRetainedOutput();p.attachViews(layout!!,null,true,true);retainVideoOutput(layout!!)
+   val p=vlc!!;p.detachViews();forgetRetainedOutput();p.attachViews(layout!!,null,true,!hdrHardwareSurface)
+   if(!hdrHardwareSurface)retainVideoOutput(layout!!)
    p.setEventListener {event->
     if(token!=epoch || !compatibleActive)return@setEventListener
     when(event.type){
@@ -144,17 +148,20 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    val parsed=android.net.Uri.parse(uri)
    descriptor=if(parsed.scheme=="content")context.contentResolver.openFileDescriptor(parsed,"r") else null
    source=if(parsed.scheme=="content")Media(core!!,descriptor?.fileDescriptor ?: throw java.io.IOException("无法打开本地影片"))else Media(core!!,parsed)
-   source!!.setHWDecoderEnabled(false,false)
-   source!!.addOption(":codec=avcodec")
-   // Keep Main10 reference pictures owned by the decoder rather than reuse
-   // display buffers while Android replaces/resizes the output surface.
-   // VLC var_OptionParse ignores '=0' for boolean options: it enables them.
-   // Only the no- prefix actually disables direct rendering/hurry-up.
-   source!!.addOption(":no-avcodec-dr")
-   // Preserve HEVC reference packets during transient CPU/window load. VLC's
-   // hurry-up path can discard compressed packets and corrupt subsequent
-   // dependent frames until the next keyframe, even while time keeps moving.
-   source!!.addOption(":no-avcodec-hurry-up")
+   if(hdrHardwareSurface){
+    // VLC's media option requests Android MediaCodec first, retaining the
+    // original HEVC Main10/PQ bitstream. SurfaceView can preserve HDR output;
+    // TextureView can tone-map HDR to SDR on recent Android versions.
+    // Device capability is confirmed only by a subsequent actual playback test.
+    source!!.setHWDecoderEnabled(true,true)
+   }else{
+    // Keep the existing software fallback for local, unknown and SDR input.
+    source!!.setHWDecoderEnabled(false,false)
+    source!!.addOption(":codec=avcodec")
+    // VLC boolean options require the no- prefix; '=0' enables them.
+    source!!.addOption(":no-avcodec-dr")
+    source!!.addOption(":no-avcodec-hurry-up")
+   }
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
    if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")
@@ -179,7 +186,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  }
  private fun fail(message:String){failure=PlaybackException(message,null,PlaybackException.ERROR_CODE_DECODING_FAILED);wanted=false;state=Player.STATE_IDLE;vlc?.stop();failed(message)}
  private fun closeInput(){vlc?.stop();vlc?.media=null;source?.release();source=null;descriptor?.close();descriptor=null;pendingSeek=null}
- private fun deactivate(){epoch++;closeInput();vlc?.detachViews();forgetRetainedOutput();compatibleActive=false;ready=false;wanted=false;state=Player.STATE_IDLE;failure=null;changed(false)}
+ private fun deactivate(){epoch++;closeInput();vlc?.detachViews();forgetRetainedOutput();compatibleActive=false;hdrHardwareSurface=false;ready=false;wanted=false;state=Player.STATE_IDLE;failure=null;changed(false)}
  override fun getCurrentMediaItem():MediaItem?=if(compatibleActive)item else native.currentMediaItem
  override fun getCurrentPosition():Long {
   if(!compatibleActive)return native.currentPosition
@@ -232,6 +239,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    "demuxCorrupted" to (stats?.demuxCorrupted ?: -1),"nativeState" to (p?.playerState ?: -1),
    "nativeRate" to (p?.rate ?: -1f),"requestedRate" to speed,"bufferingPercent" to buffering,
    "surfaceRetained" to (retainedSurface!=null),"surfaceRestores" to surfaceRestores,"selectedVideo" to (p?.videoTrack ?: -1),
+   "hdrHardwareSurfaceRequested" to hdrHardwareSurface,
    "wantedPlaying" to wanted,"nativeVolume" to (p?.volume ?: -1),"selectedAudio" to (p?.audioTrack ?: -1))
  }
  fun decodedFrames():Int=source?.stats?.decodedVideo ?: 0

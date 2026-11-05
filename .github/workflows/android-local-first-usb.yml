@@ -1,7 +1,7 @@
-name: Android HEVC hardware trial 0.6.60.16
+name: Android HDR10 SurfaceView hardware diagnostic 0.6.60.17
 on:
   push:
-    branches: [fix/android-hevc-hardware-trial-0616-20261106]
+    branches: [fix/android-hevc-hdr10-surface-trial-0617-20261106]
     paths: ['android/**', '.github/workflows/android-local-first-usb.yml']
   workflow_dispatch:
 permissions:
@@ -66,12 +66,12 @@ jobs:
       - name: Preserve candidate APK
         run: |
           mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.16.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.17-HDR-Test.apk
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-main10-http-recovery-0616-attempt-${{ github.run_attempt }}
+          name: android-main10-hdr-surface-trial-0617-attempt-${{ github.run_attempt }}
           path: |
             delivery/
             android-delivery/screenshots/

@@ -1100,9 +1100,10 @@ class MainActivity: Activity() {
   val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives)
   if(next==null){
    val accountSource=baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL)
-   if(!accountSource && android.net.Uri.parse(uri).scheme in listOf("http","https") && playback.activateCompatibility(uri,playback.currentPosition,allowHttp=true)){
-    requestStatus.text="系统 HEVC 解码失败，正在尝试独立兼容播放…"
-    diagnostic("independentHttpDecoderSelected",JSONObject().put("failedCodec",failed).put("mimeType",format.sampleMimeType))
+   if(!accountSource && android.net.Uri.parse(uri).scheme in listOf("http","https") && playback.activateCompatibility(uri,playback.currentPosition,allowHttp=true,failedVideoFormat=format)){
+    val hdrTrial=HdrCompatibilityPolicy.useHardwareSurface(true,format)
+    requestStatus.text=if(hdrTrial)"系统 HEVC 解码失败，正在尝试原始 HDR10 硬件画面输出…" else "系统 HEVC 解码失败，正在尝试独立兼容播放…"
+    diagnostic("independentHttpDecoderSelected",JSONObject().put("failedCodec",failed).put("mimeType",format.sampleMimeType).put("hdrHardwareSurfaceRequested",hdrTrial))
     return true
    }
    return false

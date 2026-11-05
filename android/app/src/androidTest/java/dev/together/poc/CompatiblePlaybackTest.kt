@@ -65,6 +65,33 @@ class CompatiblePlaybackTest {
 
  @Test fun independentOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent() = independentSoak("hevc-main10-soak-test.mp4",false)
  @Test fun main10MovieRateHttpKeepsColorsAudioAndPositionDuringCatchup() = independentSoak("hevc-main10-24fps-av-test.mkv",true)
+ @Test fun hdr10RecoveryRequestsNativeSurfaceWhileKeepingOriginalFormat() {
+  val i=InstrumentationRegistry.getInstrumentation()
+  val bytes=i.context.assets.open("hevc-main10-24fps-av-test.mkv").use {it.readBytes()}
+  FixtureHttpServer(bytes).use {remote->ActivityScenario.launch(MainActivity::class.java).use {scenario->
+   scenario.onActivity {a->
+    val field=a.javaClass.getDeclaredField("playback").apply {isAccessible=true}
+    val p=field.get(a) as CompatiblePlayback
+    val format=androidx.media3.common.Format.Builder().setSampleMimeType("video/hevc")
+     .setCodecs("hvc1.2.4.L150.90").setWidth(3840).setHeight(1600)
+     .setColorInfo(androidx.media3.common.ColorInfo.Builder()
+      .setColorSpace(androidx.media3.common.C.COLOR_SPACE_BT2020)
+      .setColorTransfer(androidx.media3.common.C.COLOR_TRANSFER_ST2084).build()).build()
+    p.setMediaItem(MediaItem.fromUri(remote.url),0)
+    assertTrue(p.activateCompatibility(remote.url,0,allowHttp=true,failedVideoFormat=format))
+    assertEquals(format,p.videoFormat)
+    assertEquals(true,p.outputHealth()["hdrHardwareSurfaceRequested"])
+    fun surface(v:android.view.View):android.view.SurfaceView? {
+     if(v is android.view.SurfaceView)return v
+     if(v is android.view.ViewGroup)for(n in 0 until v.childCount)surface(v.getChildAt(n))?.let{return it}
+     return null
+    }
+    val view=a.javaClass.getDeclaredField("independentVideoView").apply {isAccessible=true}.get(a) as android.view.View
+    assertNotNull("HDR10 path must attach VLC to SurfaceView",surface(view))
+    p.clearMediaItems()
+   }
+  }}
+ }
  private fun independentSoak(asset:String,movieRate:Boolean){
   val i=InstrumentationRegistry.getInstrumentation()
   val bytes=i.context.assets.open(asset).use{it.readBytes()}
