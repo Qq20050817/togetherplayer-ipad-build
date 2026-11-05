@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   verify:
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 55
     steps:
       - name: Select available Xcode 26
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ipad-room-continuity-083-unsigned
+          name: ipad-room-stability-083-unsigned-attempt-${{ github.run_attempt }}
           path: |
             delivery/
             subtitle-*.log
