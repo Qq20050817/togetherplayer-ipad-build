@@ -1,7 +1,7 @@
-name: Android decoder parallel-install package 0.6.60.15
+name: Android decoder parallel-install package 0.6.60.16
 on:
   push:
-    branches: [fix/android-hdr-main10-hardware-recovery-0615-20261106]
+    branches: [fix/android-hevc-hardware-trial-0616-20261106]
     paths: ['.github/workflows/android-decoder-parallel.yml']
   workflow_dispatch:
 permissions:
@@ -33,17 +33,17 @@ jobs:
         run: |
           python3 - <<'PY'
           import pathlib,hashlib,subprocess
-          assert subprocess.check_output(['git','diff','8d9281c37de6043416e16d71dd6df913cca9b30f','--','android/app/src/main/java','android/app/src/main/res'])==b''
-          print('Verified complete application sources against 8d9281c')
+          assert subprocess.check_output(['git','diff','38b6943e31f3bd76d27523c520018bd596a807e3','--','android/app/src/main/java','android/app/src/main/res'])==b''
+          print('Verified complete application sources against 38b6943')
           p=pathlib.Path('android/app/build.gradle.kts');s=p.read_text()
           assert s.count('applicationIdSuffix = ".fluency"')==1
-          p.write_text(s.replace('applicationIdSuffix = ".fluency"','applicationIdSuffix = ".decoder15"'))
+          p.write_text(s.replace('applicationIdSuffix = ".fluency"','applicationIdSuffix = ".decoder16"'))
           p=pathlib.Path('android/app/src/main/AndroidManifest.xml');s=p.read_text()
           assert s.count('android:label="TogetherPlayer"')==1
-          p.write_text(s.replace('android:label="TogetherPlayer"','android:label="Together 硬解测试"'))
+          p.write_text(s.replace('android:label="TogetherPlayer"','android:label="Together 硬解恢复"'))
           p=pathlib.Path('android/app/src/debug/AndroidManifest.xml');s=p.read_text()
           assert s.count('android:label="TogetherPlayer 流畅预览"')==1
-          p.write_text(s.replace('android:label="TogetherPlayer 流畅预览"','android:label="Together 硬解测试"'))
+          p.write_text(s.replace('android:label="TogetherPlayer 流畅预览"','android:label="Together 硬解恢复"'))
           PY
           git diff --exit-code -- android/app/src/main/java android/app/src/main/res
       - name: Bundle verified offline voice model and previous install fixture
@@ -82,11 +82,11 @@ jobs:
             adb install baseline/original-0610.apk
             adb install android/app/build/outputs/apk/debug/app-debug.apk
             adb shell pm list packages | grep -x 'package:dev.together.poc.fluency'
-            adb shell pm list packages | grep -x 'package:dev.together.poc.decoder15'
-            adb shell am start -W -n dev.together.poc.decoder15/dev.together.poc.MainActivity
+            adb shell pm list packages | grep -x 'package:dev.together.poc.decoder16'
+            adb shell am start -W -n dev.together.poc.decoder16/dev.together.poc.MainActivity
             sleep 3
             python3 android/emulator-preflight.py
-            adb shell pidof dev.together.poc.decoder15
+            adb shell pidof dev.together.poc.decoder16
             adb shell uiautomator dump /sdcard/decoder-launch.xml
             adb pull /sdcard/decoder-launch.xml baseline/decoder-launch.xml
             python3 -c 'from pathlib import Path; assert "一起看" in Path("baseline/decoder-launch.xml").read_text()'
@@ -95,27 +95,27 @@ jobs:
         run: |
           gradle --no-daemon -PdeliveryArm64=true assembleDebug
           mkdir -p ../delivery
-          cp app/build/outputs/apk/debug/app-debug.apk ../delivery/TogetherPlayer-Android-0.6.60.15-Playback-Test-Parallel.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../delivery/TogetherPlayer-Android-0.6.60.16-Playback-Test-Parallel.apk
           aapt="$(find "$ANDROID_HOME/build-tools" -name aapt | sort -V | tail -1)"
           "$aapt" dump badging ../delivery/*.apk > ../delivery/package-identity.txt
           python3 - <<'PY'
           import zipfile,pathlib,hashlib
-          p=pathlib.Path('../delivery/TogetherPlayer-Android-0.6.60.15-Playback-Test-Parallel.apk')
+          p=pathlib.Path('../delivery/TogetherPlayer-Android-0.6.60.16-Playback-Test-Parallel.apk')
           assert p.stat().st_size<100*1024*1024
           with zipfile.ZipFile(p) as z:
               libs=[x for x in z.infolist() if x.filename.startswith('lib/')]
               assert libs and all(x.filename.startswith('lib/arm64-v8a/') and x.compress_type==8 for x in libs)
               assert hashlib.sha256(z.read('assets/voice-cn-model.zip')).hexdigest()=='3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
           identity=pathlib.Path('../delivery/package-identity.txt').read_text()
-          assert "name='dev.together.poc.decoder15'" in identity
-          assert "versionName='0.6.60.15'" in identity
-          assert "Together 硬解测试" in identity
+          assert "name='dev.together.poc.decoder16'" in identity
+          assert "versionName='0.6.60.16'" in identity
+          assert "Together 硬解恢复" in identity
           PY
           (cd ../delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-decoder-parallel-0615
+          name: android-decoder-parallel-0616
           path: |
             delivery/
             baseline/decoder-launch.xml

@@ -1,7 +1,7 @@
-name: Xiaomi Pad7 compressed ARM64 APK 0.6.60.15
+name: Android HEVC hardware trial 0.6.60.16
 on:
   push:
-    branches: [fix/android-hdr-main10-hardware-recovery-0615-20261106]
+    branches: [fix/android-hevc-hardware-trial-0616-20261106]
     paths: ['android/**', '.github/workflows/android-local-first-usb.yml']
   workflow_dispatch:
 permissions:
@@ -73,12 +73,12 @@ jobs:
       - name: Preserve candidate APK
         run: |
           mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Xiaomi-Pad7-0.6.60.15.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.16.apk
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-main10-http-recovery-0615-attempt-${{ github.run_attempt }}
+          name: android-main10-http-recovery-0616-attempt-${{ github.run_attempt }}
           path: |
             delivery/
             android-delivery/screenshots/
