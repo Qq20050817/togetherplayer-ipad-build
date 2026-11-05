@@ -6,8 +6,10 @@ class VideoDecoderRecovery {
  private val excluded = linkedSetOf<String>()
  private var attempts = 0
  private var selected:String? = null
+ var softwareFailureSeen=false; private set
+ fun noteSoftwareFailure(){softwareFailureSeen=true}
  fun beginSource(uri:String) {
-  if(source != uri) {source=uri;excluded.clear();attempts=0;selected=null}
+  if(source != uri) {source=uri;excluded.clear();attempts=0;selected=null;softwareFailureSeen=false}
  }
  fun allowed(name:String) = name !in excluded
  fun offeredToRenderer(mime:String,names:List<String>):List<String> = names.filter {

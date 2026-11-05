@@ -1069,24 +1069,32 @@ class MainActivity: Activity() {
   }
   val item=playback.currentMediaItem ?: return false
   val uri=item.localConfiguration?.uri?.toString() ?: return false
-  // Prefer exact support. Only after a known software decoder has actually
-  // failed may a vendor Main10 decoder be tried despite an absent HDR10 flag.
-  // The probe is never passed to playback: original HDR metadata stays intact.
+  // The device rejected all declared profiles yet actually tried software.
+  // After its failure, try real HEVC hardware within the existing retry budget.
+  // Preserve the original Format; runtime initialization can fail and fall back.
   val alternatives=runCatching {
    val codecs=androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT.getDecoderInfos("video/hevc",false,false)
    val failedSoftware=codecs.firstOrNull {it.name==failed}?.softwareOnly==true
-   val probe=HevcHdrRecovery.main10Probe(format)
+   if(failedSoftware)decoderRecovery.noteSoftwareFailure()
+   val accountSource=baiduURL.isNotBlank() && uri==resolvedMediaUri(baiduURL)
+   val ordinaryHttp=!accountSource && android.net.Uri.parse(uri).scheme in listOf("http","https") && format.drmInitData==null
+   val knownMain10=HevcHdrRecovery.knownMain10Within4K(format)
    val report=org.json.JSONArray()
    val selected=codecs.filter {codec->
     val exact=runCatching {codec.isFormatSupported(format)}.getOrDefault(false)
-    val main10=probe!=null && runCatching {codec.isFormatSupported(probe)}.getOrDefault(false)
-    val eligible=HevcHdrRecovery.accepts(exact,failedSoftware,codec.hardwareAccelerated,probe!=null,main10)
+    val eligible=HevcHdrRecovery.accepts(exact,decoderRecovery.softwareFailureSeen,codec.hardwareAccelerated,ordinaryHttp,knownMain10)
+    val profiles=org.json.JSONArray()
+    codec.profileLevels.take(32).forEach {profiles.put(JSONObject().put("profile",it.profile).put("level",it.level))}
     report.put(JSONObject().put("name",codec.name).put("hardware",codec.hardwareAccelerated)
-     .put("software",codec.softwareOnly).put("exactSupport",exact).put("main10Support",main10).put("eligible",eligible))
+     .put("software",codec.softwareOnly).put("exactSupport",exact).put("eligible",eligible)
+     .put("functionalSupport",runCatching {codec.isFormatFunctionallySupported(format)}.getOrDefault(false))
+     .put("sizeSupport",runCatching {codec.isVideoSizeAndRateSupportedV21(format.width,format.height,format.frameRate.toDouble())}.getOrDefault(false))
+     .put("profiles",profiles))
     eligible
    }.map {it.name}
    diagnostic("hevcRecoveryCapabilities",JSONObject().put("failedCodec",failed).put("failedSoftware",failedSoftware)
-    .put("main10Probe",probe!=null).put("candidates",report))
+    .put("boundedHardwareTrial",ordinaryHttp && knownMain10 && decoderRecovery.softwareFailureSeen)
+    .put("colorTransfer",format.colorInfo?.colorTransfer).put("colorSpace",format.colorInfo?.colorSpace).put("candidates",report))
    selected
   }.getOrElse {diagnostic("hevcRecoveryQueryFailed",JSONObject().put("exceptionType",it.javaClass.simpleName));emptyList()}
   val next=decoderRecovery.recover(format.sampleMimeType,failed,alternatives)
