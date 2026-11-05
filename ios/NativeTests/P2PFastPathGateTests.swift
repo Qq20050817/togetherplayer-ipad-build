@@ -12,6 +12,8 @@ final class P2PFastPathGateTests: XCTestCase {
   for _ in 0..<8 {retry.advance()}
   XCTAssertEqual(retry.intervalMs,120000)
   retry.reset();XCTAssertEqual(retry.intervalMs,15000)
+  XCTAssertFalse(retry.due(now:1_000_001,lastAttempt:1_000_000),"a transient drop after a long session must get a fresh recovery interval")
+  XCTAssertTrue(retry.due(now:1_015_000,lastAttempt:1_000_000))
  }
  private func hint(room: String = "abcd1234", sender: String = "host", version: Int64 = 7,
                    sequence: Int64 = 1, positionMs: Double = 500, issuedAtMs: Double = 100_000) -> P2PControlHint {

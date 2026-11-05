@@ -301,8 +301,13 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
   transport.onState={ [weak self] state in
    guard let self else{return}
+   let wasOpen=self.p2pEstablished
    self.p2pEstablished=state == "open"
    if self.p2pEstablished {self.p2pRetry.reset()}
+   else if wasOpen {
+    // Give transient ICE loss time to recover on the same peer connection.
+    self.p2pRetry.reset();self.p2pLastOfferAt=self.clock.localNow()
+   }
    self.p2pGate.setChannelAlive(self.p2pEstablished)
    self.p2pGate.verifyPeer(fromAuthoritativeRoster:self.p2pEstablished && self.p2pKnownPeerOnline())
    let label=state == "open" ? "P2P 直连" : "Muse 备用（P2P \(state)）"
@@ -1144,7 +1149,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if connected,let messageSender=messageSender {messageSender(value);return}
   guard connected,let data=try? JSONSerialization.data(withJSONObject:value),let text=String(data:data,encoding:.utf8),let ws=socket else {return}
   let g=generation
-  Task {do {try await ws.send(.string(text))}catch {reconnect(g,reason:"send")}}
+  Task {do {try await ws.send(.string(text))}catch {let failure=error as NSError;reconnect(g,reason:"send:\(failure.code)",hint:RoomTransportFailure.description(failure,httpStatus:nil))}}
  }
  func receiveFrame(_ data: Data,t4: Double) {
   // Empty control/proxy frames and malformed payloads are not transport failures.
