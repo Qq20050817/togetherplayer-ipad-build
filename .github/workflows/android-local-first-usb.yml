@@ -74,7 +74,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-main10-http-recovery-0614
+          name: android-main10-http-recovery-0614-attempt-${{ github.run_attempt }}
           path: |
             delivery/
             android-delivery/screenshots/
