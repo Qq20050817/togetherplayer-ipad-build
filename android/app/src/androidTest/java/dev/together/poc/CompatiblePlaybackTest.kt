@@ -121,11 +121,46 @@ class CompatiblePlaybackTest {
        val c=bitmap.getPixel(area.left+(n*20+x)*area.width()/120,area.top+y*area.height()/64)
        if(matches(n,c))matching++
       }
+      var textureEvidence="not-requested"
       if(matching<15){
+       // Inspect the producer-backed TextureView only after a strict composed-screen
+       // failure. The fixture uses generated color bands; never read user media here.
+       // A good texture with a bad composed screenshot narrows the fault to the UI
+       // composition path. Two bad readings still leave decode versus vout open.
+       textureEvidence=if(!movieRate)"not-movie-rate" else "unavailable"
+       if(movieRate)try {
+        scenario.onActivity{a->
+         val view=field(a,"independentVideoView").get(a) as android.view.View
+         val texture=videoOutput(view)
+         if(texture==null || !texture.isAvailable || texture.width<=0 || texture.height<=0){
+          textureEvidence="unavailable"
+         }else{
+          val origin=IntArray(2);texture.getLocationOnScreen(origin)
+          val direct=texture.getBitmap(240,240)
+          if(direct==null)textureEvidence="null-bitmap"
+          else try{
+           var directMatches=0;var checked=0;var sample=0
+           for(x in 6..14 step 2)for(y in 12..20 step 2){
+            val screenX=area.left+(n*20+x)*area.width()/120
+            val screenY=area.top+y*area.height()/64
+            val texX=((screenX-origin[0]).toLong()*direct.width/texture.width).toInt()
+            val texY=((screenY-origin[1]).toLong()*direct.height/texture.height).toInt()
+            if(texX in 0 until direct.width && texY in 0 until direct.height){
+             val color=direct.getPixel(texX,texY)
+             if(checked==0)sample=color
+             if(matches(n,color))directMatches++
+             checked++
+            }
+           }
+           textureEvidence="textureChroma=$directMatches/$checked,texturePixel=${Integer.toHexString(sample)},textureAvailable=${texture.isAvailable}"
+          }finally{direct.recycle()}
+         }
+        }
+       }catch(e:Exception){textureEvidence="textureReadbackError=${e.javaClass.simpleName}"}
        val dir=java.io.File("/sdcard/Pictures/TogetherUITests").apply{mkdirs()}
        java.io.File(dir,"main10-color-failure.png").outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
       }
-      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails",matching>=15)
+      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails, $textureEvidence",matching>=15)
      }
      if(movieRate && advancing){
       var signature=17
