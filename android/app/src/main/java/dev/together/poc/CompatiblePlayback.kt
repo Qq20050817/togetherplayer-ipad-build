@@ -149,6 +149,10 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    // Keep Main10 reference pictures owned by the decoder rather than reuse
    // display buffers while Android replaces/resizes the output surface.
    source!!.addOption(":avcodec-dr=0")
+   // Preserve HEVC reference packets during transient CPU/window load. VLC's
+   // hurry-up path can discard compressed packets and corrupt subsequent
+   // dependent frames until the next keyframe, even while time keeps moving.
+   source!!.addOption(":avcodec-hurry-up=0")
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
    if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")
