@@ -63,9 +63,11 @@ class CompatiblePlaybackTest {
   }}
  }
 
- @Test fun independentOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent(){
+ @Test fun independentOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent() = independentSoak("hevc-main10-soak-test.mp4",false)
+ @Test fun main10MovieRateHttpKeepsColorsAudioAndPositionDuringCatchup() = independentSoak("hevc-main10-24fps-av-test.mkv",true)
+ private fun independentSoak(asset:String,movieRate:Boolean){
   val i=InstrumentationRegistry.getInstrumentation()
-  val bytes=i.context.assets.open("hevc-main10-soak-test.mp4").use{it.readBytes()}
+  val bytes=i.context.assets.open(asset).use{it.readBytes()}
   FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
    fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
    fun player(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
@@ -98,7 +100,7 @@ class CompatiblePlaybackTest {
      }
      for(n in 0 until 6){
       var matching=0
-      for(x in 6..14 step 2)for(y in 28..36 step 2){
+      for(x in 6..14 step 2)for(y in 12..20 step 2){
        val c=bitmap.getPixel(area.left+(n*20+x)*area.width()/120,area.top+y*area.height()/64)
        if(matches(n,c))matching++
       }
@@ -114,13 +116,23 @@ class CompatiblePlaybackTest {
    var ready=false;val preparedDeadline=SystemClock.elapsedRealtime()+45000
    while(!ready && SystemClock.elapsedRealtime()<preparedDeadline){scenario.onActivity{a->assertNull(player(a).playerError);ready=player(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
    assertTrue("Long Main10 fixture must prepare",ready)
-   scenario.onActivity{a->player(a).play()}
-   val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0
+   scenario.onActivity{a->player(a).volume=.7f;player(a).play()}
+   val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0;var accelerated=false
    while(SystemClock.elapsedRealtime()-start<38000){
     SystemClock.sleep(2500)
     var sample=false
     scenario.onActivity{a->
      val p=player(a);assertNull(p.playerError);assertTrue("Long Main10 decode must continue",p.displayedFrames()>0)
+     if(movieRate && SystemClock.elapsedRealtime()-start>5000 && !accelerated){p.setPlaybackSpeed(1.25f);accelerated=true}
+     if(movieRate && SystemClock.elapsedRealtime()-start>12000)p.setPlaybackSpeed(1f)
+     if(movieRate && SystemClock.elapsedRealtime()-start>10000){
+      val source=p.javaClass.getDeclaredField("source").apply{isAccessible=true}.get(p) as org.videolan.libvlc.Media
+      val core=p.javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(p) as org.videolan.libvlc.MediaPlayer
+      assertTrue("Movie audio must be decoded",source.stats.decodedAudio>0)
+      assertTrue("Movie audio must reach the output",source.stats.playedAbuffers>0)
+      assertTrue("Movie audio track must remain selected",core.audioTrack>=0)
+      assertEquals("Volume must survive preparation and output rebind",70,core.volume)
+     }
      if(SystemClock.elapsedRealtime()-start>12000 && !reparented){a.javaClass.getDeclaredMethod("showFullscreen").apply{isAccessible=true}.invoke(a);reparented=true}
      else if(SystemClock.elapsedRealtime()-start>22000 && !restored){(field(a,"fullscreenDialog").get(a) as android.app.Dialog).dismiss();restored=true}
      else {sample=true;samples++}
@@ -130,6 +142,13 @@ class CompatiblePlaybackTest {
    scenario.onActivity{a->val p=player(a);assertTrue("Native clock must advance through at least30s",p.currentPosition>=30000);p.pause();assertFalse(p.playWhenReady)}
    assertColors()
    assertTrue("Check color planes repeatedly, not only first-frame count",samples>=8);assertTrue(reparented&&restored)
+   if(movieRate){
+    scenario.onActivity{a->player(a).seekTo(5000)}
+    val until=SystemClock.elapsedRealtime()+10000;var confirmed=false
+    while(!confirmed && SystemClock.elapsedRealtime()<until){scenario.onActivity{a->assertNull(player(a).playerError);confirmed=player(a).currentPosition in 4500..5500};SystemClock.sleep(100)}
+    assertTrue("Paused HTTP Main10 seek must be confirmed by the native clock",confirmed)
+    assertColors()
+   }
   }}
  }
 
