@@ -1,7 +1,7 @@
-name: Android HEVC hardware trial 0.6.60.16
+name: Android Main10 texture readback diagnostic
 on:
   push:
-    branches: [fix/android-hevc-hardware-trial-0616-20261106]
+    branches: [diag/android-main10-texture-readback-20261106]
     paths: ['android/**', '.github/workflows/android-local-first-usb.yml']
   workflow_dispatch:
 permissions:
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-main10-http-recovery-0616-attempt-${{ github.run_attempt }}
+          name: android-main10-texture-readback-attempt-${{ github.run_attempt }}
           path: |
             delivery/
             android-delivery/screenshots/
