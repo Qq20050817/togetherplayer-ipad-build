@@ -56,6 +56,7 @@ internal class SustainedCatchupPolicy {
 class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  var room: JSONObject? = null; private set
  private var explicitSeekVersion:Long?=null
+ private var stalledResumeVersion:Long?=null
  private val catchup=SustainedCatchupPolicy()
  private var excessiveDriftSince: Double?=null
  private var driftAtWindowStart=0.0
@@ -67,7 +68,7 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  val version get() = room?.optLong("version") ?: 0L
  fun resetSession() {
   player.pause(); player.setPlaybackSpeed(1f)
-  room=null; explicitSeekVersion=null;clock.reset();resetCorrection();lastAutoSeekAt=null;wasUnready=false;settleUntil=0.0
+  room=null; explicitSeekVersion=null;stalledResumeVersion=null;clock.reset();resetCorrection();lastAutoSeekAt=null;wasUnready=false;settleUntil=0.0
  }
  // Share this gate with the controller before applying media/UI side effects.
  fun accepts(next: JSONObject): Boolean =
@@ -75,6 +76,11 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
  fun receive(next: JSONObject) {
   if (accepts(next)) {
    val previous=room
+   if(previous?.optString("roomId")!=next.optString("roomId") || next.getLong("version")!=version){
+    stalledResumeVersion=if(previous?.optString("roomId")==next.optString("roomId") &&
+     previous.optString("mediaUrl")==next.optString("mediaUrl") && previous.optString("state")=="paused" &&
+     previous.optString("pauseReason")=="peer_stalled" && next.optString("state")=="playing")next.getLong("version")else null
+   }
    if(previous?.optString("roomId") != next.optString("roomId") || next.getLong("version") != version) {resetCorrection();lastAutoSeekAt=null}
    if (previous?.optString("roomId") == next.optString("roomId") && next.optString("state") == "playing") {
     if (previous.optString("state") == "paused") settleUntil=clock.localNow()+2000
@@ -112,6 +118,13 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   val r=room
   val timeline=if(r!=null && clock.serverNow()<r.optDouble("executeAt")) r.optJSONObject("before") else r
   val baseRate=if(timeline?.optDouble("playbackRate")==2.0) 2f else 1f
+  // PLAY clears pauseReason before its scheduled executeAt. Its Before is
+  // still the peer-stalled pause; ordinary paused alignment must not seek to
+  // the canonical peer position during that interval. Keep a real explicit
+  // seek/replay pending so it can execute normally at executeAt.
+  if(state=="paused" && r!=null && r.optLong("version")==stalledResumeVersion && clock.serverNow()<r.optDouble("executeAt")){
+   resetCorrection();player.pause();player.setPlaybackSpeed(1f);return error
+  }
   // A peer freeze pauses each device at its own real playhead. Catch-up after
   // the host resumes must not skip the section the lagging viewer has missed.
   if(state=="paused" && r?.optString("pauseReason")=="peer_stalled"){
