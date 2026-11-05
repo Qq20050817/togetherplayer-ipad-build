@@ -40,7 +40,10 @@
     p.ondatachannel=e=>{if(n===run)bind(e.channel,n);};
     p.onconnectionstatechange=()=>{
       if(n!==run)return;
-      status(p.connectionState);
+      // Peer-connection notifications can arrive after DataChannel.open.
+      // A later "connected" event must not downgrade a usable channel.
+      status(p.connectionState === "connected" && connected && channel?.readyState === "open"
+        ? "open" : p.connectionState);
     };
     return p;
   };

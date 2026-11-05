@@ -275,7 +275,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  lazy var playback=PlaybackMonitor(player:adapter.player)
  lazy var externalSubtitles=ExternalSubtitles(player:adapter.player)
  lazy var visualSampler=PlotVisualSampler(player:adapter.player)
- let clock=ClockSync()
+ let clock:ClockSync
  lazy var engine=SyncEngine(adapter,clock)
  private var registering=false
  private var credentialServer=UserDefaults.standard.string(forKey:"server") ?? "https://together.xiaokai123.de5.net"
@@ -288,6 +288,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var p2pRoomID=""
  private var p2pEstablished=false
  private var p2pLastOfferAt=0.0
+ private var p2pRetry=P2PRetryBackoff()
  private var p2pHandoff=P2PMuseHandoff()
  private var p2pGate=P2PFastPathGate()
  private var initializedP2PTransport:P2PWebRTCTransport?
@@ -300,10 +301,17 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
   transport.onState={ [weak self] state in
    guard let self else{return}
+   let wasOpen=self.p2pEstablished
    self.p2pEstablished=state == "open"
+   if self.p2pEstablished {self.p2pRetry.reset()}
+   else if wasOpen {
+    // Give transient ICE loss time to recover on the same peer connection.
+    self.p2pRetry.reset();self.p2pLastOfferAt=self.clock.localNow()
+   }
    self.p2pGate.setChannelAlive(self.p2pEstablished)
    self.p2pGate.verifyPeer(fromAuthoritativeRoster:self.p2pEstablished && self.p2pKnownPeerOnline())
-   self.p2pStatus=state == "open" ? "P2P 直连" : "Muse 备用（P2P \(state)）"
+   let label=state == "open" ? "P2P 直连" : "Muse 备用（P2P \(state)）"
+   if self.p2pStatus != label {self.p2pStatus=label}
   }
   transport.onControl={ [weak self] frame in self?.receiveP2PControl(frame) }
   initializedP2PTransport=transport
@@ -330,7 +338,8 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var observers: [NSObjectProtocol]=[]
  private var playerObservation: NSKeyValueObservation?
  private var itemObservation: NSKeyValueObservation?
- init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil,movieSelectionStore:RoomMovieSelectionStore? = nil) {
+ init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil,movieSelectionStore:RoomMovieSelectionStore? = nil,roomClock:ClockSync? = nil) {
+  self.clock=roomClock ?? ClockSync()
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
   self.movieSelectionStore=movieSelectionStore ?? RoomMovieSelectionStore.applicationDefault()
@@ -1105,7 +1114,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     guard g==generation else{return}
     let httpStatus=(ws.response as? HTTPURLResponse)?.statusCode
     if httpStatus==401 {clearRoom();requestStatus="房间凭证已失效，请创建或加入新房间"}
-    else {reconnect(g,reason:"receive",hint:RoomTransportFailure.description(error as NSError,httpStatus:httpStatus))}
+    else {let failure=error as NSError;reconnect(g,reason:"receive:\(failure.code):ws\(ws.closeCode.rawValue)",hint:RoomTransportFailure.description(failure,httpStatus:httpStatus))}
    }
   }
  }
@@ -1130,7 +1139,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if connected,let messageSender=messageSender {messageSender(value);return}
   guard connected,let data=try? JSONSerialization.data(withJSONObject:value),let text=String(data:data,encoding:.utf8),let ws=socket else {return}
   let g=generation
-  Task {do {try await ws.send(.string(text))}catch {reconnect(g,reason:"send")}}
+  Task {do {try await ws.send(.string(text))}catch {let failure=error as NSError;reconnect(g,reason:"send:\(failure.code)",hint:RoomTransportFailure.description(failure,httpStatus:nil))}}
  }
  func receiveFrame(_ data: Data,t4: Double) {
   // Empty control/proxy frames and malformed payloads are not transport failures.
@@ -1488,6 +1497,15 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
   }
   guard connected else {return}
+  if RoomConnectionHealth.operationExpired(now:clock.localNow(),sentAt:inFlightStartedAt) {
+   // An unacknowledged command is not evidence that a live socket is dead.
+   // Do not replay an old seek/pause after another peer may have acted.
+   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[];operationRetry=0;clearOptimisticPlayback()
+   if let change=pendingRoomMedia,let room=engine.room,change.matches(room) {finishRoomMedia("房间影片已确认")}
+   else if pendingRoomMedia != nil {finishRoomMedia("设置影片确认超时，请检查房间状态后重试")}
+   requestStatus="操作确认超时，已重新读取房间状态，请确认后重试"
+   send(["type":"SYNC"])
+  }
   if engine.target()?.1 == "playing" || adapter.isSeeking {cancelRecoveryPreroll()}
   if speedHoldID != nil,engine.target()?.1 == "paused" {setSpeedHold(false)}
   let error: Double?
@@ -1997,7 +2015,7 @@ extension TestClient {
   initializedP2PTransport?.close()
   p2pGate.reset();p2pSupported=false;p2pPeerID="";p2pRoomID=""
   p2pEstablished=false;p2pHandoff.reset()
-  p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
+  p2pRetry.reset();p2pLastOfferAt=0;p2pStatus="Muse 房间同步"
  }
  private func refreshP2P() {
   guard connected,foreground,p2pSupported,
@@ -2014,12 +2032,12 @@ extension TestClient {
   if p2pPeerID != remote || p2pRoomID != room.roomId {
    p2pPeerID=remote;p2pRoomID=room.roomId;p2pEstablished=false
    p2pGate.attach(roomID:room.roomId,hostUserID:room.hostId,localUserID:me,serverVersion:room.version)
-   p2pLastOfferAt=clock.localNow()
+   p2pRetry.reset();p2pLastOfferAt=clock.localNow()
    p2pTransport.start(host:room.hostId==me,peerUserID:remote)
   } else {
    p2pGate.serverState(version:room.version)
-   if room.hostId==me && !p2pEstablished && clock.localNow()-p2pLastOfferAt>15_000 {
-    p2pLastOfferAt=clock.localNow()
+   if room.hostId==me && !p2pEstablished && p2pRetry.due(now:clock.localNow(),lastAttempt:p2pLastOfferAt) {
+    p2pRetry.advance();p2pLastOfferAt=clock.localNow()
     p2pTransport.start(host:true,peerUserID:remote)
    }
   }

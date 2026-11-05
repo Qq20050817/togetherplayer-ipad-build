@@ -12,17 +12,20 @@ enum RoomEnvelope {
 }
 
 enum RoomConnectionHealth {
+ static func operationExpired(now:Double,sentAt:Double?)->Bool {
+  guard let sentAt else{return false}
+  return now-sentAt>12000
+ }
  static func timeout(now: Double,connected: Bool,startedAt: Double,lastMessageAt: Double,inFlightAt: Double?) -> String? {
   if !connected,now-startedAt>20000 {return "welcome_timeout"}
   if connected,now-lastMessageAt>25000 {return "message_timeout"}
-  if connected,let sentAt=inFlightAt,now-sentAt>12000 {return "ack_timeout"}
   return nil
  }
 }
 
 enum RoomTransportFailure {
  static func description(_ error: NSError, httpStatus: Int?) -> String {
-  if let httpStatus {
+  if let httpStatus,httpStatus != 101 {
    if httpStatus == 401 {return "房间凭证失效（HTTP 401）"}
    if httpStatus == 403 {return "服务器拒绝连接（HTTP 403）"}
    if [502,503,504].contains(httpStatus) {return "服务器入口暂不可用（HTTP \(httpStatus)）"}
@@ -35,7 +38,8 @@ enum RoomTransportFailure {
    case NSURLErrorNetworkConnectionLost:return "网络连接中断"
    case NSURLErrorCannotFindHost,NSURLErrorDNSLookupFailed:return "无法解析服务器地址"
    case NSURLErrorCannotConnectToHost:return "无法连接服务器"
-   case NSURLErrorSecureConnectionFailed,NSURLErrorServerCertificateUntrusted:return "安全连接失败"
+   case NSURLErrorSecureConnectionFailed:return "安全握手失败（\(error.code)）"
+   case NSURLErrorServerCertificateUntrusted:return "服务器证书不受信任（\(error.code)）"
    default:return "网络错误 \(error.code)"
    }
   }
@@ -55,9 +59,8 @@ enum RoomResumePolicy {
  static func shouldReconnect(hasCredentials: Bool,wasForeground: Bool,isConnected: Bool,hasSocket: Bool,lastMessageAgeMs: Double,connectionAgeMs: Double,inactiveDurationMs: Double=0) -> Bool {
   guard hasCredentials else {return false}
   if !wasForeground || !hasSocket {return true}
-  // iPad multiwindow and app switching may go inactive without entering background.
-  // Reopen the transport after a meaningful inactive interval to avoid a half-open socket.
-  if inactiveDurationMs >= 3000 {return true}
+  // An inactive scene can keep receiving healthy room messages. Use actual
+  // transport freshness rather than the duration of an overlay or split view.
   // A resumed inactive scene may hold a stale socket even while still marked connected.
   // Avoid disrupting a genuinely healthy socket or a handshake still in progress.
   return isConnected ? lastMessageAgeMs >= 15_000 : connectionAgeMs >= 10_000

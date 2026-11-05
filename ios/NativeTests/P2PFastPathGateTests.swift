@@ -2,6 +2,19 @@ import XCTest
 @testable import TogetherPoC
 
 final class P2PFastPathGateTests: XCTestCase {
+ func testFailedRouteRetriesBackOffAndSuccessfulChannelResetsIt() {
+  var retry=P2PRetryBackoff()
+  XCTAssertFalse(retry.due(now:14999,lastAttempt:0))
+  XCTAssertTrue(retry.due(now:15000,lastAttempt:0))
+  retry.advance();XCTAssertEqual(retry.intervalMs,30000)
+  XCTAssertFalse(retry.due(now:44999,lastAttempt:15000))
+  XCTAssertTrue(retry.due(now:45000,lastAttempt:15000))
+  for _ in 0..<8 {retry.advance()}
+  XCTAssertEqual(retry.intervalMs,120000)
+  retry.reset();XCTAssertEqual(retry.intervalMs,15000)
+  XCTAssertFalse(retry.due(now:1_000_001,lastAttempt:1_000_000),"a transient drop after a long session must get a fresh recovery interval")
+  XCTAssertTrue(retry.due(now:1_015_000,lastAttempt:1_000_000))
+ }
  private func hint(room: String = "abcd1234", sender: String = "host", version: Int64 = 7,
                    sequence: Int64 = 1, positionMs: Double = 500, issuedAtMs: Double = 100_000) -> P2PControlHint {
   P2PControlHint(roomID: room, senderUserID: sender, roomVersion: version,

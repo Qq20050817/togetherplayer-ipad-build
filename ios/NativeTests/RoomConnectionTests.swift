@@ -8,7 +8,9 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertEqual(RoomConnectionHealth.timeout(now:21000,connected:false,startedAt:0,lastMessageAt:20000,inFlightAt:nil),"welcome_timeout")
   XCTAssertNil(RoomConnectionHealth.timeout(now:26000,connected:true,startedAt:0,lastMessageAt:25000,inFlightAt:nil))
   XCTAssertEqual(RoomConnectionHealth.timeout(now:26000,connected:true,startedAt:0,lastMessageAt:0,inFlightAt:nil),"message_timeout")
-  XCTAssertEqual(RoomConnectionHealth.timeout(now:14000,connected:true,startedAt:0,lastMessageAt:13000,inFlightAt:1000),"ack_timeout")
+  XCTAssertNil(RoomConnectionHealth.timeout(now:14000,connected:true,startedAt:0,lastMessageAt:13000,inFlightAt:1000))
+  XCTAssertTrue(RoomConnectionHealth.operationExpired(now:14000,sentAt:1000))
+  XCTAssertFalse(RoomConnectionHealth.operationExpired(now:13000,sentAt:1000))
  }
  func testEmptyAndMalformedFramesDoNotDecodeAsRoomMessages() {
   for raw in [""," ","not-json","[]","null","{}","{\"kind\":\"pong\"}","{\"type\":7}"] {
@@ -61,9 +63,9 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertTrue(reconnect(true,true,true,15_000,100_000))
   XCTAssertFalse(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:true,
    hasSocket:true,lastMessageAgeMs:100,connectionAgeMs:500,inactiveDurationMs:2999))
-  XCTAssertTrue(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:true,
+  XCTAssertFalse(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:true,
    hasSocket:true,lastMessageAgeMs:100,connectionAgeMs:500,inactiveDurationMs:3000))
-  XCTAssertTrue(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:false,
+  XCTAssertFalse(RoomResumePolicy.shouldReconnect(hasCredentials:true,wasForeground:true,isConnected:false,
    hasSocket:true,lastMessageAgeMs:100,connectionAgeMs:500,inactiveDurationMs:6000))
  }
  func testReconnectFailuresShowSanitizedNetworkReasons() {
@@ -182,10 +184,34 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertTrue(model.isConnected)
   XCTAssertEqual(model.engine.room?.roomId,"connection-test")
  }
- @MainActor private func client(sender: (([String:Any])->Void)? = nil) throws -> TestClient {
+ func testSuccessfulWebSocketUpgradeDoesNotHideUnderlyingFailure() {
+  let failure=NSError(domain:NSURLErrorDomain,code:NSURLErrorNetworkConnectionLost,userInfo:[NSLocalizedDescriptionKey:"PRIVATE_URL_OR_TOKEN"])
+  let text=RoomTransportFailure.description(failure,httpStatus:101)
+  XCTAssertEqual(text,"网络连接中断")
+  XCTAssertFalse(text.contains("PRIVATE_URL_OR_TOKEN"))
+  XCTAssertFalse(text.contains("101"))
+ }
+ @MainActor func testMissingCommandAcknowledgementDoesNotCloseHealthyRoom() async throws {
+  var now=1000.0;var sent:[[String:Any]]=[]
+  let clock=ClockSync{now};let model=try client(sender:{sent.append($0)},clock:clock)
+  defer {model.handleBackground()}
+  model.receive(["type":"WELCOME","room":room(url:"fixture://ack"),"lastSequence":0],t4:now)
+  model.mediaURL="https://example.org/next.mp4";model.movieTitle="Synthetic";model.setRoomMedia()
+  XCTAssertTrue(model.isSettingRoomMedia)
+  now=14001
+  model.receive(["type":"PONG","t1":now,"t2":now,"t3":now],t4:now)
+  try await Task.sleep(nanoseconds:200_000_000)
+  XCTAssertTrue(model.isConnected,"a timed-out command must not tear down a healthy room")
+  XCTAssertEqual(model.engine.room?.roomId,"connection-test")
+  XCTAssertFalse(model.isSettingRoomMedia)
+  XCTAssertTrue(model.requestStatus.contains("确认超时"))
+  XCTAssertTrue(sent.contains {$0["type"] as? String=="SYNC"})
+  XCTAssertEqual(sent.filter {$0["type"] as? String=="ROOM_MEDIA"}.count,1,"do not blindly replay a stale command")
+ }
+ @MainActor private func client(sender: (([String:Any])->Void)? = nil,clock:ClockSync? = nil) throws -> TestClient {
   let credentials:[String:Any]=["roomId":"connection-test","userId":"host","token":String(repeating:"a",count:64)]
   UserDefaults.standard.set(try JSONSerialization.data(withJSONObject:credentials),forKey:"credentials")
-  return TestClient(automaticallyConnect:false,messageSender:sender ?? {_ in})
+  return TestClient(automaticallyConnect:false,messageSender:sender ?? {_ in},roomClock:clock)
  }
  private func welcome() -> [String:Any] {["type":"WELCOME","room":room(),"lastSequence":0]}
  private func room(url: String="https://example.org/old.mp4",title: String="旧影片",version: Int=1) -> [String:Any] {
