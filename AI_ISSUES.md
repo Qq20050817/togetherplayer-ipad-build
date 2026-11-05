@@ -72,3 +72,8 @@
 ## TP-ANDROID-MAIN10-CORRUPTION-0612 · OPEN
 - Field0.6.60.12: sound works, gray/block/tearing corruption develops after initially good picture. Screenshot around00:34; occurs without floating windows. Independent HTTP decode confirmed by sanitized code-only telemetry; bounded same-source desktop frames are clean.
 - Candidate0.6.60.13 tests TextureView output plus decoder-owned reference buffers, preserving audio/source/sync. Add actual long-running color validation and output reparenting; build/field acceptance pending. Never mark0.6.60.12 picture quality accepted from its earlier frame-count test.
+
+## 2026-11-05 · Android-only continuation
+- User reports iOS resolved and requests only the Android build. Stop iOS investigation and builds.
+- 0.6.60.13 run41871520730 compiled and passed unit tests but failed its new first TextureView color read immediately after decoder READY. Do not call native validation passed. Start playback before the first timed color sample (2.5s), retaining repeated color, duration and reparent assertions, and report actual RGB on failure. Full regression pending.
+- Build parallel `.decoder13` / Together 画面测试 to preserve both installed apps and their data; complete app source is checked against a7aba03. No sync change.

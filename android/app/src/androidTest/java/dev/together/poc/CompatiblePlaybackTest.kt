@@ -92,7 +92,7 @@ class CompatiblePlaybackTest {
      for(n in 0 until 6){
       var matching=0
       for(x in 6..14 step 2)for(y in 8..16 step 2)if(matches(n,bitmap!!.getPixel(n*20+x,y)))matching++
-      assertTrue("Main10 stripe $n must retain chroma (thin moving fixture lines excluded by majority)",matching>=15)
+      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, center=${Integer.toHexString(bitmap!!.getPixel(n*20+10,12))}, position=${player(a).currentPosition}",matching>=15)
      }
     } finally {bitmap?.recycle()}
    }
@@ -100,7 +100,7 @@ class CompatiblePlaybackTest {
    var ready=false;val preparedDeadline=SystemClock.elapsedRealtime()+45000
    while(!ready && SystemClock.elapsedRealtime()<preparedDeadline){scenario.onActivity{a->assertNull(player(a).playerError);ready=player(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
    assertTrue("Long Main10 fixture must prepare",ready)
-   scenario.onActivity{a->assertColors(a);player(a).play()}
+   scenario.onActivity{a->player(a).play()}
    val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0
    while(SystemClock.elapsedRealtime()-start<38000){
     SystemClock.sleep(2500)

@@ -189,3 +189,8 @@
 - Verified baseline62bc69a / application9354947 / native checkpoint387cee0 / delivered parallelcb62178. Isolated fix/android-main10-texture-output-0613-20261105, candidate0.6.60.13/build133. Preserve working audio, same-source/position/pause handling and synchronization thresholds. Change both initial/rebound independent output toTextureView and disable avcodec direct rendering so software reference frames do not share recycled display buffers. This is an output compatibility candidate, not a proven root cause or field fix.
 - New48s synthetic Main10 HTTP fixture repeats only existing test bitstream. Native test checks actual RGB color stripes repeatedly beyond30s, real advancing clock, fullscreen detach/reattach and pause. Full native build/regression and user-device validation pending; older8s frame-only success did not cover this symptom.
 - The10s frozen-playhead paired PAUSE/system assistant feature remains separate and undeployed. Existing catch-up remains lag>5s sustained>=10s, ending within3s. The live backend executable hash remains27a621c4; no sync-policy or server deployment in this phase.
+
+## 2026-11-05 · Android-only continuation
+- User reports iOS resolved and requests only the Android build. Stop iOS investigation and builds.
+- 0.6.60.13 run41871520730 compiled and passed unit tests but failed its new first TextureView color read immediately after decoder READY. Do not call native validation passed. Start playback before the first timed color sample (2.5s), retaining repeated color, duration and reparent assertions, and report actual RGB on failure. Full regression pending.
+- Build parallel `.decoder13` / Together 画面测试 to preserve both installed apps and their data; complete app source is checked against a7aba03. No sync change.
