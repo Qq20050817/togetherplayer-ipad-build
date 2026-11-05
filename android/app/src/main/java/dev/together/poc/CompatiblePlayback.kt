@@ -25,6 +25,9 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private var vlc:VLCPlayer?=null
  private var source:Media?=null
  private var descriptor:ParcelFileDescriptor?=null
+ private var outputTexture:android.view.TextureView?=null
+ private var retainedSurface:android.graphics.SurfaceTexture?=null
+ private var surfaceRestores=0
  private var epoch=0
  private var state=Player.STATE_IDLE
  private var wanted=false
@@ -39,6 +42,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private var pendingSeek:Long?=null
  private var pendingUntil=0L
  private var requestedSubtitle:Int?=null
+ private var requestedAudio:Int?=null
  private val compatibleSources=linkedSetOf<String>()
  var compatibleActive=false;private set
  val videoFormat:Format? get()=if(compatibleActive)nativeVideo else native.videoFormat
@@ -47,18 +51,60 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  fun bind(view:VLCVideoLayout){
   layout=view
   view.addOnAttachStateChangeListener(object:android.view.View.OnAttachStateChangeListener {
-   override fun onViewDetachedFromWindow(v:android.view.View){if(compatibleActive)vlc?.detachViews()}
-   override fun onViewAttachedToWindow(v:android.view.View){main.post {rebindVideoOutput()}}
+   override fun onViewDetachedFromWindow(v:android.view.View){} // Texture listener owns transient reparenting.
+   override fun onViewAttachedToWindow(v:android.view.View){
+    restoreRetainedOutput()
+    main.post {rebindVideoOutput();if(compatibleActive && source!=null)vlc?.updateVideoSurfaces()}
+   }
   })
  }
  private fun rebindVideoOutput(){
   val p=vlc ?: return;val view=layout ?: return
   if(!compatibleActive || source==null || !view.isAttachedToWindow || p.vlcVout.areViewsAttached())return
-  p.detachViews();p.attachViews(view,null,true,true)
+  p.detachViews();forgetRetainedOutput();p.attachViews(view,null,true,true);retainVideoOutput(view)
   applySubtitleSelection()
+ }
+ private fun findTexture(view:android.view.View):android.view.TextureView? {
+  if(view is android.view.TextureView)return view
+  if(view is android.view.ViewGroup)for(n in 0 until view.childCount)findTexture(view.getChildAt(n))?.let{return it}
+  return null
+ }
+ private fun forgetRetainedOutput(){
+  val saved=retainedSurface;val view=outputTexture
+  retainedSurface=null;outputTexture=null;surfaceRestores=0
+  // An available TextureView still owns its texture and will release it itself.
+  if(saved!=null && (view?.isAvailable!=true || view?.surfaceTexture!==saved) && !saved.isReleased)saved.release()
+ }
+ private fun restoreRetainedOutput(){
+  if(!compatibleActive || source==null)return
+  val view=outputTexture ?: return;val saved=retainedSurface ?: return
+  if(!saved.isReleased && view.surfaceTexture!==saved){view.setSurfaceTexture(saved);surfaceRestores++}
+ }
+ private fun retainVideoOutput(view:VLCVideoLayout){
+  val texture=findTexture(view) ?: return
+  val delegate=texture.surfaceTextureListener ?: return
+  outputTexture=texture;retainedSurface=texture.surfaceTexture
+  texture.surfaceTextureListener=object:android.view.TextureView.SurfaceTextureListener {
+   override fun onSurfaceTextureAvailable(surface:android.graphics.SurfaceTexture,width:Int,height:Int){
+    val saved=retainedSurface
+    if(compatibleActive && source!=null && saved!=null && !saved.isReleased){
+     if(surface!==saved){texture.setSurfaceTexture(saved);surfaceRestores++}
+     return // The native Surface remains attached to this exact producer.
+    }
+    retainedSurface=surface;delegate.onSurfaceTextureAvailable(surface,width,height)
+   }
+   override fun onSurfaceTextureSizeChanged(surface:android.graphics.SurfaceTexture,width:Int,height:Int)=delegate.onSurfaceTextureSizeChanged(surface,width,height)
+   override fun onSurfaceTextureUpdated(surface:android.graphics.SurfaceTexture)=delegate.onSurfaceTextureUpdated(surface)
+   override fun onSurfaceTextureDestroyed(surface:android.graphics.SurfaceTexture):Boolean {
+    if(compatibleActive && source!=null){retainedSurface=surface;return false}
+    if(retainedSurface===surface)retainedSurface=null
+    return delegate.onSurfaceTextureDestroyed(surface)
+   }
+  }
  }
  private fun applySubtitleSelection(){
   if(source==null)return
+  requestedAudio?.let {id->vlc?.let {p->if(p.audioTracks?.any {it.id==id}==true)p.setAudioTrack(id)}}
   val id=requestedSubtitle ?: if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))-1 else return
   vlc?.let {p->if(id<0 || p.spuTracks?.any {it.id==id}==true)p.setSpuTrack(id)}
  }
@@ -84,7 +130,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      }}
     })
    }}
-   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,true)
+   val p=vlc!!;p.detachViews();forgetRetainedOutput();p.attachViews(layout!!,null,true,true);retainVideoOutput(layout!!)
    p.setEventListener {event->
     if(token!=epoch || !compatibleActive)return@setEventListener
     when(event.type){
@@ -127,7 +173,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  }
  private fun fail(message:String){failure=PlaybackException(message,null,PlaybackException.ERROR_CODE_DECODING_FAILED);wanted=false;state=Player.STATE_IDLE;vlc?.stop();failed(message)}
  private fun closeInput(){vlc?.stop();vlc?.media=null;source?.release();source=null;descriptor?.close();descriptor=null;pendingSeek=null}
- private fun deactivate(){epoch++;closeInput();compatibleActive=false;ready=false;wanted=false;state=Player.STATE_IDLE;failure=null;changed(false)}
+ private fun deactivate(){epoch++;closeInput();vlc?.detachViews();forgetRetainedOutput();compatibleActive=false;ready=false;wanted=false;state=Player.STATE_IDLE;failure=null;changed(false)}
  override fun getCurrentMediaItem():MediaItem?=if(compatibleActive)item else native.currentMediaItem
  override fun getCurrentPosition():Long {
   if(!compatibleActive)return native.currentPosition
@@ -155,12 +201,12 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  override fun setPlaybackParameters(value:PlaybackParameters){speed=value.speed;native.playbackParameters=value;if(compatibleActive)vlc?.setRate(speed)}
  override fun getPlaybackParameters():PlaybackParameters=if(compatibleActive)PlaybackParameters(speed)else native.playbackParameters
  override fun setTrackSelectionParameters(value:TrackSelectionParameters){native.trackSelectionParameters=value;if(compatibleActive && value.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)){requestedSubtitle=-1;applySubtitleSelection()}}
- override fun setMediaItem(value:MediaItem,startPositionMs:Long){if(value.localConfiguration?.uri!=item?.localConfiguration?.uri)requestedSubtitle=null;if(compatibleActive)deactivate();item=value;startPosition=startPositionMs;native.setMediaItem(value,startPositionMs)}
- fun setMediaSource(value:MediaSource,startPositionMs:Long){if(value.mediaItem.localConfiguration?.uri!=item?.localConfiguration?.uri)requestedSubtitle=null;if(compatibleActive)deactivate();item=value.mediaItem;startPosition=startPositionMs;native.setMediaSource(value,startPositionMs)}
+ override fun setMediaItem(value:MediaItem,startPositionMs:Long){val changed=value.localConfiguration?.uri!=item?.localConfiguration?.uri;if(compatibleActive && !changed)requestedAudio=vlc?.audioTrack?.takeIf {it>=0} ?: requestedAudio;if(compatibleActive)deactivate();if(changed){requestedSubtitle=null;requestedAudio=null};item=value;startPosition=startPositionMs;native.setMediaItem(value,startPositionMs)}
+ fun setMediaSource(value:MediaSource,startPositionMs:Long){val changed=value.mediaItem.localConfiguration?.uri!=item?.localConfiguration?.uri;if(compatibleActive && !changed)requestedAudio=vlc?.audioTrack?.takeIf {it>=0} ?: requestedAudio;if(compatibleActive)deactivate();if(changed){requestedSubtitle=null;requestedAudio=null};item=value.mediaItem;startPosition=startPositionMs;native.setMediaSource(value,startPositionMs)}
  override fun prepare(){val uri=native.currentMediaItem?.localConfiguration?.uri?.toString();if(uri!=null && uri in compatibleSources)openIndependent(uri)else native.prepare()}
  override fun stop(){if(compatibleActive){epoch++;closeInput();ready=false;state=Player.STATE_IDLE;wanted=false}else native.stop()}
- override fun clearMediaItems(){requestedSubtitle=null;if(compatibleActive)deactivate();item=null;native.clearMediaItems()}
- override fun release(){epoch++;closeInput();vlc?.detachViews();vlc?.release();vlc=null;core?.release();core=null;native.release()}
+ override fun clearMediaItems(){requestedSubtitle=null;requestedAudio=null;if(compatibleActive)deactivate();item=null;native.clearMediaItems()}
+ override fun release(){epoch++;closeInput();vlc?.detachViews();forgetRetainedOutput();vlc?.release();vlc=null;core?.release();core=null;native.release()}
  data class TrackOption(val id:Int,val name:String)
  fun compatibleTracks(type:Int):List<TrackOption> {
   val p=vlc ?: return emptyList();val tracks=if(type==C.TRACK_TYPE_AUDIO)p.audioTracks else p.spuTracks
@@ -172,7 +218,16 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   }
  }
  fun selectedCompatibleTrack(type:Int):Int=if(type==C.TRACK_TYPE_AUDIO)vlc?.audioTrack ?: -1 else vlc?.spuTrack ?: -1
- fun selectCompatibleTrack(type:Int,id:Int){if(type==C.TRACK_TYPE_AUDIO)vlc?.setAudioTrack(id)else{requestedSubtitle=id;native.trackSelectionParameters=native.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,id<0).build();vlc?.setSpuTrack(id)}}
+ fun selectCompatibleTrack(type:Int,id:Int){if(type==C.TRACK_TYPE_AUDIO){requestedAudio=id;vlc?.setAudioTrack(id)}else{requestedSubtitle=id;native.trackSelectionParameters=native.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,id<0).build();vlc?.setSpuTrack(id)}}
+ fun outputHealth():Map<String,Any> {
+  val stats=source?.stats;val p=vlc
+  return mapOf("decodedVideo" to (stats?.decodedVideo ?: -1),"displayedVideo" to (stats?.displayedPictures ?: -1),
+   "decodedAudio" to (stats?.decodedAudio ?: -1),"playedAudioBuffers" to (stats?.playedAbuffers ?: -1),
+   "demuxCorrupted" to (stats?.demuxCorrupted ?: -1),"nativeState" to (p?.playerState ?: -1),
+   "nativeRate" to (p?.rate ?: -1f),"requestedRate" to speed,"bufferingPercent" to buffering,
+   "surfaceRetained" to (retainedSurface!=null),"surfaceRestores" to surfaceRestores,"selectedVideo" to (p?.videoTrack ?: -1),
+   "wantedPlaying" to wanted,"nativeVolume" to (p?.volume ?: -1),"selectedAudio" to (p?.audioTrack ?: -1))
+ }
  fun decodedFrames():Int=source?.stats?.decodedVideo ?: 0
  fun displayedFrames():Int=source?.stats?.displayedPictures ?: 0
 }

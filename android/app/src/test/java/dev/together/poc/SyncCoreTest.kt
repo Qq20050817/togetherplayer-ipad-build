@@ -175,4 +175,18 @@ class SyncCoreTest {
   repeat(100){now+=100;e.tick()};assertEquals(1,p.seeks)
  }
 
+
+ @Test fun peerFreezePausesAtRealPositionAndResumeUsesSustainedCatchupWithoutSeeking(){
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick()
+  val prior=JSONObject().put("state","playing").put("position",30000).put("updatedAt",0).put("playbackRate",1)
+  e.receive(frame(30750.0,2,750.0).put("state","paused").put("pauseReason","peer_stalled").put("before",prior))
+  now=500.0;e.tick();assertTrue(p.playing)
+  now=1000.0;e.tick();assertFalse(p.playing);assertEquals(10000L,p.pos);assertEquals(0,p.seeks)
+  repeat(20){now+=100;e.tick();assertEquals(0,p.seeks)}
+  val before=JSONObject().put("state","paused").put("position",30750).put("updatedAt",3000).put("playbackRate",1)
+  e.receive(frame(30750.0,3,3000.0).put("before",before))
+  repeat(150){now=3000.0+(it+1)*100;p.pos=10000+(it+1)*100L;e.tick();assertEquals(0,p.seeks)}
+  assertTrue(p.playing);assertTrue(p.rate>1f)
+ }
 }

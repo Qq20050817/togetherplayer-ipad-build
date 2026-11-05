@@ -105,8 +105,11 @@ class LocalFirstHttpTest {
    assertTrue("real paused HTTP SEEK must be confirmed",confirmed)
    scenario.onActivity{a->
     val before=playback(a).currentPosition
-    val constructor=field(a,"manualSeek").type.getDeclaredConstructor(Long::class.javaPrimitiveType,Long::class.javaPrimitiveType,Boolean::class.javaPrimitiveType,Float::class.javaPrimitiveType).apply{isAccessible=true}
-    field(a,"manualSeek").set(a,constructor.newInstance(6000L,SystemClock.elapsedRealtime()-15001L,false,1f))
+    val constructor=field(a,"manualSeek").type.getDeclaredConstructor(Long::class.javaPrimitiveType,Long::class.javaPrimitiveType,Boolean::class.javaPrimitiveType,Float::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}
+    field(a,"manualSeek").set(a,constructor.newInstance(6000L,SystemClock.elapsedRealtime()-15001L,false,1f,false))
+    a.javaClass.getDeclaredMethod("updatePlaybackClock").apply{isAccessible=true}.invoke(a)
+    assertNull(field(a,"manualSeek").get(a));assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("房间同步定位未获播放器确认"))
+    field(a,"manualSeek").set(a,constructor.newInstance(6000L,SystemClock.elapsedRealtime()-15001L,false,1f,true))
     a.javaClass.getDeclaredMethod("updatePlaybackClock").apply{isAccessible=true}.invoke(a)
     assertNull(field(a,"manualSeek").get(a));assertTrue((field(a,"requestStatus").get(a) as android.widget.TextView).text.toString().contains("跳转未获播放器确认"))
     assertTrue("failure must not fabricate the pending seek target",kotlin.math.abs(playback(a).currentPosition-before)<300)
