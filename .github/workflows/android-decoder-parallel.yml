@@ -33,8 +33,8 @@ jobs:
         run: |
           python3 - <<'PY'
           import pathlib,hashlib,subprocess
-          assert subprocess.check_output(['git','diff','38b6943e31f3bd76d27523c520018bd596a807e3','--','android/app/src/main/java','android/app/src/main/res'])==b''
-          print('Verified complete application sources against 38b6943')
+          assert subprocess.check_output(['git','diff','b04033a5640c88149cef5ba826e70c415335e486','--','android/app/src/main/java','android/app/src/main/res'])==b''
+          print('Verified complete application sources against b04033a')
           p=pathlib.Path('android/app/build.gradle.kts');s=p.read_text()
           assert s.count('applicationIdSuffix = ".fluency"')==1
           p.write_text(s.replace('applicationIdSuffix = ".fluency"','applicationIdSuffix = ".decoder16"'))
