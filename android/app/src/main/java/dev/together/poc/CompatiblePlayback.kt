@@ -122,7 +122,9 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   closeInput();ready=false;buffering=0f;state=Player.STATE_BUFFERING;failure=null
   compatibleActive=true;changed(true)
   try {
-   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats"));vlc=VLCPlayer(core!!).also {p->
+   // Use an explicit RGBA window buffer rather than LibVLC Android's implicit
+   // RGB565 output for Main10 software conversion and retained TextureViews.
+   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats","--android-display-chroma=RV32"));vlc=VLCPlayer(core!!).also {p->
     p.vlcVout.addCallback(object:org.videolan.libvlc.interfaces.IVLCVout.Callback {
      override fun onSurfacesDestroyed(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {rebindVideoOutput()}}
      override fun onSurfacesCreated(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {

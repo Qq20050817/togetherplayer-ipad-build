@@ -20,7 +20,7 @@ run_check() {
  adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true
  test "$result" -eq 0
 }
-run_check targeted-12 dev.together.poc.HevcHdrCapabilityTest,dev.together.poc.Main10DecoderTest,dev.together.poc.LocalDocumentPlaybackTest,dev.together.poc.CompatiblePlaybackTest,dev.together.poc.CompatibleHttpRecoveryTest
+run_check targeted-15 dev.together.poc.HevcHdrCapabilityTest,dev.together.poc.Main10DecoderTest,dev.together.poc.LocalDocumentPlaybackTest,dev.together.poc.CompatiblePlaybackTest,dev.together.poc.CompatibleHttpRecoveryTest,dev.together.poc.EmbeddedSubtitleTest
 # The original failure was intermittent after output transitions. Repeat only
 # that real 24fps Main10 chroma/motion/audio/rate/seek case, retaining each XML.
 run_check movie-rate-repeat-1 dev.together.poc.CompatiblePlaybackTest#main10MovieRateHttpKeepsColorsAudioAndPositionDuringCatchup
