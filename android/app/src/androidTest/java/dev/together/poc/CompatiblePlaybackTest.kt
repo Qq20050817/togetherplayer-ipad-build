@@ -90,13 +90,20 @@ class CompatiblePlaybackTest {
     try {
      fun high(c:Int,mask:Int)=((c shr mask) and 255)>140
      fun low(c:Int,mask:Int)=((c shr mask) and 255)<110
-     fun matches(n:Int,c:Int)=when(n){
+     fun matches(n:Int,c:Int):Boolean {
+      if(movieRate){
+       val r=(c shr 16) and 255;val g=(c shr 8) and 255;val b=c and 255
+       // HDR tone curves change brightness; chroma must still remain distinct.
+       return when(n){0->r>g+50&&r>b+50;1->g>r+50&&g>b+50;2->r>b+50&&g>b+50;3->b>r+50&&b>g+50;4->r>g+50&&b>g+50;else->g>r+50&&b>r+50}
+      }
+      return when(n){
       0->high(c,16)&&low(c,8)&&low(c,0)
       1->high(c,8)&&low(c,16)&&low(c,0)
       2->high(c,16)&&high(c,8)&&low(c,0)
       3->high(c,0)&&low(c,16)&&low(c,8)
       4->high(c,16)&&high(c,0)&&low(c,8)
       else->high(c,8)&&high(c,0)&&low(c,16)
+      }
      }
      for(n in 0 until 6){
       var matching=0
