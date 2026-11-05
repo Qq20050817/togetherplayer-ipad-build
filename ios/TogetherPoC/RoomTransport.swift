@@ -66,4 +66,3 @@ enum RoomResumePolicy {
   return isConnected ? lastMessageAgeMs >= 15_000 : connectionAgeMs >= 10_000
  }
 }
-

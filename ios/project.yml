@@ -54,11 +54,7 @@ targets:
  TogetherPoCCoreTests:
   type: bundle.unit-test
   platform: iOS
-  sources:
-   - path: NativeTests
-     excludes: [Fixtures]
-   - path: NativeTests/Fixtures
-     buildPhase: resources
+  sources: [NativeTests]
   dependencies:
    - target: TogetherPoC
   settings:
