@@ -85,6 +85,7 @@ jobs:
             adb shell pm list packages | grep -x 'package:dev.together.poc.decoder13'
             adb shell am start -W -n dev.together.poc.decoder13/dev.together.poc.MainActivity
             sleep 3
+            python3 android/emulator-preflight.py
             adb shell pidof dev.together.poc.decoder13
             adb shell uiautomator dump /sdcard/decoder-launch.xml
             adb pull /sdcard/decoder-launch.xml baseline/decoder-launch.xml

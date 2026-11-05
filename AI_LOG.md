@@ -196,3 +196,5 @@
 - Build parallel `.decoder13` / Together 画面测试 to preserve both installed apps and their data; complete app source is checked against a7aba03. No sync change.
 
 - Run41993207241 installed both identities and launched successfully, but its UI XML shows the emulator Quickstep ANR overlay, not an app crash. Add a preflight that dismisses only this known launcher dialog. Run41993207204 color test returned transparent TextureView bitmap; switch to actual composed-screen color checks off the main thread, keeping the same color majority/long run/fullscreen assertions and preserving a synthetic failure screenshot. Both native checks require rerun; no physical fix claim.
+
+- Reruns41994236386/41994236389 were blocked before actual playback by preflight parsing a missing accessibility root after stopping the launcher. This is a test harness defect, not a new app result. Allow the normal pre-launch no-window case, then repeat the specific launcher-dialog check after package launch; app UI and all playback assertions remain required.
