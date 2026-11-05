@@ -69,8 +69,8 @@ class CompatiblePlaybackTest {
   FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
    fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
    fun player(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
-   fun videoOutput(view:android.view.View):android.view.SurfaceView? {
-    if(view is android.view.SurfaceView && view.isShown)return view
+   fun videoOutput(view:android.view.View):android.view.TextureView? {
+    if(view is android.view.TextureView && view.isShown)return view
     if(view is android.view.ViewGroup)for(n in 0 until view.childCount){videoOutput(view.getChildAt(n))?.let{return it}}
     return null
    }
@@ -78,7 +78,7 @@ class CompatiblePlaybackTest {
     val area=android.graphics.Rect();var position=0L;var outputDetails=""
     scenario.onActivity{a->
      val view=field(a,"independentVideoView").get(a) as android.view.View
-     val output=videoOutput(view);assertNotNull("Compatibility output must retain the verified SurfaceView path",output)
+     val output=videoOutput(view);assertNotNull("Compatibility output must use TextureView",output)
      assertTrue(output!!.getGlobalVisibleRect(area));position=player(a).currentPosition
      val core=player(a).javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(player(a)) as org.videolan.libvlc.MediaPlayer
      outputDetails="videoTrack=${core.videoTrack},attached=${core.vlcVout.areViewsAttached()},playing=${core.isPlaying}"

@@ -54,7 +54,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private fun rebindVideoOutput(){
   val p=vlc ?: return;val view=layout ?: return
   if(!compatibleActive || source==null || !view.isAttachedToWindow || p.vlcVout.areViewsAttached())return
-  p.detachViews();p.attachViews(view,null,true,false)
+  p.detachViews();p.attachViews(view,null,true,true)
   applySubtitleSelection()
  }
  private fun applySubtitleSelection(){
@@ -84,7 +84,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
      }}
     })
    }}
-   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,false)
+   val p=vlc!!;p.detachViews();p.attachViews(layout!!,null,true,true)
    p.setEventListener {event->
     if(token!=epoch || !compatibleActive)return@setEventListener
     when(event.type){
