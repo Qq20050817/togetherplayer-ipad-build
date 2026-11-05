@@ -61,3 +61,8 @@
 ## 2026-11-05 · Physical direct HTTP regression reopened
 -0.6.60.13 field picture failed; local import picture/clock works, audio later confirmed volume-related and restored. Correct24fps Main10/PQ synthetic baseline reproduces gray output after fullscreen despite advancing clock.2fps fixture alone is insufficient; inspect actual composed content after aspect-fit letterboxing.
 -0.6.60.14 candidate preserves synchronization thresholds, adds bounded independent HTTP input recovery at the real playhead and actual rate diagnostics. peer_stalled client support is separate from server activation; do not label paired pause/system notice active until its counterpart is deployed and accepted.
+
+## 2026-11-05 ·0.6.60.14 verified source and release boundary
+- Final appb6c1395/testd66e4d2: retain the exact active-input SurfaceTexture/native producer across fullscreen rather than calling VideoHelper.detachViews (which disables video). Explicitly release orphaned retention on real input close/replacement. Final has no GLES/RV32/hurry-up experiment; keep0.6.60.13 normal decoder configuration.
+- Native42077116105 confirms149 JVM+46 native,0 failures/errors/skips; actual moving output, same producer, actual rate/normalization, HTTP recovery and existing regressions pass. Parallel42076877705 / package.decoder14/Together播放测试 delivered with independently verified signature/manifest/source/JNI/model and public full-file SHA256c9b0e21f. Physical original-film acceptance remains open.
+- peer_stalled client support does not activate its server counterpart. Verified server candidate remains staged, production unchanged, and older-client canonical seek behavior requires compatible-client installation confirmation before rollout.

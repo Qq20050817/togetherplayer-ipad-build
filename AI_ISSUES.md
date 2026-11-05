@@ -101,3 +101,8 @@
 ## TP-ANDROID-DIRECT-MAIN10-0613-REOPEN
 - Physical acceptance FAILED: direct USB HTTP corrupt picture despite advancing progress; passive viewing can show seek-confirmation warning. Local import picture/progress works. User later confirms sound restored after correcting volume, so do not introduce speculative audio changes.
 - Cause not established. Existing2fps silent synthetic validation did not cover movie-rate load. New24fps generated audiovisual/seek baseline regression pending. Application remains verified0.6.60.13 unchanged during reproduction.
+
+### TP-ANDROID-DIRECT-MAIN10-0613-REOPEN · verified candidate0.6.60.14
+- Synthetic24fps baseline reproduces gray output after fullscreen; active reparent currently destroys TextureView output and VideoHelper disables the video track. Finalb6c1395 preserves the same producer and bounds independent HTTP recovery without peer-time jumps. Failed hurry-up/GLES approaches were withdrawn.
+- Native42077116105:149 JVM+46 native0 failures/errors/skips, including repeated actual composed colors/motion/frame advancement and producer identity through fullscreen/return plus real rate correction. Final parallel APKc9b0e21f and full public download verified. Status: automated regression PASS; original-film/device/WAN physical acceptance OPEN.
+- Audio issue was corrected by user volume adjustment. Service-side frozen-progress pause/assistant notices are prepared separately and are NOT enabled merely by installing this APK; require compatible-client confirmation and the recorded server release step.
