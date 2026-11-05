@@ -157,7 +157,9 @@ class MainActivity: Activity() {
     var cause:Throwable?=error.cause
     while(cause!=null){if(cause is androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException){details.put("codecName",cause.codecInfo?.name ?: "none").put("decoderMimeType",cause.mimeType);break};cause=cause.cause}
     val format=exo?.rendererFormat
-    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name ?: if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO)audioDecoderName else videoDecoderName
+    val failedDecoder=generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException>().firstOrNull()?.codecInfo?.name
+     ?: generateSequence(error.cause){it.cause}.filterIsInstance<androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException>().firstOrNull()?.codecInfo?.name
+     ?: if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO)audioDecoderName else videoDecoderName
     details.put("codecName",failedDecoder).put("deviceModel",android.os.Build.MODEL).put("sdk",android.os.Build.VERSION.SDK_INT)
     format?.let {details.put("codecs",it.codecs).put("width",it.width).put("height",it.height).put("frameRate",it.frameRate)}
     val httpStatus=generateSequence(error.cause){it.cause}
@@ -170,7 +172,9 @@ class MainActivity: Activity() {
     if(scheduleHttpErrorRecovery(error.errorCode,httpStatus,diagnosis.retryable))return
      if(tryRecoverMalformedLocalContainer(error.errorCode))return
     if(trackType==androidx.media3.common.C.TRACK_TYPE_AUDIO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverCompatibleAudio(format))return
-    if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode==androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED && tryRecoverVideoDecoder(format,failedDecoder))return
+    if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO && error.errorCode in listOf(
+     androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+     androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) && tryRecoverVideoDecoder(format,failedDecoder))return
     requestStatus.text=if(diagnosis.category=="LOCAL_UNAVAILABLE")diagnosis.message else if(diagnosis.category=="DECODER") "$kind 解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可尝试其他音轨；已记录编码信息。" else if(httpHealth.isHttp)"${diagnosis.message}（${error.errorCodeName}）。可点重试播放。" else if(trackType==androidx.media3.common.C.TRACK_TYPE_VIDEO) "视频解码失败：${error.errorCodeName}（$mime，解码器：${failedDecoder.ifBlank {"未知"}}）。可点“重试播放”；相册能播放时仍可能是本 App 的解码兼容问题。" else "$kind 播放失败：${error.errorCodeName}（$mime）。可点“重试播放”。"
    }
    override fun onPlaybackStateChanged(playbackState: Int){if(playbackState==Player.STATE_READY)sourceFault=false;httpHealth.onPlaybackState(playbackState,playback.playWhenReady,android.os.SystemClock.elapsedRealtime());diagnostic("playbackStateChanged")}
