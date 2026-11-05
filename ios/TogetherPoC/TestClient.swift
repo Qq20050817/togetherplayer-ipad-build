@@ -275,7 +275,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  lazy var playback=PlaybackMonitor(player:adapter.player)
  lazy var externalSubtitles=ExternalSubtitles(player:adapter.player)
  lazy var visualSampler=PlotVisualSampler(player:adapter.player)
- let clock=ClockSync()
+ let clock:ClockSync
  lazy var engine=SyncEngine(adapter,clock)
  private var registering=false
  private var credentialServer=UserDefaults.standard.string(forKey:"server") ?? "https://together.xiaokai123.de5.net"
@@ -335,7 +335,8 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var observers: [NSObjectProtocol]=[]
  private var playerObservation: NSKeyValueObservation?
  private var itemObservation: NSKeyValueObservation?
- init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil,movieSelectionStore:RoomMovieSelectionStore? = nil) {
+ init(compatibilityPreparation: ((URL,[String:String]) async throws -> URL)? = nil,automaticallyConnect: Bool=true,messageSender: (([String:Any])->Void)? = nil,movieSelectionStore:RoomMovieSelectionStore? = nil,roomClock:ClockSync? = nil) {
+  self.clock=roomClock ?? ClockSync()
   self.compatibilityPreparation=compatibilityPreparation
   self.messageSender=messageSender
   self.movieSelectionStore=movieSelectionStore ?? RoomMovieSelectionStore.applicationDefault()
@@ -1508,6 +1509,15 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if let reason=RoomConnectionHealth.timeout(now:clock.localNow(),connected:connected,startedAt:connectionStartedAt,lastMessageAt:lastMessageAt,inFlightAt:inFlightStartedAt) {reconnect(generation,reason:reason);return}
   }
   guard connected else {return}
+  if RoomConnectionHealth.operationExpired(now:clock.localNow(),sentAt:inFlightStartedAt) {
+   // An unacknowledged command is not evidence that a live socket is dead.
+   // Do not replay an old seek/pause after another peer may have acted.
+   inFlight=nil;inFlightStartedAt=nil;queuedOperations=[];operationRetry=0;clearOptimisticPlayback()
+   if let change=pendingRoomMedia,let room=engine.room,change.matches(room) {finishRoomMedia("房间影片已确认")}
+   else if pendingRoomMedia != nil {finishRoomMedia("设置影片确认超时，请检查房间状态后重试")}
+   requestStatus="操作确认超时，已重新读取房间状态，请确认后重试"
+   send(["type":"SYNC"])
+  }
   if let pause=reconnectPauseIntent {
    guard let room=engine.room else{return}
    if room.roomId != pause.roomID || room.mediaUrl != pause.mediaURL || room.state=="paused" {reconnectPauseIntent=nil}

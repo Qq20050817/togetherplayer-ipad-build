@@ -12,10 +12,13 @@ enum RoomEnvelope {
 }
 
 enum RoomConnectionHealth {
+ static func operationExpired(now:Double,sentAt:Double?)->Bool {
+  guard let sentAt else{return false}
+  return now-sentAt>12000
+ }
  static func timeout(now: Double,connected: Bool,startedAt: Double,lastMessageAt: Double,inFlightAt: Double?) -> String? {
   if !connected,now-startedAt>20000 {return "welcome_timeout"}
   if connected,now-lastMessageAt>25000 {return "message_timeout"}
-  if connected,let sentAt=inFlightAt,now-sentAt>12000 {return "ack_timeout"}
   return nil
  }
 }
