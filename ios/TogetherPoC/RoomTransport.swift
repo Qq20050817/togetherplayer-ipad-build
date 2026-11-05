@@ -25,7 +25,7 @@ enum RoomConnectionHealth {
 
 enum RoomTransportFailure {
  static func description(_ error: NSError, httpStatus: Int?) -> String {
-  if let httpStatus {
+  if let httpStatus,httpStatus != 101 {
    if httpStatus == 401 {return "房间凭证失效（HTTP 401）"}
    if httpStatus == 403 {return "服务器拒绝连接（HTTP 403）"}
    if [502,503,504].contains(httpStatus) {return "服务器入口暂不可用（HTTP \(httpStatus)）"}
@@ -38,7 +38,8 @@ enum RoomTransportFailure {
    case NSURLErrorNetworkConnectionLost:return "网络连接中断"
    case NSURLErrorCannotFindHost,NSURLErrorDNSLookupFailed:return "无法解析服务器地址"
    case NSURLErrorCannotConnectToHost:return "无法连接服务器"
-   case NSURLErrorSecureConnectionFailed,NSURLErrorServerCertificateUntrusted:return "安全连接失败"
+   case NSURLErrorSecureConnectionFailed:return "安全握手失败（\(error.code)）"
+   case NSURLErrorServerCertificateUntrusted:return "服务器证书不受信任（\(error.code)）"
    default:return "网络错误 \(error.code)"
    }
   }

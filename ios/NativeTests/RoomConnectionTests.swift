@@ -185,6 +185,13 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertTrue(model.isConnected)
   XCTAssertEqual(model.engine.room?.roomId,"connection-test")
  }
+ func testSuccessfulWebSocketUpgradeDoesNotHideUnderlyingFailure() {
+  let failure=NSError(domain:NSURLErrorDomain,code:NSURLErrorNetworkConnectionLost,userInfo:[NSLocalizedDescriptionKey:"PRIVATE_URL_OR_TOKEN"])
+  let text=RoomTransportFailure.description(failure,httpStatus:101)
+  XCTAssertEqual(text,"网络连接中断")
+  XCTAssertFalse(text.contains("PRIVATE_URL_OR_TOKEN"))
+  XCTAssertFalse(text.contains("101"))
+ }
  func testForegroundGraceIsIdentityBoundedAndCannotBeRenewedByRetries() {
   var grace=RoomReconnectContinuity()
   XCTAssertFalse(grace.begin(roomID:"room",mediaURL:"movie",now:0,canContinue:false))
