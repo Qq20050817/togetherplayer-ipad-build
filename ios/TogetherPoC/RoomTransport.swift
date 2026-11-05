@@ -67,20 +67,3 @@ enum RoomResumePolicy {
  }
 }
 
-/// A single bounded foreground outage; retries cannot renew its deadline.
-struct RoomReconnectContinuity {
- private(set) var roomID:String?
- private(set) var mediaURL:String?
- private(set) var deadline:Double?
- mutating func begin(roomID:String,mediaURL:String,now:Double,canContinue:Bool)->Bool {
-  if deadline != nil {return preserves(roomID:roomID,mediaURL:mediaURL,now:now) && canContinue}
-  guard canContinue,now.isFinite,!roomID.isEmpty,!mediaURL.isEmpty else{return false}
-  self.roomID=roomID;self.mediaURL=mediaURL;deadline=now+8000
-  return true
- }
- func preserves(roomID:String,mediaURL:String,now:Double)->Bool {
-  guard let deadline,now.isFinite else{return false}
-  return self.roomID==roomID && self.mediaURL==mediaURL && now<deadline
- }
- mutating func reset(){roomID=nil;mediaURL=nil;deadline=nil}
-}

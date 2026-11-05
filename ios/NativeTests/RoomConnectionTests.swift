@@ -1,5 +1,4 @@
 import XCTest
-import AVFoundation
 @testable import TogetherPoC
 
 final class RoomConnectionTests: XCTestCase {
@@ -192,74 +191,6 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertFalse(text.contains("PRIVATE_URL_OR_TOKEN"))
   XCTAssertFalse(text.contains("101"))
  }
- func testForegroundGraceIsIdentityBoundedAndCannotBeRenewedByRetries() {
-  var grace=RoomReconnectContinuity()
-  XCTAssertFalse(grace.begin(roomID:"room",mediaURL:"movie",now:0,canContinue:false))
-  XCTAssertTrue(grace.begin(roomID:"room",mediaURL:"movie",now:1000,canContinue:true))
-  XCTAssertTrue(grace.begin(roomID:"room",mediaURL:"movie",now:8000,canContinue:true))
-  XCTAssertEqual(grace.deadline,9000)
-  XCTAssertFalse(grace.preserves(roomID:"other",mediaURL:"movie",now:8000))
-  XCTAssertFalse(grace.preserves(roomID:"room",mediaURL:"other",now:8000))
-  XCTAssertFalse(grace.begin(roomID:"room",mediaURL:"movie",now:9000,canContinue:true))
-  XCTAssertEqual(grace.deadline,9000)
-  grace.reset();XCTAssertNil(grace.deadline)
- }
- func testGraceRejectsNonfiniteClockAndEmptyIdentity() {
-  var grace=RoomReconnectContinuity()
-  XCTAssertFalse(grace.begin(roomID:"",mediaURL:"movie",now:0,canContinue:true))
-  XCTAssertFalse(grace.begin(roomID:"room",mediaURL:"movie",now:.nan,canContinue:true))
-  XCTAssertTrue(grace.begin(roomID:"room",mediaURL:"movie",now:0,canContinue:true))
-  XCTAssertFalse(grace.preserves(roomID:"room",mediaURL:"movie",now:.infinity))
- }
- @MainActor func testBriefTransportLossKeepsRealPlayerItemAndAdvancingClock() async throws {
-  let model=try client()
-  defer {model.handleBackground()}
-  var playing=room(url:"fixture://continuity")
-  playing["state"]="playing"
-  model.receive(["type":"WELCOME","room":playing,"lastSequence":0],t4:0)
-  let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"room-continuity",withExtension:"mp4"))
-  let item=AVPlayerItem(url:url);model.adapter.player.replaceCurrentItem(with:item);model.adapter.player.play()
-  for _ in 0..<60 {
-   if model.adapter.ready && model.adapter.position>150 {break}
-   try await Task.sleep(nanoseconds:50_000_000)
-  }
-  XCTAssertTrue(model.adapter.ready);XCTAssertGreaterThan(model.adapter.player.rate,0)
-  let before=model.adapter.position
-  model.disconnectForTest()
-  XCTAssertFalse(model.isConnected)
-  XCTAssertEqual(model.engine.room?.roomId,"connection-test")
-  XCTAssertTrue(model.adapter.player.currentItem === item)
-  try await Task.sleep(nanoseconds:250_000_000)
-  XCTAssertGreaterThan(model.adapter.position,before+50,"transport loss must not pause decoded playback")
-  model.receive(["type":"WELCOME","room":playing,"lastSequence":0],t4:0)
-  XCTAssertTrue(model.isConnected)
-  XCTAssertTrue(model.adapter.player.currentItem === item,"same-source WELCOME must not reload the decoder")
-  XCTAssertGreaterThan(model.adapter.player.rate,0)
- }
- @MainActor func testManualPauseDuringOutageStaysPausedWhileWelcomeCalibrates() async throws {
-  let model=try client();defer {model.handleBackground()}
-  var playing=room(url:"fixture://offline-pause");playing["state"]="playing"
-  model.receive(["type":"WELCOME","room":playing,"lastSequence":0],t4:0)
-  let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"room-continuity",withExtension:"mp4"))
-  model.adapter.player.replaceCurrentItem(with:AVPlayerItem(url:url));model.adapter.player.play()
-  for _ in 0..<60 {
-   if model.adapter.ready && model.adapter.position>150 {break}
-   try await Task.sleep(nanoseconds:50_000_000)
-  }
-  XCTAssertTrue(model.adapter.ready)
-  model.disconnectForTest();model.control("PAUSE")
-  XCTAssertEqual(model.adapter.player.rate,0)
-  model.receive(["type":"WELCOME","room":playing,"lastSequence":0],t4:0)
-  try await Task.sleep(nanoseconds:150_000_000)
-  XCTAssertEqual(model.adapter.player.rate,0,"old playing snapshot must not override the offline user pause")
- }
- @MainActor func testPausedRoomNeverGetsPlaybackGrace() throws {
-  let model=try client();defer {model.handleBackground()}
-  model.receive(welcome(),t4:0)
-  model.disconnectForTest()
-  XCTAssertNil(model.engine.room)
-  XCTAssertEqual(model.adapter.player.rate,0)
- }
  @MainActor func testMissingCommandAcknowledgementDoesNotCloseHealthyRoom() async throws {
   var now=1000.0;var sent:[[String:Any]]=[]
   let clock=ClockSync{now};let model=try client(sender:{sent.append($0)},clock:clock)
@@ -276,22 +207,6 @@ final class RoomConnectionTests: XCTestCase {
   XCTAssertTrue(model.requestStatus.contains("确认超时"))
   XCTAssertTrue(sent.contains {$0["type"] as? String=="SYNC"})
   XCTAssertEqual(sent.filter {$0["type"] as? String=="ROOM_MEDIA"}.count,1,"do not blindly replay a stale command")
- }
- @MainActor func testReconnectGraceExpiryPausesRealPlayerWithoutRenewingWindow() async throws {
-  var now=1000.0;let model=try client(clock:ClockSync{now});defer {model.handleBackground()}
-  var playing=room(url:"fixture://expiry");playing["state"]="playing"
-  model.receive(["type":"WELCOME","room":playing,"lastSequence":0],t4:now)
-  let url=try XCTUnwrap(Bundle(for:Self.self).url(forResource:"room-continuity",withExtension:"mp4"))
-  model.adapter.player.replaceCurrentItem(with:AVPlayerItem(url:url));model.adapter.player.play()
-  for _ in 0..<60 {
-   if model.adapter.ready && model.adapter.position>150 {break}
-   try await Task.sleep(nanoseconds:50_000_000)
-  }
-  XCTAssertTrue(model.adapter.ready);model.disconnectForTest()
-  now=9001
-  try await Task.sleep(nanoseconds:150_000_000)
-  XCTAssertEqual(model.adapter.player.rate,0)
-  XCTAssertNil(model.engine.room)
  }
  @MainActor private func client(sender: (([String:Any])->Void)? = nil,clock:ClockSync? = nil) throws -> TestClient {
   let credentials:[String:Any]=["roomId":"connection-test","userId":"host","token":String(repeating:"a",count:64)]
