@@ -1,7 +1,7 @@
-name: Xiaomi Pad7 compressed ARM64 APK 0.6.60.15
+name: Android HEVC hardware trial 0.6.60.16
 on:
   push:
-    branches: [fix/android-hdr-main10-hardware-recovery-0615-20261106]
+    branches: [fix/android-hevc-hardware-trial-0616-20261106]
     paths: ['android/**', '.github/workflows/android-local-first-usb.yml']
   workflow_dispatch:
 permissions:
@@ -46,14 +46,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: |
-            python3 android/emulator-preflight.py
-            adb shell settings put global animator_duration_scale 1
-            adb shell input keyevent KEYCODE_WAKEUP
-            adb shell wm dismiss-keyguard
-            adb shell am force-stop com.android.launcher3
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            result=0; gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.HevcHdrCapabilityTest,dev.together.poc.Main10DecoderTest,dev.together.poc.LocalDocumentPlaybackTest,dev.together.poc.CompatiblePlaybackTest,dev.together.poc.CompatibleHttpRecoveryTest || result=$?; mkdir -p android-delivery/screenshots; adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true; test "$result" -eq 0
+          script: bash android/hardware-recovery-check.sh
       - name: Build and validate compact ARM64 delivery
         working-directory: android
         run: |
@@ -73,15 +66,16 @@ jobs:
       - name: Preserve candidate APK
         run: |
           mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Xiaomi-Pad7-0.6.60.15.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Android-0.6.60.16.apk
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-main10-http-recovery-0615-attempt-${{ github.run_attempt }}
+          name: android-main10-http-recovery-0616-attempt-${{ github.run_attempt }}
           path: |
             delivery/
             android-delivery/screenshots/
+            android-delivery/native-evidence/
             android/app/build/reports/tests/
             android/app/build/reports/androidTests/
             android/app/build/outputs/androidTest-results/

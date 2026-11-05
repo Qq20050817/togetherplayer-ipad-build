@@ -176,6 +176,26 @@ class SyncCoreTest {
  }
 
 
+ @Test fun scheduledPeerStallResumeDoesNotSeekDuringItsPausedBeforeTimeline(){
+  verifyScheduledStallResume(false)
+ }
+ @Test fun explicitReplayAfterStallWaitsForExecuteTimeThenStillSeeks(){
+  verifyScheduledStallResume(true)
+ }
+ private fun verifyScheduledStallResume(replay:Boolean){
+  var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
+  e.receive(frame());e.tick()
+  val prior=JSONObject().put("state","playing").put("position",30000).put("updatedAt",0).put("playbackRate",1)
+  e.receive(frame(30750.0,2,750.0).put("state","paused").put("pauseReason","peer_stalled").put("before",prior))
+  now=1000.0;e.tick();assertEquals(0,p.seeks);assertEquals(10000L,p.pos)
+  val before=JSONObject().put("state","paused").put("position",30750).put("updatedAt",1000).put("playbackRate",1)
+  e.receive(frame(if(replay)0.0 else 30750.0,3,1750.0).put("before",before))
+  for(t in listOf(1100.0,1500.0,1749.0)){
+   now=t;e.tick();assertFalse(p.playing);assertEquals(0,p.seeks);assertEquals(10000L,p.pos)
+  }
+  now=1750.0;e.tick();assertTrue(p.playing)
+  assertEquals(if(replay)1 else 0,p.seeks);assertEquals(if(replay)0L else 10000L,p.pos)
+ }
  @Test fun peerFreezePausesAtRealPositionAndResumeUsesSustainedCatchupWithoutSeeking(){
   var now=0.0;val c=ClockSync{now};c.add(0.0,0.0,0.0,0.0);val p=FakePlayer();p.pos=10000;val e=SyncEngine(p,c)
   e.receive(frame());e.tick()

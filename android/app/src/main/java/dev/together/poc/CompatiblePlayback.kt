@@ -122,7 +122,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   closeInput();ready=false;buffering=0f;state=Player.STATE_BUFFERING;failure=null
   compatibleActive=true;changed(true)
   try {
-   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats"));vlc=VLCPlayer(core!!).also {p->
+   if(core==null){core=LibVLC(context,arrayListOf("--no-video-title-show","--stats","--no-avcodec-dr","--no-avcodec-hurry-up"));vlc=VLCPlayer(core!!).also {p->
     p.vlcVout.addCallback(object:org.videolan.libvlc.interfaces.IVLCVout.Callback {
      override fun onSurfacesDestroyed(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {rebindVideoOutput()}}
      override fun onSurfacesCreated(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {
@@ -148,7 +148,13 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    source!!.addOption(":codec=avcodec")
    // Keep Main10 reference pictures owned by the decoder rather than reuse
    // display buffers while Android replaces/resizes the output surface.
-   source!!.addOption(":avcodec-dr=0")
+   // VLC var_OptionParse ignores '=0' for boolean options: it enables them.
+   // Only the no- prefix actually disables direct rendering/hurry-up.
+   source!!.addOption(":no-avcodec-dr")
+   // Preserve HEVC reference packets during transient CPU/window load. VLC's
+   // hurry-up path can discard compressed packets and corrupt subsequent
+   // dependent frames until the next keyframe, even while time keeps moving.
+   source!!.addOption(":no-avcodec-hurry-up")
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
    if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")
