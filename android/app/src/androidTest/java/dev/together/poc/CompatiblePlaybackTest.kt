@@ -63,26 +63,25 @@ class CompatiblePlaybackTest {
   }}
  }
 
- @Test fun textureOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent(){
+ @Test fun independentOutputKeepsMain10ColorsAcrossLongPlaybackAndReparent(){
   val i=InstrumentationRegistry.getInstrumentation()
   val bytes=i.context.assets.open("hevc-main10-soak-test.mp4").use{it.readBytes()}
   FixtureHttpServer(bytes).use{remote->val uri=remote.url;ActivityScenario.launch(MainActivity::class.java).use{scenario->
    fun field(a:MainActivity,name:String)=a.javaClass.getDeclaredField(name).apply{isAccessible=true}
    fun player(a:MainActivity)=field(a,"playback").get(a) as CompatiblePlayback
-   fun texture(view:android.view.View):android.view.TextureView? {
-    if(view is android.view.TextureView && view.isShown)return view
-    if(view is android.view.ViewGroup)for(n in 0 until view.childCount){texture(view.getChildAt(n))?.let{return it}}
+   fun videoOutput(view:android.view.View):android.view.SurfaceView? {
+    if(view is android.view.SurfaceView && view.isShown)return view
+    if(view is android.view.ViewGroup)for(n in 0 until view.childCount){videoOutput(view.getChildAt(n))?.let{return it}}
     return null
    }
    fun assertColors(){
     val area=android.graphics.Rect();var position=0L
     scenario.onActivity{a->
      val view=field(a,"independentVideoView").get(a) as android.view.View
-     val output=texture(view);assertNotNull("Compatibility output must use the texture path",output)
+     val output=videoOutput(view);assertNotNull("Compatibility output must retain the verified SurfaceView path",output)
      assertTrue(output!!.getGlobalVisibleRect(area));position=player(a).currentPosition
     }
-    // Read the composed screen off the main thread: TextureView.getBitmap can
-    // return an empty transparent buffer on emulator graphics backends.
+    // Read the actual composed screen off the main thread, including video.
     val bitmap=i.uiAutomation.takeScreenshot() ?: throw AssertionError("No composed screenshot")
     try {
      fun high(c:Int,mask:Int)=((c shr mask) and 255)>140
