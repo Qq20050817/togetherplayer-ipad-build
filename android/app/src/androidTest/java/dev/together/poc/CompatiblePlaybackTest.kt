@@ -100,7 +100,7 @@ class CompatiblePlaybackTest {
      }
      for(n in 0 until 6){
       var matching=0
-      for(x in 6..14 step 2)for(y in 12..20 step 2){
+      for(x in 6..14 step 2)for(y in (if(movieRate)12..20 else 28..36) step 2){
        val c=bitmap.getPixel(area.left+(n*20+x)*area.width()/120,area.top+y*area.height()/64)
        if(matches(n,c))matching++
       }
@@ -128,8 +128,9 @@ class CompatiblePlaybackTest {
      if(movieRate && SystemClock.elapsedRealtime()-start>10000){
       val source=p.javaClass.getDeclaredField("source").apply{isAccessible=true}.get(p) as org.videolan.libvlc.Media
       val core=p.javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(p) as org.videolan.libvlc.MediaPlayer
-      assertTrue("Movie audio must be decoded",source.stats.decodedAudio>0)
-      assertTrue("Movie audio must reach the output",source.stats.playedAbuffers>0)
+      val stats=source.stats ?: throw AssertionError("Missing native input statistics")
+      assertTrue("Movie audio must be decoded",stats.decodedAudio>0)
+      assertTrue("Movie audio must reach the output",stats.playedAbuffers>0)
       assertTrue("Movie audio track must remain selected",core.audioTrack>=0)
       assertEquals("Volume must survive preparation and output rebind",70,core.volume)
      }
