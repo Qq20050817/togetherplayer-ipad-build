@@ -80,7 +80,12 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
     p.vlcVout.addCallback(object:org.videolan.libvlc.interfaces.IVLCVout.Callback {
      override fun onSurfacesDestroyed(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {rebindVideoOutput()}}
      override fun onSurfacesCreated(vout:org.videolan.libvlc.interfaces.IVLCVout){main.post {
-      if(compatibleActive && source!=null){applySubtitleSelection();if(ready){if(wanted)p.play()else p.pause()}}
+      if(compatibleActive && source!=null){
+       // Detach disables the video track. Re-enable only after replacement
+       // surfaces are ready; LibVLC can still report the old vout count here.
+       p.setVideoTrackEnabled(true);p.updateVideoSurfaces()
+       applySubtitleSelection();if(ready){if(wanted)p.play()else p.pause()}
+      }
      }}
     })
    }}

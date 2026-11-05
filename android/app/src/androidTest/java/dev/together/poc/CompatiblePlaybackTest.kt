@@ -75,11 +75,13 @@ class CompatiblePlaybackTest {
     return null
    }
    fun assertColors(){
-    val area=android.graphics.Rect();var position=0L
+    val area=android.graphics.Rect();var position=0L;var outputDetails=""
     scenario.onActivity{a->
      val view=field(a,"independentVideoView").get(a) as android.view.View
      val output=videoOutput(view);assertNotNull("Compatibility output must retain the verified SurfaceView path",output)
      assertTrue(output!!.getGlobalVisibleRect(area));position=player(a).currentPosition
+     val core=player(a).javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(player(a)) as org.videolan.libvlc.MediaPlayer
+     outputDetails="videoTrack=${core.videoTrack},attached=${core.vlcVout.areViewsAttached()},playing=${core.isPlaying}"
     }
     // Read the actual composed screen off the main thread, including video.
     val bitmap=i.uiAutomation.takeScreenshot() ?: throw AssertionError("No composed screenshot")
@@ -104,7 +106,7 @@ class CompatiblePlaybackTest {
        val dir=java.io.File("/sdcard/Pictures/TogetherUITests").apply{mkdirs()}
        java.io.File(dir,"main10-color-failure.png").outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
       }
-      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area",matching>=15)
+      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails",matching>=15)
      }
     } finally {bitmap.recycle()}
    }
