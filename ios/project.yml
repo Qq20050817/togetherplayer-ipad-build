@@ -57,7 +57,8 @@ targets:
   sources:
    - path: NativeTests
      excludes: [Fixtures]
-  resources: [NativeTests/Fixtures]
+   - path: NativeTests/Fixtures
+     buildPhase: resources
   dependencies:
    - target: TogetherPoC
   settings:

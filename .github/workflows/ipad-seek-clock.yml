@@ -31,6 +31,7 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate --spec ios/project.yml
+          python3 -c 'from pathlib import Path; assert "room-continuity.mp4 in Resources" in Path("ios/TogetherPoC.xcodeproj/project.pbxproj").read_text()'
       - name: Resolve pinned PrismCore and MPVKit
         run: |
           python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
