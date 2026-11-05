@@ -85,6 +85,13 @@ class CompatiblePlaybackTest {
      val core=player(a).javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(player(a)) as org.videolan.libvlc.MediaPlayer
      outputDetails="videoTrack=${core.videoTrack},attached=${core.vlcVout.areViewsAttached()},playing=${core.isPlaying}"
     }
+    if(movieRate){
+     // TextureView spans the fullscreen parent; inspect the centered 3840:1600
+     // picture, not the letterbox outside it.
+     val contentHeight=area.width()*1600/3840
+     if(contentHeight<area.height()){val top=area.top+(area.height()-contentHeight)/2;area.set(area.left,top,area.right,top+contentHeight)}
+     else {val width=area.height()*3840/1600;val left=area.left+(area.width()-width)/2;area.set(left,area.top,left+width,area.bottom)}
+    }
     // Read the actual composed screen off the main thread, including video.
     val bitmap=i.uiAutomation.takeScreenshot() ?: throw AssertionError("No composed screenshot")
     try {
@@ -123,16 +130,32 @@ class CompatiblePlaybackTest {
    var ready=false;val preparedDeadline=SystemClock.elapsedRealtime()+45000
    while(!ready && SystemClock.elapsedRealtime()<preparedDeadline){scenario.onActivity{a->assertNull(player(a).playerError);ready=player(a).playbackState==Player.STATE_READY};SystemClock.sleep(100)}
    assertTrue("Long Main10 fixture must prepare",ready)
-   scenario.onActivity{a->player(a).volume=.7f;player(a).play()}
-   val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0;var accelerated=false
+   var syncNow=0.0;val syncClock=ClockSync{syncNow};syncClock.add(0.0,0.0,0.0,0.0)
+   var sync:SyncEngine?=null;var syncSeeks=0
+   scenario.onActivity{a->
+    val p=player(a);p.volume=.7f
+    if(movieRate){
+     sync=SyncEngine(Media3Adapter(p){syncSeeks++;p.seekTo(it)},syncClock)
+     sync!!.receive(org.json.JSONObject().put("roomId","movie-rate-catchup").put("mediaUrl",uri).put("version",1).put("executeAt",0).put("updatedAt",0).put("state","playing").put("position",p.currentPosition).put("playbackRate",1))
+     sync!!.tick();sync!!.timelineOffset=10000.0
+    }else p.play()
+   }
+   val start=SystemClock.elapsedRealtime();var reparented=false;var restored=false;var samples=0;var accelerated=false;var normalized=false;var nextSample=2500L
    while(SystemClock.elapsedRealtime()-start<38000){
-    SystemClock.sleep(2500)
+    SystemClock.sleep(if(movieRate)100 else 2500)
     var sample=false
     scenario.onActivity{a->
      val p=player(a);assertNull(p.playerError);assertTrue("Long Main10 decode must continue",p.displayedFrames()>0)
-     if(movieRate && SystemClock.elapsedRealtime()-start>5000 && !accelerated){p.setPlaybackSpeed(1.25f);accelerated=true}
-     if(movieRate && SystemClock.elapsedRealtime()-start>12000)p.setPlaybackSpeed(1f)
-     if(movieRate && SystemClock.elapsedRealtime()-start>10000){
+     val elapsed=SystemClock.elapsedRealtime()-start
+     if(movieRate){
+      syncNow=elapsed.toDouble();if(elapsed>12000)sync!!.timelineOffset=0.0
+      sync!!.tick()
+      val core=p.javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(p) as org.videolan.libvlc.MediaPlayer
+      if(core.rate>1f)accelerated=true
+      if(accelerated && elapsed>12000 && core.rate==1f)normalized=true
+      assertEquals("Advancing lag must never become an automatic seek",0,syncSeeks)
+     }
+     if(movieRate && elapsed>=nextSample && elapsed>10000){
       val source=p.javaClass.getDeclaredField("source").apply{isAccessible=true}.get(p) as org.videolan.libvlc.Media
       val core=p.javaClass.getDeclaredField("vlc").apply{isAccessible=true}.get(p) as org.videolan.libvlc.MediaPlayer
       val stats=source.stats ?: throw AssertionError("Missing native input statistics")
@@ -143,7 +166,7 @@ class CompatiblePlaybackTest {
      }
      if(SystemClock.elapsedRealtime()-start>12000 && !reparented){a.javaClass.getDeclaredMethod("showFullscreen").apply{isAccessible=true}.invoke(a);reparented=true}
      else if(SystemClock.elapsedRealtime()-start>22000 && !restored){(field(a,"fullscreenDialog").get(a) as android.app.Dialog).dismiss();restored=true}
-     else {sample=true;samples++}
+     else if(!movieRate || elapsed>=nextSample){sample=true;samples++;nextSample=elapsed+2500}
     }
     if(sample)assertColors()
    }
@@ -151,6 +174,8 @@ class CompatiblePlaybackTest {
    assertColors()
    assertTrue("Check color planes repeatedly, not only first-frame count",samples>=8);assertTrue(reparented&&restored)
    if(movieRate){
+    assertTrue("Sustained real HTTP lag must change the actual independent decoder rate",accelerated)
+    assertTrue("Recovered drift must restore the actual decoder rate",normalized)
     scenario.onActivity{a->player(a).seekTo(5000)}
     val until=SystemClock.elapsedRealtime()+10000;var confirmed=false
     while(!confirmed && SystemClock.elapsedRealtime()<until){scenario.onActivity{a->assertNull(player(a).playerError);confirmed=player(a).currentPosition in 4500..5500};SystemClock.sleep(100)}

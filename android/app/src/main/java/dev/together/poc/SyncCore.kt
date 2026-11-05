@@ -112,6 +112,12 @@ class SyncEngine(private val player: PlayerAdapter, val clock: ClockSync) {
   val r=room
   val timeline=if(r!=null && clock.serverNow()<r.optDouble("executeAt")) r.optJSONObject("before") else r
   val baseRate=if(timeline?.optDouble("playbackRate")==2.0) 2f else 1f
+  // A peer freeze pauses each device at its own real playhead. Catch-up after
+  // the host resumes must not skip the section the lagging viewer has missed.
+  if(state=="paused" && r?.optString("pauseReason")=="peer_stalled"){
+   explicitSeekVersion=null;resetCorrection();player.pause();player.setPlaybackSpeed(1f)
+   return error
+  }
   if(explicitSeekVersion!=null){
    if(clock.serverNow()<(room?.optDouble("executeAt") ?: 0.0)){if(state=="playing")player.play()else player.pause();return error}
    if(state=="paused"){player.pause();player.setPlaybackSpeed(1f)}

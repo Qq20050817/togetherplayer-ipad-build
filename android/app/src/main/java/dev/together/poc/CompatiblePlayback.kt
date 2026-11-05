@@ -39,6 +39,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private var pendingSeek:Long?=null
  private var pendingUntil=0L
  private var requestedSubtitle:Int?=null
+ private var requestedAudio:Int?=null
  private val compatibleSources=linkedSetOf<String>()
  var compatibleActive=false;private set
  val videoFormat:Format? get()=if(compatibleActive)nativeVideo else native.videoFormat
@@ -59,6 +60,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  }
  private fun applySubtitleSelection(){
   if(source==null)return
+  requestedAudio?.let {id->vlc?.let {p->if(p.audioTracks?.any {it.id==id}==true)p.setAudioTrack(id)}}
   val id=requestedSubtitle ?: if(native.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT))-1 else return
   vlc?.let {p->if(id<0 || p.spuTracks?.any {it.id==id}==true)p.setSpuTrack(id)}
  }
@@ -103,6 +105,8 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    // Keep Main10 reference pictures owned by the decoder rather than reuse
    // display buffers while Android replaces/resizes the output surface.
    source!!.addOption(":avcodec-dr=0")
+   // Disable hurry-up packet skipping while preserving full software decoding.
+   source!!.addOption(":avcodec-hurry-up=0")
    source!!.addOption(":file-caching=1000")
    source!!.addOption(":network-caching=12000")
    if(parsed.scheme in listOf("http","https"))source!!.addOption(":http-user-agent=TogetherPlayer")
@@ -155,11 +159,11 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  override fun setPlaybackParameters(value:PlaybackParameters){speed=value.speed;native.playbackParameters=value;if(compatibleActive)vlc?.setRate(speed)}
  override fun getPlaybackParameters():PlaybackParameters=if(compatibleActive)PlaybackParameters(speed)else native.playbackParameters
  override fun setTrackSelectionParameters(value:TrackSelectionParameters){native.trackSelectionParameters=value;if(compatibleActive && value.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)){requestedSubtitle=-1;applySubtitleSelection()}}
- override fun setMediaItem(value:MediaItem,startPositionMs:Long){if(value.localConfiguration?.uri!=item?.localConfiguration?.uri)requestedSubtitle=null;if(compatibleActive)deactivate();item=value;startPosition=startPositionMs;native.setMediaItem(value,startPositionMs)}
- fun setMediaSource(value:MediaSource,startPositionMs:Long){if(value.mediaItem.localConfiguration?.uri!=item?.localConfiguration?.uri)requestedSubtitle=null;if(compatibleActive)deactivate();item=value.mediaItem;startPosition=startPositionMs;native.setMediaSource(value,startPositionMs)}
+ override fun setMediaItem(value:MediaItem,startPositionMs:Long){val changed=value.localConfiguration?.uri!=item?.localConfiguration?.uri;if(compatibleActive && !changed)requestedAudio=vlc?.audioTrack?.takeIf {it>=0} ?: requestedAudio;if(compatibleActive)deactivate();if(changed){requestedSubtitle=null;requestedAudio=null};item=value;startPosition=startPositionMs;native.setMediaItem(value,startPositionMs)}
+ fun setMediaSource(value:MediaSource,startPositionMs:Long){val changed=value.mediaItem.localConfiguration?.uri!=item?.localConfiguration?.uri;if(compatibleActive && !changed)requestedAudio=vlc?.audioTrack?.takeIf {it>=0} ?: requestedAudio;if(compatibleActive)deactivate();if(changed){requestedSubtitle=null;requestedAudio=null};item=value.mediaItem;startPosition=startPositionMs;native.setMediaSource(value,startPositionMs)}
  override fun prepare(){val uri=native.currentMediaItem?.localConfiguration?.uri?.toString();if(uri!=null && uri in compatibleSources)openIndependent(uri)else native.prepare()}
  override fun stop(){if(compatibleActive){epoch++;closeInput();ready=false;state=Player.STATE_IDLE;wanted=false}else native.stop()}
- override fun clearMediaItems(){requestedSubtitle=null;if(compatibleActive)deactivate();item=null;native.clearMediaItems()}
+ override fun clearMediaItems(){requestedSubtitle=null;requestedAudio=null;if(compatibleActive)deactivate();item=null;native.clearMediaItems()}
  override fun release(){epoch++;closeInput();vlc?.detachViews();vlc?.release();vlc=null;core?.release();core=null;native.release()}
  data class TrackOption(val id:Int,val name:String)
  fun compatibleTracks(type:Int):List<TrackOption> {
@@ -172,7 +176,15 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   }
  }
  fun selectedCompatibleTrack(type:Int):Int=if(type==C.TRACK_TYPE_AUDIO)vlc?.audioTrack ?: -1 else vlc?.spuTrack ?: -1
- fun selectCompatibleTrack(type:Int,id:Int){if(type==C.TRACK_TYPE_AUDIO)vlc?.setAudioTrack(id)else{requestedSubtitle=id;native.trackSelectionParameters=native.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,id<0).build();vlc?.setSpuTrack(id)}}
+ fun selectCompatibleTrack(type:Int,id:Int){if(type==C.TRACK_TYPE_AUDIO){requestedAudio=id;vlc?.setAudioTrack(id)}else{requestedSubtitle=id;native.trackSelectionParameters=native.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT,id<0).build();vlc?.setSpuTrack(id)}}
+ fun outputHealth():Map<String,Any> {
+  val stats=source?.stats;val p=vlc
+  return mapOf("decodedVideo" to (stats?.decodedVideo ?: -1),"displayedVideo" to (stats?.displayedPictures ?: -1),
+   "decodedAudio" to (stats?.decodedAudio ?: -1),"playedAudioBuffers" to (stats?.playedAbuffers ?: -1),
+   "demuxCorrupted" to (stats?.demuxCorrupted ?: -1),"nativeState" to (p?.playerState ?: -1),
+   "nativeRate" to (p?.rate ?: -1f),"requestedRate" to speed,"bufferingPercent" to buffering,
+   "wantedPlaying" to wanted,"nativeVolume" to (p?.volume ?: -1),"selectedAudio" to (p?.audioTrack ?: -1))
+ }
  fun decodedFrames():Int=source?.stats?.decodedVideo ?: 0
  fun displayedFrames():Int=source?.stats?.displayedPictures ?: 0
 }

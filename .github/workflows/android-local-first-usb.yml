@@ -1,4 +1,4 @@
-name: Xiaomi Pad7 compressed ARM64 APK 0.6.60.13
+name: Xiaomi Pad7 compressed ARM64 APK 0.6.60.14
 on:
   push:
     branches: [fix/android-http-main10-late-frames-0614-20261105]
@@ -48,7 +48,7 @@ jobs:
           disable-animations: true
           script: |
             python3 android/emulator-preflight.py
-            result=0; gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.CompatiblePlaybackTest#main10MovieRateHttpKeepsColorsAudioAndPositionDuringCatchup || result=$?; mkdir -p android-delivery/screenshots; adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true; test "$result" -eq 0
+            result=0; gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.together.poc.CompatiblePlaybackTest#main10MovieRateHttpKeepsColorsAudioAndPositionDuringCatchup,dev.together.poc.CompatibleHttpRecoveryTest || result=$?; mkdir -p android-delivery/screenshots; adb pull /sdcard/Pictures/TogetherUITests/ android-delivery/screenshots/ || true; test "$result" -eq 0
             bash android/decoder-check.sh false
       - name: Build and validate compact ARM64 delivery
         working-directory: android
@@ -69,12 +69,12 @@ jobs:
       - name: Preserve candidate APK
         run: |
           mkdir -p delivery
-          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Xiaomi-Pad7-0.6.60.13.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk delivery/TogetherPlayer-Xiaomi-Pad7-0.6.60.14.apk
           (cd delivery && sha256sum *.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-main10-texture-0613
+          name: android-main10-http-recovery-0614
           path: |
             delivery/
             android-delivery/screenshots/
