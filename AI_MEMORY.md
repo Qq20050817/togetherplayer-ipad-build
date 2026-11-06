@@ -109,3 +109,9 @@
 - Report export is deliberate user action and Android document picker only; technical JSON is stored locally, never automatically uploaded. Whitelist diagnostic fields and bounded sanitized event history, excluding film paths, URLs, accounts, tokens, room identifiers and private media content.
 - Treat observed active decoder names, framework-advertised codec capabilities and VLC native counters as distinct evidence. A codec candidate list does not reveal what was selected; decoded/displayed frame counters do not prove chroma or visible color. Resolve display/presentation lifecycle and codec/output path with physical-device report before claiming the HDR issue fixed.
 - Distribute the independent test APK with exact-match USB HTTP route, validated external HEAD and byte-range requests. Preserve old download routes and unrelated production servers. CI/API35 emulator success is only a software-test checkpoint; real HDR panel verification remains outstanding.
+
+
+## 2026-11-07 · Conservative HEVC Main10 transfer-missing hardware output trial
+
+- Observed Android report can contain a reliable HEVC Main10 RFC6381 codec string while an extractor omits the PQ transfer marker. The previous strict ST2084 gate forced VLC software avcodec/TextureView after three Media3 decoder failures. For ordinary HTTP only after prior decoder failure, permit a bounded hardware/SurfaceView trial when HEVC Main10 is explicit and transfer absent. Keep explicit SDR/HLG, missing Main10 profile, local-only and unrelated source guards unchanged; avoid source re-encoding or HDR metadata fabrication.
+- A successful JVM/emulator/packaging/HTTP-delivery run establishes deployable diagnostics only, not physical HDR color correctness or vendor decoder support. Record real tablet color and local report separately. Candidate package remains isolated from existing apps for recovery.
