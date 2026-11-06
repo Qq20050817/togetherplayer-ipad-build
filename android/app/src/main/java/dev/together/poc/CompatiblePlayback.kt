@@ -172,7 +172,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    fun awaitFrame(){
     if(token!=epoch || !compatibleActive || failure!=null)return
     // One stale decoded picture is not enough to prove sustained output.
-    if((source?.stats?.displayedPictures ?: 0)>=3){
+    if((source?.stats?.displayedPictures ?: 0)>=(if(hdrHardwareSurface)3 else 1)){
      ready=true;state=Player.STATE_READY;buffering=100f
      pendingSeek?.let {p.setTime(it,false)}
      if(!wanted)p.pause()
