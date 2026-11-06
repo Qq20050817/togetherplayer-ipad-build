@@ -18,7 +18,12 @@ class HdrCompatibilityPolicyTest {
   assertTrue(HdrCompatibilityPolicy.useHardwareSurface(true,f))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(false,f))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,null))
-  assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setColorInfo(null).build()))
+  assertTrue("Main10 without transfer metadata may use the bounded HTTP hardware trial",
+   HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setColorInfo(null).build()))
+  assertFalse("Unknown profile without HDR metadata cannot request hardware HDR",
+   HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setColorInfo(null).setCodecs(null).build()))
+  assertFalse("Explicit Main8 without HDR metadata cannot request hardware HDR",
+   HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setColorInfo(null).setCodecs("hvc1.1.4.L150.90").build()))
   assertTrue("Missing RFC6381 metadata must not veto known PQ HEVC recovery",
    HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setCodecs(null).build()))
   assertTrue(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setCodecs("").build()))
