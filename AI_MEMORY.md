@@ -86,3 +86,11 @@
 - The user confirms the same film plays from Xunlei cloud on Xiaomi Pad 7. This establishes a working playback path on the device but does not equate cloud streaming to the router's ordinary HTTP source.
 - Android's documented HDR playback path is MediaCodec with SurfaceView; TextureView may convert HDR to SDR on recent Android versions. A software LibVLC RGB/TextureView recovery cannot establish preservation of original HDR output.
 - Limit the new hardware/SurfaceView compatibility trial to explicit ordinary HTTP recovery after native decoder failure with known HEVC Main10 <=4K and actual ST2084 metadata. Do not synthesize HDR information, rewrite the media, alter local/SDR paths or weaken original strict picture/sync tests. Physical vendor-decoder confirmation remains mandatory.
+
+## 2026-11-06 · HDR17 field failure and bounded recovery policy
+
+- User confirms the independent .17 trial remains visually incorrect on Pad 7; exact vendor hardware decoder selection cannot be inferred from the prompt, which was not observed. Report this as physical failure, not a proven MediaCodec driver failure.
+- With 4K HEVC Main10/PQ from ordinary HTTP, an absent RFC6381 `Format.codecs` field may occur even when explicit sample MIME, dimensions and ST2084 transfer are present. For the post-failure trial, accept missing codec text only with actual HEVC/PQ/positive <=4K facts; reject an explicit Main/non-Main10 codec string. Do not synthesize HDR metadata or alter the source bytes.
+- Allowlist only safe HDR route-choice fields in the private diagnostic journal. A LibVLC hardware-enabled preference does not prove that a vendor decoder was actually selected; real device validation remains mandatory.
+- A one-frame or frame-counter success cannot establish chroma integrity. The bounded watchdog only detects a 10-second no-new-frame stall during active HDR playback. Never describe it as a gray-picture detector; identical gray frames can still advance counters. Maintain the unchanged strict 24fps chroma regression as a separate open gate.
+- Do not force global LibVLC `:codec=mediacodec_...,none` without demonstrating that audio decoding is unaffected; the option can affect codec selection for more than video. Preserve audio/subtitles, local/SDR playback, sync and user source choice.
