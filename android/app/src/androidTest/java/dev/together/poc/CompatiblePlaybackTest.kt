@@ -152,7 +152,24 @@ class CompatiblePlaybackTest {
        val dir=java.io.File("/sdcard/Pictures/TogetherUITests").apply{mkdirs()}
        java.io.File(dir,"main10-color-failure.png").outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
       }
-      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails",matching>=15)
+      var pixelProbe=""
+      if(matching<15){
+       val y=if(movieRate)16 else 32
+       val screen=(6..14 step 2).joinToString(","){x->
+        "0x%08X".format(bitmap.getPixel(area.left+(n*20+x)*area.width()/120,area.top+y*area.height()/64))
+       }
+       var texture="unavailable";var health=""
+       scenario.onActivity {a->
+        val textureView=videoOutput(field(a,"independentVideoView").get(a) as android.view.View)
+        val frame=textureView?.bitmap
+        try {if(frame!=null){texture=(6..14 step 2).joinToString(","){x->
+         "0x%08X".format(frame.getPixel(((n*20+x)*frame.width/120).coerceIn(0,frame.width-1),(y*frame.height/64).coerceIn(0,frame.height-1)))
+        }}}finally{frame?.recycle()}
+        health=player(a).outputHealth().toString()
+       }
+       pixelProbe=" screenRGB=$screen textureRGB=$texture health=$health screenshot=${bitmap.width}x${bitmap.height}"
+      }
+      assertTrue("Main10 stripe $n must retain chroma: matches=$matching, position=$position, area=$area, $outputDetails$pixelProbe",matching>=15)
      }
      if(movieRate && advancing){
       var signature=17
