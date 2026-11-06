@@ -7,11 +7,16 @@ import androidx.media3.common.Format
 object HdrCompatibilityPolicy {
  fun useHardwareSurface(allowHttp:Boolean,format:Format?):Boolean {
   if(!allowHttp || format==null || format.sampleMimeType!="video/hevc" ||
-   format.width !in 1..4096 || format.height !in 1..2160 ||
-   format.colorInfo?.colorTransfer!=C.COLOR_TRANSFER_ST2084)return false
-  // Matroska may expose valid Main10/PQ stream metadata before its codec
-  // string is available. A missing codec string must not veto this bounded
-  // post-failure HTTP hardware trial. An explicit non-Main10 profile still does.
-  return HevcHdrRecovery.knownMain10Within4K(format) || format.codecs.isNullOrBlank()
+   format.width !in 1..4096 || format.height !in 1..2160)return false
+  val main10=HevcHdrRecovery.knownMain10Within4K(format)
+  // Some Matroska/HTTP extractor paths retain the Main10 codec profile but
+  // omit the transfer marker. After every system HEVC decoder has failed,
+  // trial the original bitstream through VLC hardware + SurfaceView.
+  // Explicit SDR/HLG transfers must never be re-labelled as PQ.
+  return when(format.colorInfo?.colorTransfer){
+   C.COLOR_TRANSFER_ST2084 -> main10 || format.codecs.isNullOrBlank()
+   null,C.COLOR_TRANSFER_UNSET -> main10
+   else -> false
+  }
  }
 }
