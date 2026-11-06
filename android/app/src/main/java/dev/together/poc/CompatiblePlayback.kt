@@ -168,9 +168,11 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    source!!.addOption(":start-time=${startPosition/1000.0}")
    p.media=source;p.setVolume(0);p.setRate(speed);p.play()
    val deadline=android.os.SystemClock.elapsedRealtime()+45000
+   val frameWatch=HdrFrameProgressWatchdog()
    fun awaitFrame(){
     if(token!=epoch || !compatibleActive || failure!=null)return
-    if((source?.stats?.displayedPictures ?: 0)>0){
+    // One stale decoded picture is not enough to prove sustained output.
+    if((source?.stats?.displayedPictures ?: 0)>=3){
      ready=true;state=Player.STATE_READY;buffering=100f
      pendingSeek?.let {p.setTime(it,false)}
      if(!wanted)p.pause()
@@ -180,7 +182,17 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
     }else if(android.os.SystemClock.elapsedRealtime()>=deadline)fail("兼容解码准备超时，未显示视频帧")
     else main.postDelayed({awaitFrame()},50)
    }
-   main.post {awaitFrame()}
+   fun monitorFrames(){
+    if(token!=epoch || !compatibleActive || source==null || failure!=null)return
+    val frames=source?.stats?.displayedPictures?.toLong()
+    val active=hdrHardwareSurface && ready && wanted && p.isPlaying && state==Player.STATE_READY
+    if(frameWatch.isFrozen(android.os.SystemClock.elapsedRealtime(),frames,active)){
+     fail("原始 HDR10 视频连续 10 秒没有显示新帧，已停止无效播放")
+     return
+    }
+    main.postDelayed({monitorFrames()},1000)
+   }
+   main.post {awaitFrame();monitorFrames()}
    return true
   }catch(e:Exception){fail("兼容播放准备失败（${e.javaClass.simpleName}），请重试或更换片源");return true}
  }
