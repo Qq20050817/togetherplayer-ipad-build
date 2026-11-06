@@ -94,3 +94,10 @@
 - Allowlist only safe HDR route-choice fields in the private diagnostic journal. A LibVLC hardware-enabled preference does not prove that a vendor decoder was actually selected; real device validation remains mandatory.
 - A one-frame or frame-counter success cannot establish chroma integrity. The bounded watchdog only detects a 10-second no-new-frame stall during active HDR playback. Never describe it as a gray-picture detector; identical gray frames can still advance counters. Maintain the unchanged strict 24fps chroma regression as a separate open gate.
 - Do not force global LibVLC `:codec=mediacodec_...,none` without demonstrating that audio decoding is unaffected; the option can affect codec selection for more than video. Preserve audio/subtitles, local/SDR playback, sync and user source choice.
+
+
+## 2026-11-06 · Displayed-frame counter is not proof of color
+
+- In strict Android emulator HTTP HEVC Main10 24fps/AV native instrumentation, screen pixels were `0xFF888888` while the actual TextureView bitmap was `0xFF000000`, despite nonzero advancing VLC `decodedVideo`/`displayedPictures`, selected native video track, attached views, playing state and healthy decoded/played audio. Picture failures cluster around video hierarchy reparent and a recorded `surfaceRestores=1`.
+- A tightly scoped `detachViews()/attachViews()` repair after SurfaceTexture restoration did not resolve the black texture and was reverted. Do not reactivate that unverified fix without new evidence. Frame-count watchdog catches genuine stalls only; it cannot validate HDR, chroma or a composed picture.
+- HDR hardware/SurfaceView route selection passed x86_64 instrumentation but no real-device output verification. Xunlei source success does not reveal actual decoder/backend; distinguish transport, decoder selection and compositor. Continue with physical-device evidence and native picture tests before claiming completion.
