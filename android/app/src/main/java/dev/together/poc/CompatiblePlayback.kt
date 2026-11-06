@@ -28,6 +28,8 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  private var outputTexture:android.view.TextureView?=null
  private var retainedSurface:android.graphics.SurfaceTexture?=null
  private var surfaceRestores=0
+ private var reboundAfterRestore=0
+ private var textureListener:android.view.TextureView.SurfaceTextureListener?=null
  private var epoch=0
  private var state=Player.STATE_IDLE
  private var wanted=false
@@ -55,7 +57,11 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
    override fun onViewDetachedFromWindow(v:android.view.View){} // Texture listener owns transient reparenting.
    override fun onViewAttachedToWindow(v:android.view.View){
     restoreRetainedOutput()
+    val token=epoch
     main.post {rebindVideoOutput();if(compatibleActive && source!=null)vlc?.updateVideoSurfaces()}
+    // Restore the actual native vout binding if Android recreated the
+    // texture consumer while VLC still reports its old views as attached.
+    main.postDelayed({if(token==epoch)repairRestoredTextureOutput()},500)
    }
   })
  }
@@ -66,6 +72,20 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
   if(!hdrHardwareSurface)retainVideoOutput(view)
   applySubtitleSelection()
  }
+ private fun repairRestoredTextureOutput(){
+  val p=vlc ?: return;val view=layout ?: return
+  if(!compatibleActive || hdrHardwareSurface || source==null || !view.isAttachedToWindow ||
+   outputTexture?.isAvailable!=true || retainedSurface==null ||
+   surfaceRestores<=reboundAfterRestore)return
+  reboundAfterRestore=surfaceRestores
+  // Keep the original media and texture. Reconnect the stale native output
+  // only after real surface restoration; do not retry on ordinary play/pause.
+  p.detachViews()
+  p.attachViews(view,null,true,true)
+  retainVideoOutput(view)
+  p.updateVideoSurfaces()
+  applySubtitleSelection()
+ }
  private fun findTexture(view:android.view.View):android.view.TextureView? {
   if(view is android.view.TextureView)return view
   if(view is android.view.ViewGroup)for(n in 0 until view.childCount)findTexture(view.getChildAt(n))?.let{return it}
@@ -73,7 +93,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  }
  private fun forgetRetainedOutput(){
   val saved=retainedSurface;val view=outputTexture
-  retainedSurface=null;outputTexture=null;surfaceRestores=0
+  retainedSurface=null;outputTexture=null;surfaceRestores=0;reboundAfterRestore=0;textureListener=null
   // An available TextureView still owns its texture and will release it itself.
   if(saved!=null && (view?.isAvailable!=true || view?.surfaceTexture!==saved) && !saved.isReleased)saved.release()
  }
@@ -84,9 +104,10 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
  }
  private fun retainVideoOutput(view:VLCVideoLayout){
   val texture=findTexture(view) ?: return
+  if(texture.surfaceTextureListener===textureListener)return
   val delegate=texture.surfaceTextureListener ?: return
   outputTexture=texture;retainedSurface=texture.surfaceTexture
-  texture.surfaceTextureListener=object:android.view.TextureView.SurfaceTextureListener {
+  textureListener=object:android.view.TextureView.SurfaceTextureListener {
    override fun onSurfaceTextureAvailable(surface:android.graphics.SurfaceTexture,width:Int,height:Int){
     val saved=retainedSurface
     if(compatibleActive && source!=null && saved!=null && !saved.isReleased){
@@ -103,6 +124,7 @@ class CompatiblePlayback(private val context:Context,private val native:ExoPlaye
     return delegate.onSurfaceTextureDestroyed(surface)
    }
   }
+  texture.surfaceTextureListener=textureListener
  }
  private fun applySubtitleSelection(){
   if(source==null)return
