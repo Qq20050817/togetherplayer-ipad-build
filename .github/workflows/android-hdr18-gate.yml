@@ -1,0 +1,57 @@
+name: Android HDR recovery candidate verification
+on:
+  push:
+    branches: [fix/android-hdr10-hardware-only-diagnostics-20261106]
+    paths: ['android/**', '.github/workflows/android-hdr18-gate.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hdr18-candidate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  hdr-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+          cache-disabled: true
+      - name: Bundle verified offline voice model
+        run: |
+          mkdir -p android/app/src/main/assets
+          curl -fL --retry 2 --max-time 180 https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip -o android/app/src/main/assets/voice-cn-model.zip
+          echo '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba  android/app/src/main/assets/voice-cn-model.zip' | sha256sum -c -
+      - name: Compile Android and run all JVM regressions
+        working-directory: android
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify HDR surface route and unchanged strict Main10 picture regression
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class='dev.together.poc.CompatiblePlaybackTest#hdr10RecoveryRequestsNativeSurfaceWhileKeepingOriginalFormat'
+            gradle -p android --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class='dev.together.poc.CompatiblePlaybackTest#main10MovieRateHttpKeepsColorsAudioAndPositionDuringCatchup'
+      - name: Upload only test reports (no APK or film)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hdr18-regression-reports
+          path: |
+            android/app/build/test-results/
+            android/app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
