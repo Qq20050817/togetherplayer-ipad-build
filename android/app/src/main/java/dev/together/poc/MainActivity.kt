@@ -32,6 +32,7 @@ class Media3Adapter(private val p: Player,private val onSeek:((Long)->Unit)?=nul
 }
 class MainActivity: Activity() {
  private val diagnosticJournal by lazy {PlaybackDiagnosticJournal(java.io.File(filesDir,"playback-diagnostics.jsonl"))}
+ private var pendingHdrDiagnosticJson:String?=null
  private val main=Handler(Looper.getMainLooper());private val http=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
  private val decoderRecovery=VideoDecoderRecovery();private var videoDecoderName="";private var audioDecoderName="";private var audioFallbackAttemptedSource="";private var decoderRecoveryPending=false
  private lateinit var player: ExoPlayer;private lateinit var playback:CompatiblePlayback;private var nativeVideoView:PlayerView?=null;private var independentVideoView:org.videolan.libvlc.util.VLCVideoLayout?=null;private lateinit var engine: SyncEngine;private val clock=ClockSync();private val chat=ChatEngine()
@@ -223,7 +224,7 @@ class MainActivity: Activity() {
   val heading=row(titlePanel).apply {gravity=android.view.Gravity.CENTER_VERTICAL};roomTitle=label(heading,"选择影片，开始一起看").apply {layoutParams=LinearLayout.LayoutParams(0,-2,1f);textSize=15f;setTypeface(typeface,android.graphics.Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END}
   icon(heading,R.drawable.ic_audiotrack,"音轨",36) {selectTrack(androidx.media3.common.C.TRACK_TYPE_AUDIO)}
   icon(heading,R.drawable.ic_subtitles,"字幕",36) {subtitleMenu()}
-  icon(heading,R.drawable.ic_more_horiz,"更多",36) {android.app.AlertDialog.Builder(this).setTitle("观影工具").setItems(arrayOf("播放列表","发送表情","房间成员","片源与校准","剧情推理","观影结算")){_,i->when(i){0->showLibrary();1->emojiPicker();2->membersDialog();3->openSettings();4->showPlotPoll();5->showFilmRecap()}}.show()}
+  icon(heading,R.drawable.ic_more_horiz,"更多",36) {android.app.AlertDialog.Builder(this).setTitle("观影工具").setItems(arrayOf("播放列表","发送表情","房间成员","片源与校准","剧情推理","观影结算","导出 HDR 诊断")){_,i->when(i){0->showLibrary();1->emojiPicker();2->membersDialog();3->openSettings();4->showPlotPoll();5->showFilmRecap();6->showHdrDiagnosticExport()}}.show()}
   mediaBadge=label(titlePanel).apply {textSize=10f;setTextColor(0xffc8d1da.toInt());setPadding(dp(8),dp(4),dp(8),dp(4));background=rounded(0x90313842.toInt(),6);visibility=View.GONE;layoutParams=LinearLayout.LayoutParams(-2,-2)}
   captions=TextView(this).apply {textSize=20f;gravity=android.view.Gravity.CENTER;setTextColor(android.graphics.Color.WHITE);setShadowLayer(3f,1f,1f,android.graphics.Color.BLACK);setBackgroundColor(0x66000000);visibility=View.GONE;setPadding(dp(8),dp(4),dp(8),dp(4))};videoBox.addView(captions,FrameLayout.LayoutParams(-1,-2,android.view.Gravity.BOTTOM).apply {bottomMargin=dp(18)})
   val videoSeekRow=row(videoColumn).apply {gravity=android.view.Gravity.CENTER_VERTICAL;setPadding(dp(8),0,dp(8),0)}
@@ -494,10 +495,53 @@ class MainActivity: Activity() {
   startActivityForResult(intent,702)
  }
  override fun onActivityResult(requestCode: Int,resultCode: Int,data: android.content.Intent?){
-  super.onActivityResult(requestCode,resultCode,data);if(requestCode==704){receiveCleanupFolder(resultCode,data);return};if(requestCode !in listOf(701,702))return;if(requestCode==701)subtitlePickerOpen=false;revealControls();if(resultCode!=RESULT_OK)return;val uri=data?.data ?: return
+  super.onActivityResult(requestCode,resultCode,data);if(requestCode==705){completeHdrDiagnosticExport(resultCode,data);return};if(requestCode==704){receiveCleanupFolder(resultCode,data);return};if(requestCode !in listOf(701,702))return;if(requestCode==701)subtitlePickerOpen=false;revealControls();if(resultCode!=RESULT_OK)return;val uri=data?.data ?: return
   if(requestCode==702){pendingLocalMovie=uri to data.flags;localFileLabel.text="本地影片已选择，等待房间连接…";applyPendingLocalMovie();return}
   val g=++subtitleGeneration
   Thread {val result=runCatching {val name=contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use {if(it.moveToFirst())it.getString(0) else "外挂字幕"} ?: "外挂字幕";val bytes=contentResolver.openInputStream(uri)?.use {readSubtitleBytes(it)} ?: throw IOException("文件无法读取");Triple(name,ExternalSubtitle.parse(bytes),bytes)};main.post {if(g!=subtitleGeneration || stopped)return@post;result.onSuccess {(name,parsed,bytes)->runCatching {playback.trackSelectionParameters=playback.trackSelectionParameters.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT,true).build();external=parsed;loadedSubtitleBytes=bytes;importedSubtitleUri=uri;subtitleName=name;subtitleDelay=0;subtitleEnabled=true;requestStatus.text="已加载外挂字幕：$name"}.onFailure {requestStatus.text="字幕应用失败：${it.localizedMessage ?: "请重试"}"}}.onFailure {requestStatus.text=it.message ?: "字幕读取失败"}}}.start()
+ }
+ private fun showHdrDiagnosticExport(){
+  val report=runCatching {HdrDiagnosticReport.create(
+   clientVersion,android.os.Build.MANUFACTURER,android.os.Build.MODEL,android.os.Build.VERSION.SDK_INT,
+   playback.videoFormat,videoDecoderName,audioDecoderName,
+   playback.compatibleActive,playback.isPlaying,playback.playbackState,playback.currentPosition,
+   playback.currentMediaItem?.localConfiguration?.uri?.scheme,
+   playback.outputHealth(),diagnosticJournal.recentSafeRecords(),
+   HdrDiagnosticReport.osHevcDecoderCandidates()
+  ).toString(2)}.getOrElse {
+   requestStatus.text="诊断报告生成失败：${it.javaClass.simpleName}";return
+  }
+  android.app.AlertDialog.Builder(this).setTitle("导出 HDR 诊断")
+   .setMessage("出现花屏后请保存报告。仅含解码器名称、HDR 格式、画面计数和近期技术事件。不会保存影片、文件名、播放链接、房间号或账号信息，也不会自动上传。")
+   .setNegativeButton("取消",null)
+   .setPositiveButton("选择保存位置"){_,_->
+    pendingHdrDiagnosticJson=report
+    val intent=android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+     .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("application/json")
+     .putExtra(android.content.Intent.EXTRA_TITLE,"TogetherPlayer-HDR-Diagnostic-${System.currentTimeMillis()}.json")
+    runCatching {startActivityForResult(intent,705)}.onFailure {
+     pendingHdrDiagnosticJson=null;requestStatus.text="无法打开保存位置，请检查系统文件管理器"
+    }
+   }.show()
+ }
+ private fun completeHdrDiagnosticExport(resultCode:Int,data:android.content.Intent?){
+  val contents=pendingHdrDiagnosticJson
+  pendingHdrDiagnosticJson=null
+  if(resultCode!=RESULT_OK || contents==null)return
+  val uri=data?.data ?:return
+  Thread {
+   val result=runCatching {
+    contentResolver.openOutputStream(uri,"wt")?.use {stream->
+     stream.write(contents.toByteArray(Charsets.UTF_8));stream.flush()
+    } ?: throw java.io.IOException("无法打开诊断文件")
+   }
+   main.post {if(stopped)return@post
+    result.onSuccess {
+     requestStatus.text="HDR 诊断已保存，请在文件管理器中找到 JSON 文件并发给我"
+     Toast.makeText(this,"诊断报告已保存",Toast.LENGTH_LONG).show()
+    }.onFailure {requestStatus.text="报告保存失败，请更换保存位置后重试"}
+   }
+  }.start()
  }
  private fun subtitleTiming(){val input=EditText(this).apply {setText((subtitleDelay/1000.0).toString());inputType=android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED};android.app.AlertDialog.Builder(this).setTitle("字幕延迟（秒，正值更晚，±120秒）").setView(input).setNegativeButton("取消",null).setPositiveButton("保存"){_,_->val value=input.text.toString().toDoubleOrNull();if(value!=null && value.isFinite() && kotlin.math.abs(value)<=120)subtitleDelay=(value*1000).toLong() else requestStatus.text="字幕延迟必须在正负120秒内"}.show()}
  private fun library()=runCatching {org.json.JSONArray(getPreferences(0).getString("mediaLibrary","[]"))}.getOrElse {org.json.JSONArray()}
