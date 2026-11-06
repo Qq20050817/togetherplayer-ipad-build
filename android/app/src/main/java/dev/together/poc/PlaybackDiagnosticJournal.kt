@@ -2,6 +2,7 @@ package dev.together.poc
 import java.io.File
 import java.util.concurrent.*
 import org.json.JSONObject
+import org.json.JSONArray
 
 /** Private, bounded code/format diagnostics, with no URLs, credentials or media names. */
 internal class PlaybackDiagnosticJournal(private val file:File) {
@@ -13,9 +14,23 @@ internal class PlaybackDiagnosticJournal(private val file:File) {
    file.appendText(safe+"\n",Charsets.UTF_8)
   }}}
  }
+ /** Read a bounded, re-sanitized snapshot for user-chosen local file export. */
+ fun recentSafeRecords(maxRecords:Int=120):JSONArray {
+  val previous=File(file.parentFile,file.name+".previous")
+  val all=listOf(previous,file).flatMap {candidate->
+   if(!candidate.isFile)return@flatMap emptyList<String>()
+   runCatching {candidate.readLines(Charsets.UTF_8)}.getOrDefault(emptyList())
+  }
+  val result=JSONArray()
+  for(line in all.takeLast(maxRecords.coerceIn(1,120))){
+   val obj=runCatching {JSONObject(line)}.getOrNull() ?: continue
+   result.put(sanitize(obj))
+  }
+  return result
+ }
  fun close(){writer.shutdown()}
  companion object {
-  private val keys=setOf("clientVersion","positionMs","version","playbackRate","bufferedPositionMs","playbackState","sourceKind","localBindingActive","code","errorCode","rendererType","mimeType","decoderMimeType","codecs","width","height","frameRate","httpStatus","category","recoverable","codecName","failedCodec","nextCodec","deviceModel","manufacturer","sdk","loadTimeMs","bytesLoaded","bitrateEstimate","droppedFrames","oldState","reason","sourceScheme","hdrHardwareSurfaceRequested","boundedHardwareTrial","colorTransfer","colorSpace")
+  private val keys=setOf("event","elapsedMs","decodedVideo","displayedVideo","decodedAudio","playedAudioBuffers","demuxCorrupted","nativeState","nativeRate","requestedRate","bufferingPercent","surfaceRetained","surfaceRestores","selectedVideo","wantedPlaying","nativeVolume","selectedAudio","clientVersion","positionMs","version","playbackRate","bufferedPositionMs","playbackState","sourceKind","localBindingActive","code","errorCode","rendererType","mimeType","decoderMimeType","codecs","width","height","frameRate","httpStatus","category","recoverable","codecName","failedCodec","nextCodec","deviceModel","manufacturer","sdk","loadTimeMs","bytesLoaded","bitrateEstimate","droppedFrames","oldState","reason","sourceScheme","hdrHardwareSurfaceRequested","boundedHardwareTrial","colorTransfer","colorSpace")
   fun sanitize(input:JSONObject):JSONObject {
    val output=JSONObject()
    for(key in input.keys()){
