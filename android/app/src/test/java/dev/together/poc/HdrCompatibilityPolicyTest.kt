@@ -19,7 +19,11 @@ class HdrCompatibilityPolicyTest {
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(false,f))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,null))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setColorInfo(null).build()))
+  assertTrue("Missing RFC6381 metadata must not veto known PQ HEVC recovery",
+   HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setCodecs(null).build()))
+  assertTrue(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setCodecs("").build()))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setCodecs("hvc1.1.4.L150.90").build()))
+  assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setSampleMimeType("video/avc").setCodecs(null).build()))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setWidth(7680).build()))
   assertFalse(HdrCompatibilityPolicy.useHardwareSurface(true,f.buildUpon().setColorInfo(
    f.colorInfo!!.buildUpon().setColorTransfer(C.COLOR_TRANSFER_SDR).build()).build()))
