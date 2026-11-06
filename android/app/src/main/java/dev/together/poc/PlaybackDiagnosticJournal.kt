@@ -15,7 +15,7 @@ internal class PlaybackDiagnosticJournal(private val file:File) {
  }
  fun close(){writer.shutdown()}
  companion object {
-  private val keys=setOf("clientVersion","positionMs","version","playbackRate","bufferedPositionMs","playbackState","sourceKind","localBindingActive","code","errorCode","rendererType","mimeType","decoderMimeType","codecs","width","height","frameRate","httpStatus","category","recoverable","codecName","failedCodec","nextCodec","deviceModel","manufacturer","sdk","loadTimeMs","bytesLoaded","bitrateEstimate","droppedFrames","oldState","reason","sourceScheme")
+  private val keys=setOf("clientVersion","positionMs","version","playbackRate","bufferedPositionMs","playbackState","sourceKind","localBindingActive","code","errorCode","rendererType","mimeType","decoderMimeType","codecs","width","height","frameRate","httpStatus","category","recoverable","codecName","failedCodec","nextCodec","deviceModel","manufacturer","sdk","loadTimeMs","bytesLoaded","bitrateEstimate","droppedFrames","oldState","reason","sourceScheme","hdrHardwareSurfaceRequested","boundedHardwareTrial","colorTransfer","colorSpace")
   fun sanitize(input:JSONObject):JSONObject {
    val output=JSONObject()
    for(key in input.keys()){
