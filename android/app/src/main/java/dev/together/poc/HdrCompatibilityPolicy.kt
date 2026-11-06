@@ -15,7 +15,7 @@ object HdrCompatibilityPolicy {
   // Explicit SDR/HLG transfers must never be re-labelled as PQ.
   return when(format.colorInfo?.colorTransfer){
    C.COLOR_TRANSFER_ST2084 -> main10 || format.codecs.isNullOrBlank()
-   null,C.COLOR_TRANSFER_UNSET -> main10
+   null,Format.NO_VALUE -> main10
    else -> false
   }
  }
