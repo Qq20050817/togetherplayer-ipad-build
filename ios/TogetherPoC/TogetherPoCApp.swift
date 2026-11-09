@@ -1054,6 +1054,7 @@ struct RoomActionStyle:ButtonStyle {
  @StateObject private var baidu=BaiduBrowserModel()
  @State private var watchMemoryPresented=false
  @State private var usbMoviePicker=false
+ @State private var usbManagement=false
  private enum Picker:Identifiable,Equatable {
   case baidu,library,cleanup(URL,URL?)
   var id:String {switch self {case .baidu:return "baidu";case .library:return "library";case .cleanup(let source,_):return "cleanup-"+source.absoluteString}}
@@ -1146,6 +1147,10 @@ struct RoomActionStyle:ButtonStyle {
       }.padding(.top,12)
      }
      RequestFeedback(feedback:model.feedback)
+    }
+    roomCard("路由器 U 盘",icon:"externaldrive") {
+     Button("管理 U 盘原文件"){usbManagement=true}.sheet(isPresented:$usbManagement){RouterUSBManagementView()}
+     Text("连接家里的 Wi-Fi，登录后逐个删除 U 盘视频原文件。").font(.caption).foregroundStyle(.secondary)
     }
     roomCard("身份与时间校准",icon:"person.crop.circle") {
      HStack {Text("昵称").foregroundStyle(.secondary);TextField("昵称",text:$model.nickname).textFieldStyle(.roundedBorder)}

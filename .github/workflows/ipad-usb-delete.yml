@@ -1,0 +1,88 @@
+name: iPad router USB deletion 0.6.84
+on:
+  push:
+    branches: [feat/ipad-router-usb-delete-0683]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ipad-usb-delete-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - name: Select available Xcode 26
+        run: |
+          set -euo pipefail
+          for version in 26.3 26.2 26.1.1 26.0.1; do
+            dev="/Applications/Xcode_${version}.app/Contents/Developer"
+            if [ -d "$dev" ]; then sudo xcode-select -s "$dev"; xcodebuild -version; exit 0; fi
+          done
+          echo 'Required Xcode 26 image not installed' >&2
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify packaged WebRTC state ordering
+        run: node tools/test_p2p_channel_state.mjs
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec ios/project.yml
+      - name: Resolve pinned PrismCore and MPVKit
+        run: |
+          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
+          python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
+      - name: Reproduce baseline drift and verify fixed sync engine
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          git show 5d117b58f6241f9ff9685b021c6ad76aaed1708d:ios/TogetherPoC/SyncCore.swift > /tmp/BaselineSyncCore.swift
+          swiftc /tmp/BaselineSyncCore.swift ios/tests/ThreeSecondSyncRegression.swift -o /tmp/baseline-sync
+          if /tmp/baseline-sync > baseline-sync.log 2>&1; then echo 'Baseline unexpectedly passes new policy'; exit 1; fi
+          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/ThreeSecondSyncRegression.swift -o /tmp/fixed-sync
+          /tmp/fixed-sync | tee fixed-sync.log
+          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/recovery-sync
+          /tmp/recovery-sync | tee -a fixed-sync.log
+      - name: Build unsigned device app
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee subtitle-device-build.log
+      - name: Run targeted native regression tests
+        run: |
+          set -o pipefail
+          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-verify-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/RouterUSBManagementTests -only-testing:TogetherPoCCoreTests/USBPlaylistCatalogTests -only-testing:TogetherPoCCoreTests/RoomConnectionTests -only-testing:TogetherPoCCoreTests/PlaybackSeekSliderTests -only-testing:TogetherPoCCoreTests/PlaybackClockTests -only-testing:TogetherPoCCoreTests/ThreeSecondSyncTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/FullscreenSpeedTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests -only-testing:TogetherPoCCoreTests/P2PFastPathGateTests -only-testing:TogetherPoCCoreTests/FilmAudioCaptureTests -only-testing:TogetherPoCCoreTests/SubtitleVerificationPlanTests -only-testing:TogetherPoCCoreTests/AudioSubtitleTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-verify-tests.log
+      - name: Verify real fullscreen seek after ending unit-test host
+        run: |
+          set -o pipefail
+          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
+          # Unit-test host and UI-test app share a bundle identity. Terminate
+          # the old host so XCTest must launch a fresh, controllable app.
+          xcrun simctl terminate "$device" dev.together.poc.asrtest || true
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-ui-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-ui-tests.log
+      - name: Package candidate unsigned IPA
+        run: |
+          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.84-USB-Delete-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
+          python3 - <<'PY'
+          import plistlib,zipfile
+          with zipfile.ZipFile('delivery/TogetherPlayer-iPad-0.6.84-USB-Delete-unsigned.ipa') as z:
+              p=plistlib.loads(z.read('Payload/TogetherPoC.app/Info.plist'))
+              assert p['CFBundleShortVersionString']=='0.6.84'
+              assert str(p['CFBundleVersion'])=='144'
+              assert p['CFBundleIdentifier']=='dev.together.poc.asrtest'
+          PY
+          shasum -a 256 delivery/*.ipa > delivery/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-usb-delete-084-unsigned-attempt-${{ github.run_attempt }}
+          path: |
+            delivery/
+            subtitle-*.log
+            baseline-sync.log
+            fixed-sync.log
+            subtitle-verify-tests.xcresult
+            subtitle-ui-tests.xcresult
