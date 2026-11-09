@@ -92,3 +92,8 @@ New branchfeat/ipad-router-usb-delete-0683 preserves0.6.83 app/tests/resources, 
 ## 2026-11-09 · Native compile correction
 
 Actions42625161921 failed in device compilation: RouterUSBManagement.swift45 assigned to the shadowing let parameter session. Corrected initializer to self.session; native tests were skipped in that failed run and remain unverified pending new CI. Router capabilities still fail MCP_CONNECTION_FAILED. No live changes.
+
+## 2026-11-09 · Hosted ARM runner capacity failure
+- Run42626638985 did not start any job step. GitHub annotation: "The job was not acquired by Runner of type hosted even after multiple attempts" and ARM capacity notices. This is runner allocation failure, not compilation/test evidence.
+- Move isolated USB deletion workflow to macos-15-intel, retaining the same Xcode26 selection, generic iOS device ARM64 build, all native regressions and fullscreen UI checks. No app/test assertion changes; public app source remains25d7091. Prior baseline notes record simulator subtitle timing differences on Intel; retain existing assertions and report any actual failure.
+- Router deletion production status supersedes earlier pending notes: backend7f7c14b preserves existing ext4 support, validates physical filesystemUuid, permits external GL automount alias while refusing nested mounts;53 local Python tests pass, actual USB synthetic HTTP delete passed, admin only restarted, production session reports deleteAvailable true and existing password settings preserved. No pre-existing user movies deleted. iPad installer still pending native verification.
