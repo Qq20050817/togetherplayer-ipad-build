@@ -42,6 +42,7 @@ enum USBMovieLibrary {
  @State private var loading=false
  @State private var error=""
  @State private var search=""
+ @State private var managing=false
  @StateObject private var posters=USBPosterStore()
 
  private var filtered:[USBMovie] {
@@ -80,8 +81,10 @@ enum USBMovieLibrary {
    .navigationTitle("U盘影视库")
    .toolbar {
     ToolbarItem(placement:.topBarLeading){Button("刷新"){Task {await refresh()}}.disabled(loading)}
+    ToolbarItem(placement:.topBarTrailing){Button("管理原文件"){managing=true}}
     ToolbarItem(placement:.topBarTrailing){Button("关闭",action:close)}
    }
+   .sheet(isPresented:$managing,onDismiss:{Task {await refresh()}}) {RouterUSBManagementView()}
    .task {await refresh()}
   }.preferredColorScheme(.dark)
  }
