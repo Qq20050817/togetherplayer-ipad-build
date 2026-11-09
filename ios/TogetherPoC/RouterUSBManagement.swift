@@ -42,7 +42,7 @@ private final class USBManagementNoRedirect: NSObject, URLSessionTaskDelegate {
   let config = URLSessionConfiguration.ephemeral
   config.timeoutIntervalForRequest = 20
   config.timeoutIntervalForResource = 30
-  session = URLSession(configuration: config, delegate: USBManagementNoRedirect(), delegateQueue: nil)
+  self.session = URLSession(configuration: config, delegate: USBManagementNoRedirect(), delegateQueue: nil)
  }
  private func request(_ path: String, query: [URLQueryItem] = [], body: [String: String]? = nil) async throws -> RouterUSBResponse {
   var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!

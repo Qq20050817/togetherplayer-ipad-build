@@ -88,3 +88,7 @@
 User correctly identified installed iPad0.6.83. Initial0.6.59 baseline was wrong because only apple-build.yml runs were queried. That candidate branch4efc86c is superseded and run42624786296 cancelled; it must not be installed. Verified0.6.83 sourcebeb719c1a81e339bc6cea07ff62dc74b727ef258, successful device/native build42016927669, artifact13410148385; current baselinec797f3f91d045da0e06aece2764fb61fdc60ef31 only appends verification records.
 
 New branchfeat/ipad-router-usb-delete-0683 preserves0.6.83 app/tests/resources, adds only USB native management/browser actions/3 network-result tests and candidate0.6.84/build144. Preserve TMDB toolbar action during patch merge. Private backend13985cc adds opt-in deletion;52 synthetic Python tests pass. New isolated CI inherits the delivered ARM workflow and native regression selection, adding USB management/catalog cases. No production USB changes, deployment or installation. Router current write mode is unknown: connected movie capability tool failed MCP_CONNECTION_FAILED; old read-only documentation is historical, not a current measurement. Rollback: keep0.6.83 installer and original branches; deleteEnabled remains disabled by default.
+
+## 2026-11-09 · Native compile correction
+
+Actions42625161921 failed in device compilation: RouterUSBManagement.swift45 assigned to the shadowing let parameter session. Corrected initializer to self.session; native tests were skipped in that failed run and remain unverified pending new CI. Router capabilities still fail MCP_CONNECTION_FAILED. No live changes.
