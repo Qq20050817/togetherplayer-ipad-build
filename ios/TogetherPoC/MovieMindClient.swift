@@ -18,6 +18,28 @@ struct MovieMindPending: Codable, Identifiable {
   var conflict: Bool
   let movieId: String
 }
+enum MovieMindAcknowledgement {
+  static func decode(_ data: Data, path: String, body: Data) throws -> [String: Any] {
+    guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let sent = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+    else { throw URLError(.badServerResponse) }
+    if path.hasPrefix("records/") {
+      guard let record = sent["record"] as? [String: Any],
+        let movie = record["movieId"] as? String, reply["movieId"] as? String == movie,
+        let revision = reply["revision"] as? Int, revision > 0
+      else { throw URLError(.badServerResponse) }
+    } else if path == "watch/events" {
+      guard let session = sent["sessionId"] as? String, reply["id"] as? String == session,
+        let edition = sent["editionId"] as? String, reply["editionId"] as? String == edition,
+        let covered = reply["coveredMs"] as? Double, covered.isFinite, covered >= 0,
+        reply["possibleFinished"] is Bool
+      else { throw URLError(.badServerResponse) }
+    } else {
+      guard reply["saved"] as? Bool == true else { throw URLError(.badServerResponse) }
+    }
+    return reply
+  }
+}
 private actor MovieMindTransport {
   private let directory = FileManager.default.urls(
     for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(
@@ -171,10 +193,10 @@ private actor MovieMindTransport {
         }
         do {
           let data = try await request(item.path, body: item.body, method: item.method)
+          let result = try MovieMindAcknowledgement.decode(data, path: item.path, body: item.body)
           pending.removeAll { $0.id == item.id }
           try persist()
           if item.path == "watch/events",
-            let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
             result["possibleFinished"] as? Bool == true,
             let body = try JSONSerialization.jsonObject(with: item.body) as? [String: Any]
           {

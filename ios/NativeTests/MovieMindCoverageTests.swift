@@ -3,6 +3,50 @@ import XCTest
 @testable import TogetherPoC
 
 final class MovieMindCoverageTests: XCTestCase {
+  private func json(_ value: [String: Any]) throws -> Data {
+    try JSONSerialization.data(withJSONObject: value)
+  }
+  func testMalformedOrWrongAcknowledgementsCannotConfirmPendingWrites() throws {
+    let record = try json(["record": ["movieId": "tmdb:99000006"]])
+    XCTAssertThrowsError(
+      try MovieMindAcknowledgement.decode(
+        Data("not JSON".utf8), path: "records/tmdb:99000006", body: record))
+    XCTAssertThrowsError(
+      try MovieMindAcknowledgement.decode(
+        json(["movieId": "tmdb:1", "revision": 1]), path: "records/tmdb:99000006", body: record))
+    XCTAssertThrowsError(
+      try MovieMindAcknowledgement.decode(
+        json(["movieId": "tmdb:99000006"]), path: "records/tmdb:99000006", body: record))
+    let event = try json(["sessionId": "session_native_123", "editionId": "edition_native_123"])
+    XCTAssertThrowsError(
+      try MovieMindAcknowledgement.decode(
+        json([
+          "id": "session_native_123", "editionId": "wrong_cut", "coveredMs": 1000,
+          "possibleFinished": false,
+        ]), path: "watch/events", body: event))
+    XCTAssertThrowsError(
+      try MovieMindAcknowledgement.decode(
+        json(["saved": false]), path: "watch/sessions/session_native_123/completion",
+        body: json(["decision": "confirmed"])))
+  }
+  func testMatchingAcknowledgementsAllowRetryCompletion() throws {
+    let record = try json(["record": ["movieId": "tmdb:99000006", "rating": NSNull()]])
+    let saved = try MovieMindAcknowledgement.decode(
+      json(["movieId": "tmdb:99000006", "revision": 1, "rating": NSNull()]),
+      path: "records/tmdb:99000006", body: record)
+    XCTAssertEqual(saved["revision"] as? Int, 1)
+    let event = try json(["sessionId": "session_native_123", "editionId": "edition_native_123"])
+    let watched = try MovieMindAcknowledgement.decode(
+      json([
+        "id": "session_native_123", "editionId": "edition_native_123", "coveredMs": 1000,
+        "possibleFinished": false,
+      ]), path: "watch/events", body: event)
+    XCTAssertEqual(watched["possibleFinished"] as? Bool, false)
+    XCTAssertNotNil(
+      try MovieMindAcknowledgement.decode(
+        json(["saved": true]), path: "watch/sessions/session_native_123/completion",
+        body: json(["decision": "confirmed"])))
+  }
   func testCatchupRateChangesStayInOneActualMediaBatch() {
     var c = MovieMindCoverage()
     c.sample(position: 0, now: 0, playing: true, rate: 1)

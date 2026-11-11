@@ -17,9 +17,13 @@ private struct MovieMindEdition: Decodable, Identifiable {
   @ObservedObject var client: MovieMindClient
   let model: TestClient
   @Environment(\.dismiss) private var dismiss
-  @State private var origin = "", name = "", password = ""
-  @State private var movies = [MovieMindMovie](), editions = [MovieMindEdition]()
-  @State private var selectedMovie = "", query = ""
+  @State private var origin = ""
+  @State private var name = ""
+  @State private var password = ""
+  @State private var movies = [MovieMindMovie]()
+  @State private var editions = [MovieMindEdition]()
+  @State private var selectedMovie = ""
+  @State private var query = ""
   @State private var context: AVPlayerItem?
   @State private var drafts = [MovieMindPending]()
   @State private var selectedEdition: MovieMindEdition?
@@ -161,7 +165,9 @@ private struct MovieMindEdition: Decodable, Identifiable {
   @ObservedObject var client: MovieMindClient
   let suggestion: MovieMindClient.Suggestion
   @Environment(\.dismiss) private var dismiss
-  @State private var rating = "", comment = "", together = false
+  @State private var rating = ""
+  @State private var comment = ""
+  @State private var together = false
   @State private var original = [String: Any]()
   @State private var saving = false
   var body: some View {
