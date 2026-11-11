@@ -136,3 +136,5 @@
 
 - Final runtime source `cbfb49c` compiles and passes162 local JVM tests. CI43108947930 passes the10 selected Android35 tests and ARM64 packaging, but its unchanged strict24fps Main10 color gate FAILS with gray/black output and progressing counters. Aggregate CI is failure; do not describe all tests as passing or the playback-corruption issue as fixed.
 - Independent0.6.60.21 is a target-device compatibility candidate only. Actual Qualcomm initialization and original HDR visible-frame acceptance remain untested; preserve0.6.60.20 and the verified source baseline. Local and CI APKs have separate signing/hashes; identify exactly which artifact is supplied.
+
+- After the Codex artifact-browser error, direct installer delivery supplies the CI43108947930 APK:78,583,553 bytes/SHA256 `10311476a8bb2d9ab6e0b74d7ea1eed7831177f6979c1dec36adb2cced7e388c`, runtime `cbfb49c`. External complete-download/hash and Range checks pass. This establishes delivery only; the strict picture failure and actual-device acceptance remain open.

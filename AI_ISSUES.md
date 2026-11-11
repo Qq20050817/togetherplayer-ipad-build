@@ -196,3 +196,8 @@
 - Final runtime source `cbfb49c`; local162 JVM tests PASS. CI43108947930 `package-diagnostic` SUCCESS with all10 selected Android35 tests and final ARM64 package checks. The5 hardware-retry cases use injected initialization failures and do not exercise a physical vendor driver.
 - The unchanged strict24fps Main10 color test actually ran and FAILED at20,720ms:matches0, composed gray/underlying texture black,885 decoded/218 displayed frames. Aggregate CI is FAILURE. This corrects the earlier queued/outage checkpoint; neither a compiling APK nor the native test group closes the picture issue.
 - Keep status OPEN / awaiting actual Qualcomm tablet picture and safe error facts. The independent0.6.60.21 package is a compatibility experiment, not a validated replacement or stable repair. Original-sample Android image acceptance also remains unpassed; private temporary copies were removed.
+
+
+### 2026-11-12 · Codex artifact-browser download failure worked around
+
+- Screenshot reports a Codex server error while opening the APK. Its internal cause is unknown; app playback is a separate issue. Browser delivery from the existing isolated installer endpoint is verified by external HEAD200, Range206 and complete CI-APK SHA256 match. The prior HDR20 download remains available. No app runtime changed and playback-corruption status remains OPEN.
