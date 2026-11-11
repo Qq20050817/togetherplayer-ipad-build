@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 @testable import TogetherPoC
@@ -7,7 +8,9 @@ final class MovieMindCoverageTests: XCTestCase {
     try JSONSerialization.data(withJSONObject: value)
   }
   func testMalformedOrWrongAcknowledgementsCannotConfirmPendingWrites() throws {
-    let record = try json(["record": ["movieId": "tmdb:99000006"]])
+    let record = try json([
+      "record": ["movieId": "tmdb:99000006"], "mutationId": "mutation_native_123",
+    ])
     XCTAssertThrowsError(
       try MovieMindAcknowledgement.decode(
         Data("not JSON".utf8), path: "records/tmdb:99000006", body: record))
@@ -17,11 +20,15 @@ final class MovieMindCoverageTests: XCTestCase {
     XCTAssertThrowsError(
       try MovieMindAcknowledgement.decode(
         json(["movieId": "tmdb:99000006"]), path: "records/tmdb:99000006", body: record))
-    let event = try json(["sessionId": "session_native_123", "editionId": "edition_native_123"])
+    let event = try json([
+      "id": "event_native_123", "sessionId": "session_native_123",
+      "editionId": "edition_native_123",
+    ])
     XCTAssertThrowsError(
       try MovieMindAcknowledgement.decode(
         json([
-          "id": "session_native_123", "editionId": "wrong_cut", "coveredMs": 1000,
+          "eventId": "event_native_123", "id": "session_native_123", "editionId": "wrong_cut",
+          "coveredMs": 1000,
           "possibleFinished": false,
         ]), path: "watch/events", body: event))
     XCTAssertThrowsError(
@@ -30,15 +37,25 @@ final class MovieMindCoverageTests: XCTestCase {
         body: json(["decision": "confirmed"])))
   }
   func testMatchingAcknowledgementsAllowRetryCompletion() throws {
-    let record = try json(["record": ["movieId": "tmdb:99000006", "rating": NSNull()]])
+    let record = try json([
+      "record": ["movieId": "tmdb:99000006", "rating": NSNull()],
+      "mutationId": "mutation_native_123",
+    ])
     let saved = try MovieMindAcknowledgement.decode(
-      json(["movieId": "tmdb:99000006", "revision": 1, "rating": NSNull()]),
+      json([
+        "movieId": "tmdb:99000006", "revision": 1, "rating": NSNull(),
+        "mutationId": "mutation_native_123",
+      ]),
       path: "records/tmdb:99000006", body: record)
     XCTAssertEqual(saved["revision"] as? Int, 1)
-    let event = try json(["sessionId": "session_native_123", "editionId": "edition_native_123"])
+    let event = try json([
+      "id": "event_native_123", "sessionId": "session_native_123",
+      "editionId": "edition_native_123",
+    ])
     let watched = try MovieMindAcknowledgement.decode(
       json([
-        "id": "session_native_123", "editionId": "edition_native_123", "coveredMs": 1000,
+        "eventId": "event_native_123", "id": "session_native_123",
+        "editionId": "edition_native_123", "coveredMs": 1000,
         "possibleFinished": false,
       ]), path: "watch/events", body: event)
     XCTAssertEqual(watched["possibleFinished"] as? Bool, false)

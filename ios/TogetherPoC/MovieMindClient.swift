@@ -24,12 +24,15 @@ enum MovieMindAcknowledgement {
       let sent = try JSONSerialization.jsonObject(with: body) as? [String: Any]
     else { throw URLError(.badServerResponse) }
     if path.hasPrefix("records/") {
-      guard let record = sent["record"] as? [String: Any],
+      guard let mutation = sent["mutationId"] as? String,
+        reply["mutationId"] as? String == mutation,
+        let record = sent["record"] as? [String: Any],
         let movie = record["movieId"] as? String, reply["movieId"] as? String == movie,
         let revision = reply["revision"] as? Int, revision > 0
       else { throw URLError(.badServerResponse) }
     } else if path == "watch/events" {
-      guard let session = sent["sessionId"] as? String, reply["id"] as? String == session,
+      guard let event = sent["id"] as? String, reply["eventId"] as? String == event,
+        let session = sent["sessionId"] as? String, reply["id"] as? String == session,
         let edition = sent["editionId"] as? String, reply["editionId"] as? String == edition,
         let covered = reply["coveredMs"] as? Double, covered.isFinite, covered >= 0,
         reply["possibleFinished"] is Bool
