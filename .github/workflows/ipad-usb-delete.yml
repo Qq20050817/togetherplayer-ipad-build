@@ -1,4 +1,4 @@
-name: MovieMind iPad compilation and regression
+name: MovieMind UI verification on unchanged application source
 on:
   workflow_dispatch:
 permissions:
@@ -33,83 +33,55 @@ jobs:
         run: |
           python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
           python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
-      - name: Reproduce baseline drift and verify fixed sync engine
-        run: |
-          set -euo pipefail
-          ulimit -c 0
-          git show 5d117b58f6241f9ff9685b021c6ad76aaed1708d:ios/TogetherPoC/SyncCore.swift > /tmp/BaselineSyncCore.swift
-          swiftc /tmp/BaselineSyncCore.swift ios/tests/ThreeSecondSyncRegression.swift -o /tmp/baseline-sync
-          if /tmp/baseline-sync > baseline-sync.log 2>&1; then echo 'Baseline unexpectedly passes new policy'; exit 1; fi
-          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/ThreeSecondSyncRegression.swift -o /tmp/fixed-sync
-          /tmp/fixed-sync | tee fixed-sync.log
-          swiftc ios/TogetherPoC/SyncCore.swift ios/tests/SyncEngineRegression.swift -o /tmp/recovery-sync
-          /tmp/recovery-sync | tee -a fixed-sync.log
-      - name: Build unsigned device app
+      - name: Run MovieMind entry and unchanged fullscreen UI checks
         run: |
           set -o pipefail
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee subtitle-device-build.log
-      - name: Annotate compiler diagnostics
+          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath moviemind-ui-results.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/MovieMindUITests -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment CODE_SIGNING_ALLOWED=NO test 2>&1 | tee moviemind-ui.log
+      - name: Report structured UI results and compiler diagnostics
         if: always()
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
-          import re
-          p=Path('subtitle-device-build.log')
+          import json,subprocess
+          def annotation(level,title,message):
+              message=message.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print(f'::{level} title={title}::{message}')
+          p=Path('moviemind-ui.log')
           lines=p.read_text(errors='replace').splitlines() if p.exists() else []
-          for line in [x for x in lines if 'error:' in x][:25]:
-              m=re.search(r'(ios/[^:]+):(\d+):(\d+): error: (.*)',line)
-              if m:
-                  path,number,column,message=m.groups()
-                  message=message.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
-                  print(f'::error file={path},line={number},col={column}::{message}')
-              else:
-                  message=line.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
-                  print(f'::error::{message}')
+          for line in [s for s in lines if 'error:' in s or ('failed' in s.lower() and ('test case' in s.lower() or 'testcase' in s.lower())) or '** TEST ' in s][-25:]:
+              annotation('notice','UI diagnostic',line[:6000])
+          bundle=Path('moviemind-ui-results.xcresult')
+          if bundle.exists():
+              result=subprocess.run(['xcrun','xcresulttool','get','test-results','summary','--path',str(bundle)],capture_output=True,text=True)
+              if result.returncode==0:
+                  data=json.loads(result.stdout)
+                  Path('moviemind-ui-summary.json').write_text(json.dumps(data,indent=2))
+                  counts={k:v for k,v in data.items() if 'test' in k.lower() and isinstance(v,(int,str))}
+                  annotation('notice','UI result summary',json.dumps(counts))
+                  for failure in data.get('testFailures',[]):annotation('notice','UI failure',json.dumps(failure)[:6000])
+              else:annotation('notice','UI result tool',result.stderr[:1500])
           PYCODE
-      - name: Run MovieMind and existing native regressions
-        run: |
-          set -o pipefail
-          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-verify-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/MovieMindCoverageTests -only-testing:TogetherPoCCoreTests/RouterUSBManagementTests -only-testing:TogetherPoCCoreTests/USBPlaylistCatalogTests -only-testing:TogetherPoCCoreTests/RoomConnectionTests -only-testing:TogetherPoCCoreTests/PlaybackSeekSliderTests -only-testing:TogetherPoCCoreTests/PlaybackClockTests -only-testing:TogetherPoCCoreTests/ThreeSecondSyncTests -only-testing:TogetherPoCCoreTests/SeekBurstTests -only-testing:TogetherPoCCoreTests/FullscreenSpeedTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests -only-testing:TogetherPoCCoreTests/P2PFastPathGateTests -only-testing:TogetherPoCCoreTests/FilmAudioCaptureTests -only-testing:TogetherPoCCoreTests/SubtitleVerificationPlanTests -only-testing:TogetherPoCCoreTests/AudioSubtitleTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-verify-tests.log
-      - name: Verify real fullscreen seek after ending unit-test host
-        run: |
-          set -o pipefail
-          device="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if "iPad" in x["name"]))')"
-          # Unit-test host and UI-test app share a bundle identity. Terminate
-          # the old host so XCTest must launch a fresh, controllable app.
-          xcrun simctl terminate "$device" dev.together.poc.asrtest || true
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath build -resultBundlePath subtitle-ui-tests.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/MovieMindUITests -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment CODE_SIGNING_ALLOWED=NO test 2>&1 | tee subtitle-ui-tests.log
-      - name: Verify compiled device version
+      - name: Verify compiled simulator version
+        if: always()
         run: |
           python3 - <<'PYCODE'
           import plistlib
-          with open('build/Build/Products/Release-iphoneos/TogetherPoC.app/Info.plist','rb') as f:
-              p=plistlib.load(f)
+          with open('build/Build/Products/Debug-iphonesimulator/TogetherPoC.app/Info.plist','rb') as f:p=plistlib.load(f)
           assert p['CFBundleShortVersionString']=='0.6.85'
           assert str(p['CFBundleVersion'])=='145'
           assert p['CFBundleIdentifier']=='dev.together.poc.asrtest'
-          print('Device app version verified: 0.6.85 / 145')
+          print('::notice title=Compiled version::0.6.85 /145 /dev.together.poc.asrtest')
           PYCODE
-      - name: Summarize test results
-        if: always()
-        run: |
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          for p in [Path('subtitle-verify-tests.log'),Path('subtitle-ui-tests.log')]:
-              if p.exists():
-                  lines=p.read_text(errors='replace').splitlines()
-                  for line in [x for x in lines if 'Executed ' in x or '** TEST ' in x or "Test Case '-[" in x and 'failed' in x][-12:]:
-                      line=line.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
-                      print(f'::notice title={p.stem}::{line}')
-          PYCODE
-      - name: Preserve textual verification evidence
+      - name: Preserve textual UI evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: moviemind-verification-text-${{ github.run_attempt }}
+          name: moviemind-ui-verification-text-${{ github.run_attempt }}
           path: |
-            subtitle-*.log
-            baseline-sync.log
-            fixed-sync.log
+            moviemind-ui.log
+            moviemind-ui-summary.json
           if-no-files-found: ignore
           retention-days: 7

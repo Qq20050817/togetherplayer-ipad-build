@@ -5,7 +5,10 @@ final class MovieMindUITests: XCTestCase {
     let app = XCUIApplication()
     app.launchEnvironment["TOGETHER_UI_TEST"] = "1"
     app.launch()
-    app.tabBars.buttons["房间与片源"].tap()
+    XCUIDevice.shared.orientation = .landscapeLeft
+    let settings = app.buttons["打开房间与片源"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 15))
+    settings.tap()
     let entry = app.buttons["moviemind-open"]
     XCTAssertTrue(entry.waitForExistence(timeout: 10))
     entry.tap()
