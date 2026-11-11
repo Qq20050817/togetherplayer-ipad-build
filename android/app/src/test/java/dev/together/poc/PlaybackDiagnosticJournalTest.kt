@@ -3,6 +3,18 @@ import org.junit.Test
 import org.junit.Assert.*
 import org.json.JSONObject
 class PlaybackDiagnosticJournalTest {
+ @Test fun preservesSafeCodecInitializationCauseWithoutRawExceptionText(){
+  val safe=PlaybackDiagnosticJournal.sanitize(JSONObject().put("details",JSONObject()
+   .put("codecMode","synchronous-minimal").put("codecErrorCode",-12)
+   .put("codecDiagnosticInfo","android.media.MediaCodec.error_neg_12")
+   .put("codecRecoverable",false).put("codecTransient",true)
+   .put("codecFailureClass","CodecException")
+   .put("exceptionMessage","https://private.example/movie?token=SECRET")))
+  val details=safe.getJSONObject("details")
+  assertEquals(-12,details.getInt("codecErrorCode"));assertTrue(details.getBoolean("codecTransient"))
+  assertEquals("synchronous-minimal",details.getString("codecMode"))
+  assertFalse(safe.toString().contains("SECRET"));assertFalse(details.has("exceptionMessage"))
+ }
  @Test fun recordsCodesButDropsCredentialsUrlsPathsAndUnexpectedFields(){
   val input=JSONObject().put("token","secret").put("sourceKind","HTTP网络").put("details",JSONObject().put("httpStatus",503).put("category","HTTP_SERVER").put("codecName","https://example.org/private?sig=secret").put("file","private movie").put("mimeType","video/hevc"))
   val safe=PlaybackDiagnosticJournal.sanitize(input).toString()

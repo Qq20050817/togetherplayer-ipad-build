@@ -36,7 +36,7 @@ internal class PlaybackDiagnosticJournal(private val file:File) {
    for(key in input.keys()){
     val value=input.opt(key)
     if(key=="details" && value is JSONObject){output.put(key,sanitize(value));continue}
-    if(key !in keys)continue
+    if(key !in keys && key !in codecInitializationKeys)continue
     when(value){
      is Number,is Boolean->output.put(key,value)
      is String->if(value.length<=160 && !value.contains("://") && !value.contains('?') && !value.contains("Bearer ",true) && !value.startsWith('/'))output.put(key,value)
@@ -44,5 +44,7 @@ internal class PlaybackDiagnosticJournal(private val file:File) {
    }
    return output
   }
+  private val codecInitializationKeys=setOf("codecMode","codecFailureClass","codecErrorCode",
+   "codecRecoverable","codecTransient","codecDiagnosticInfo")
  }
 }

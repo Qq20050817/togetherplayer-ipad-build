@@ -115,3 +115,10 @@
 
 - Observed Android report can contain a reliable HEVC Main10 RFC6381 codec string while an extractor omits the PQ transfer marker. The previous strict ST2084 gate forced VLC software avcodec/TextureView after three Media3 decoder failures. For ordinary HTTP only after prior decoder failure, permit a bounded hardware/SurfaceView trial when HEVC Main10 is explicit and transfer absent. Keep explicit SDR/HLG, missing Main10 profile, local-only and unrelated source guards unchanged; avoid source re-encoding or HDR metadata fabrication.
 - A successful JVM/emulator/packaging/HTTP-delivery run establishes deployable diagnostics only, not physical HDR color correctness or vendor decoder support. Record real tablet color and local report separately. Candidate package remains isolated from existing apps for recovery.
+
+
+## 2026-11-12 · Hardware capability and initialization recovery
+
+- User identifies installed failing trial as Android0.6.60.20 and confirms previous4K MKV/HDR playback plus clean playback in Xunlei. An OS capability declaration or failed app initialization does not establish physical hardware incapability; investigate configuration/API/output before abandoning hardware. This is user evidence, not an instrumented comparison of Xunlei's internal route.
+- For failed, clear Main10 hardware initialization on Android12+, try the same codec once with synchronous MediaCodec and without optional max-allocation/scheduling hints. Preserve MIME, dimensions, original Format/CSD/HDR, Surface, source identity and audio behavior. Do not use success creating an adapter as proof of valid HDR pixels.
+- Keep the existing bounded next-decoder policy and isolate candidate0.6.60.21 from installed apps. No source conversion, production deployment or successful physical playback claim is authorized by automated tests alone.

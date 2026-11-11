@@ -128,7 +128,9 @@ class MainActivity: Activity() {
   super.onCreate(savedInstanceState);window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   // Keep a reserve before starting/resuming; a short reserve repeatedly drains on slow sources.
   val buffering=AdaptiveHttpLoadControl(httpHealth)
-  val renderers=PlaybackRenderers.create(this,decoderRecovery)
+  val renderers=PlaybackRenderers.create(this,decoderRecovery){event,facts->
+   main.post {if(!stopped)diagnostic(event,JSONObject(facts))}
+  }
   player=ExoPlayer.Builder(this,renderers).setLoadControl(buffering).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(androidx.media3.datasource.DefaultDataSource.Factory(this,HttpMediaDataSource.factory()))).build()
   playback=CompatiblePlayback(this,player,{active->if(active && ::playback.isInitialized && playback.playbackState==Player.STATE_READY)sourceFault=false;nativeVideoView?.visibility=if(active)View.GONE else View.VISIBLE;independentVideoView?.visibility=if(active)View.VISIBLE else View.GONE;if(active && ::requestStatus.isInitialized)requestStatus.text="已启用独立兼容解码；播放仍遵循房间状态。"},{error->markSourceFault();requestStatus.text=error;diagnostic("independentDecoderError",JSONObject().put("message",error));scheduleCompatibleHttpRecovery("input-error")})
   engine=SyncEngine(Media3Adapter(playback){seekFromRoom(it)},clock)
@@ -155,6 +157,7 @@ class MainActivity: Activity() {
     val trackType=androidx.media3.common.MimeTypes.getTrackType(exo?.rendererFormat?.sampleMimeType)
     val kind=when(trackType){androidx.media3.common.C.TRACK_TYPE_VIDEO->"视频";androidx.media3.common.C.TRACK_TYPE_AUDIO->"音频";else->"片源"}
     val details=JSONObject().put("code",error.errorCodeName).put("rendererType",trackType).put("mimeType",mime)
+    CodecInitializationFacts.read(error).forEach {key,value->details.put(key,value)}
     var cause:Throwable?=error.cause
     while(cause!=null){if(cause is androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException){details.put("codecName",cause.codecInfo?.name ?: "none").put("decoderMimeType",cause.mimeType);break};cause=cause.cause}
     val format=exo?.rendererFormat

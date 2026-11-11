@@ -171,3 +171,12 @@
 - The real-device symptom remains **OPEN**. New bounded policy addresses a confirmed selection gap: with known HEVC Main10 and absent transfer marker after failed Media3 decoders, use VLC MediaCodec hardware/SurfaceView while preserving original compressed source. Explicit SDR/HLG and non-Main10 excluded.
 - Initial run **42246216693** failed on an unresolved Media3 transfer constant, fixed before packaging. Repeat run **42246662174 SUCCESS** with JVM regression, API35 emulator diagnostic UI, separate install identity, ARM64-only packaging and SHA verification. APK 0.6.60.20 SHA256 `0220a75031fd4733c33f24f787c5cfe4d380743c0bcee74339132254a19f1a56` staged to USB HTTP; remote HEAD200/Range206, earlier route HEAD200. No production app update.
 - Remaining uncertainty: actual Qualcomm hardware decoder initialization may still fail; original Media3 codec error causes are not yet captured in this export. If device playback remains gray/black, capture new report while playing and include video/screen observation. Do not close before real HDR colored-frame verification and playback recovery checks.
+
+
+## ANDROID-HDR21-INIT · 2026-11-12 · Investigating
+
+- Affected baseline:0.6.60.20, implementation9ac8b9124d13696a7d9dd10e59ebd3fb29feac9a, successful build42246662174; documentation checkpoint24b5e6ecd9c17db59ed8d4c4ac8af72fdf59820a. User confirms this installed version.
+- Symptoms: original HEVC Main10 playback corrupts or goes black while time may advance. User recordings inspected privately; no recording, movie title, source URI or private content committed. User reports clean Xunlei and earlier4K/HDR playback, so hardware incapability is not established.
+- Code evidence: Media3 1.7.1 defaults to asynchronous MediaCodec on Android12+. Existing bounded recovery changes codec names while retaining configuration/API choices. Synchronous minimal configuration is an unverified compatibility hypothesis, not an established cause of vendor initialization errors.
+- Candidate: add one same-codec synchronous retry after initialization failure, remove only optional allocation/scheduling hints, preserve compressed/HDR/output data, retain numeric safe codec exception facts. Test default success, immutable CSD/HDR/Surface, single retry, failure propagation and exclusions.
+- Status: code prepared; compilation, instrumentation, unchanged strict picture gate and physical original-film acceptance pending. VLC3 independently has a late-block discard outside its hurry-up guard; this candidate does not claim to patch or fix that native software path.

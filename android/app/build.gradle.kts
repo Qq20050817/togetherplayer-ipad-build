@@ -3,10 +3,10 @@ android {
  namespace = "dev.together.poc"
  compileSdk = 35
  if(providers.gradleProperty("deliveryCompressedNative").orNull=="true") {packaging {jniLibs {useLegacyPackaging=true}}}
- defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 140; versionName = "0.6.60.20"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
+ defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 141; versionName = "0.6.60.21"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
  buildTypes { getByName("debug") {
   // Separate preview identity preserves every existing install and its data.
-  applicationIdSuffix = ".hdrtrial20"
+  applicationIdSuffix = ".hdrtrial21"
  } }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = "17" }
