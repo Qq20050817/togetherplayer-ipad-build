@@ -130,3 +130,9 @@
 - The approved original-coded4K Main10/PQ sample strictly decoded1080 video frames and audio on the host without errors. In Android software emulation, the virtual goldfish decoder initialized then failed during decoding (not initialization), so this did not exercise the new retry. VLC fallback's clock/frame counters advanced while valid-picture acceptance failed; 111 late compressed-block drops were observed. Paused native seek confirmation also preceded correct visible content. Never label operationalgreen or advancing counters as image acceptance.
 - User-approved temporary sample/captures were removed after tests from the relay server, emulator and cloud workspace; original USB and user-uploaded attachments were preserved. Continue physical vendor testing with the isolated candidate, not another unsupported hardware-incapability inference.
 - Cropped4K may be3840 pixels wide with height below2160. Quality badges must inspect both dimensions; this changes a label only, not source resolution or decoding.
+
+
+## 2026-11-12 · HDR21 final delivery evidence
+
+- Final runtime source `cbfb49c` compiles and passes162 local JVM tests. CI43108947930 passes the10 selected Android35 tests and ARM64 packaging, but its unchanged strict24fps Main10 color gate FAILS with gray/black output and progressing counters. Aggregate CI is failure; do not describe all tests as passing or the playback-corruption issue as fixed.
+- Independent0.6.60.21 is a target-device compatibility candidate only. Actual Qualcomm initialization and original HDR visible-frame acceptance remain untested; preserve0.6.60.20 and the verified source baseline. Local and CI APKs have separate signing/hashes; identify exactly which artifact is supplied.

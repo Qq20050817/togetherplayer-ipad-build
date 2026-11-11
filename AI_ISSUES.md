@@ -189,3 +189,10 @@
 - Two paused seeks confirmed native time and advancing display counters, but screenshots still showed stale/earlier content compared with independent reference frames. This is not proof of correct target-time pixels. Cause may involve the software-emulated output pipeline; do not claim a physical output repair. The original unchanged strict picture CI is still queued during the GitHub Actions major outage.
 - Source changes remain a bounded hardware-initialization compatibility candidate with safe failure evidence. No new stable release or existing-client replacement. Physical original4K HDR playback/driver verification remains required; target tablet is not currently connected.
 - Also corrected the observed cropped4K badge: width3840/height1604 was labelled1080p by the previous height-only check. Inspect width as well as height; actual compressed source and HDR metadata remain unchanged.
+
+
+### 2026-11-12 · HDR21 final verification: build/native logic pass; picture gate FAILED
+
+- Final runtime source `cbfb49c`; local162 JVM tests PASS. CI43108947930 `package-diagnostic` SUCCESS with all10 selected Android35 tests and final ARM64 package checks. The5 hardware-retry cases use injected initialization failures and do not exercise a physical vendor driver.
+- The unchanged strict24fps Main10 color test actually ran and FAILED at20,720ms:matches0, composed gray/underlying texture black,885 decoded/218 displayed frames. Aggregate CI is FAILURE. This corrects the earlier queued/outage checkpoint; neither a compiling APK nor the native test group closes the picture issue.
+- Keep status OPEN / awaiting actual Qualcomm tablet picture and safe error facts. The independent0.6.60.21 package is a compatibility experiment, not a validated replacement or stable repair. Original-sample Android image acceptance also remains unpassed; private temporary copies were removed.
