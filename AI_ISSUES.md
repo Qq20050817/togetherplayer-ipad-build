@@ -171,3 +171,33 @@
 - The real-device symptom remains **OPEN**. New bounded policy addresses a confirmed selection gap: with known HEVC Main10 and absent transfer marker after failed Media3 decoders, use VLC MediaCodec hardware/SurfaceView while preserving original compressed source. Explicit SDR/HLG and non-Main10 excluded.
 - Initial run **42246216693** failed on an unresolved Media3 transfer constant, fixed before packaging. Repeat run **42246662174 SUCCESS** with JVM regression, API35 emulator diagnostic UI, separate install identity, ARM64-only packaging and SHA verification. APK 0.6.60.20 SHA256 `0220a75031fd4733c33f24f787c5cfe4d380743c0bcee74339132254a19f1a56` staged to USB HTTP; remote HEAD200/Range206, earlier route HEAD200. No production app update.
 - Remaining uncertainty: actual Qualcomm hardware decoder initialization may still fail; original Media3 codec error causes are not yet captured in this export. If device playback remains gray/black, capture new report while playing and include video/screen observation. Do not close before real HDR colored-frame verification and playback recovery checks.
+
+
+## ANDROID-HDR21-INIT · 2026-11-12 · Investigating
+
+- Affected baseline:0.6.60.20, implementation9ac8b9124d13696a7d9dd10e59ebd3fb29feac9a, successful build42246662174; documentation checkpoint24b5e6ecd9c17db59ed8d4c4ac8af72fdf59820a. User confirms this installed version.
+- Symptoms: original HEVC Main10 playback corrupts or goes black while time may advance. User recordings inspected privately; no recording, movie title, source URI or private content committed. User reports clean Xunlei and earlier4K/HDR playback, so hardware incapability is not established.
+- Code evidence: Media3 1.7.1 defaults to asynchronous MediaCodec on Android12+. Existing bounded recovery changes codec names while retaining configuration/API choices. Synchronous minimal configuration is an unverified compatibility hypothesis, not an established cause of vendor initialization errors.
+- Candidate: add one same-codec synchronous retry after initialization failure, remove only optional allocation/scheduling hints, preserve compressed/HDR/output data, retain numeric safe codec exception facts. Test default success, immutable CSD/HDR/Surface, single retry, failure propagation and exclusions.
+- Status: code prepared; compilation, instrumentation, unchanged strict picture gate and physical original-film acceptance pending. VLC3 independently has a late-block discard outside its hurry-up guard; this candidate does not claim to patch or fix that native software path.
+
+
+### 2026-11-12 · HDR21 validation update: codec logic passed; original picture remains OPEN
+
+- Local application/test APK assembly and162 JVM tests passed. All5 focused Android35 instrumentation cases passed after precompiling the package to resolve an environment startup ANR; test assertions were unchanged and adapter initialization failures are injected.
+- A user-approved bounded original-coded sample was verified end-to-end and strictly decoded on the host (1080 frames and audio,0 errors). The Android operational HTTP harness completed, but actual screenshot acceptance DID NOT pass: software emulation produced a SystemUI ANR, virtual goldfish runtime decoding failure followed by compatibility playback, large video/clock lag and111 late compressed-block drops. No physical Qualcomm initialization-failure event was exercised by this replay.
+- Two paused seeks confirmed native time and advancing display counters, but screenshots still showed stale/earlier content compared with independent reference frames. This is not proof of correct target-time pixels. Cause may involve the software-emulated output pipeline; do not claim a physical output repair. The original unchanged strict picture CI is still queued during the GitHub Actions major outage.
+- Source changes remain a bounded hardware-initialization compatibility candidate with safe failure evidence. No new stable release or existing-client replacement. Physical original4K HDR playback/driver verification remains required; target tablet is not currently connected.
+- Also corrected the observed cropped4K badge: width3840/height1604 was labelled1080p by the previous height-only check. Inspect width as well as height; actual compressed source and HDR metadata remain unchanged.
+
+
+### 2026-11-12 · HDR21 final verification: build/native logic pass; picture gate FAILED
+
+- Final runtime source `cbfb49c`; local162 JVM tests PASS. CI43108947930 `package-diagnostic` SUCCESS with all10 selected Android35 tests and final ARM64 package checks. The5 hardware-retry cases use injected initialization failures and do not exercise a physical vendor driver.
+- The unchanged strict24fps Main10 color test actually ran and FAILED at20,720ms:matches0, composed gray/underlying texture black,885 decoded/218 displayed frames. Aggregate CI is FAILURE. This corrects the earlier queued/outage checkpoint; neither a compiling APK nor the native test group closes the picture issue.
+- Keep status OPEN / awaiting actual Qualcomm tablet picture and safe error facts. The independent0.6.60.21 package is a compatibility experiment, not a validated replacement or stable repair. Original-sample Android image acceptance also remains unpassed; private temporary copies were removed.
+
+
+### 2026-11-12 · Codex artifact-browser download failure worked around
+
+- Screenshot reports a Codex server error while opening the APK. Its internal cause is unknown; app playback is a separate issue. Browser delivery from the existing isolated installer endpoint is verified by external HEAD200, Range206 and complete CI-APK SHA256 match. The prior HDR20 download remains available. No app runtime changed and playback-corruption status remains OPEN.

@@ -3,9 +3,15 @@ package dev.together.poc
 import android.content.Context
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 
 object PlaybackRenderers {
- fun create(context:Context,recovery:VideoDecoderRecovery=VideoDecoderRecovery()):DefaultRenderersFactory = DefaultRenderersFactory(context)
+ fun create(context:Context,recovery:VideoDecoderRecovery=VideoDecoderRecovery(),
+  report:(String,Map<String,Any>)->Unit={_,_->}):DefaultRenderersFactory = object:DefaultRenderersFactory(context){
+   private var recoveryFactory:MediaCodecAdapter.Factory?=null
+   override fun getCodecAdapterFactory():MediaCodecAdapter.Factory = recoveryFactory ?:
+    HevcHardwareCodecAdapterFactory(super.getCodecAdapterFactory(),report=report).also {recoveryFactory=it}
+  }
   .setEnableDecoderFallback(true)
   .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
   .setMediaCodecSelector(MediaCodecSelector {mime,secure,tunneling->

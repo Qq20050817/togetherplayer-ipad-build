@@ -115,3 +115,26 @@
 
 - Observed Android report can contain a reliable HEVC Main10 RFC6381 codec string while an extractor omits the PQ transfer marker. The previous strict ST2084 gate forced VLC software avcodec/TextureView after three Media3 decoder failures. For ordinary HTTP only after prior decoder failure, permit a bounded hardware/SurfaceView trial when HEVC Main10 is explicit and transfer absent. Keep explicit SDR/HLG, missing Main10 profile, local-only and unrelated source guards unchanged; avoid source re-encoding or HDR metadata fabrication.
 - A successful JVM/emulator/packaging/HTTP-delivery run establishes deployable diagnostics only, not physical HDR color correctness or vendor decoder support. Record real tablet color and local report separately. Candidate package remains isolated from existing apps for recovery.
+
+
+## 2026-11-12 · Hardware capability and initialization recovery
+
+- User identifies installed failing trial as Android0.6.60.20 and confirms previous4K MKV/HDR playback plus clean playback in Xunlei. An OS capability declaration or failed app initialization does not establish physical hardware incapability; investigate configuration/API/output before abandoning hardware. This is user evidence, not an instrumented comparison of Xunlei's internal route.
+- For failed, clear Main10 hardware initialization on Android12+, try the same codec once with synchronous MediaCodec and without optional max-allocation/scheduling hints. Preserve MIME, dimensions, original Format/CSD/HDR, Surface, source identity and audio behavior. Do not use success creating an adapter as proof of valid HDR pixels.
+- Keep the existing bounded next-decoder policy and isolate candidate0.6.60.21 from installed apps. No source conversion, production deployment or successful physical playback claim is authorized by automated tests alone.
+
+
+## 2026-11-12 · Original-frame evidence and delivery boundary
+
+- HDR21's5 Android instrumentation checks pass with injected adapter failures after package precompilation resolved a software-emulator startup ANR. They prove retry/data-preservation behavior, not a Qualcomm driver repair. The162 JVM checks also passed.
+- The approved original-coded4K Main10/PQ sample strictly decoded1080 video frames and audio on the host without errors. In Android software emulation, the virtual goldfish decoder initialized then failed during decoding (not initialization), so this did not exercise the new retry. VLC fallback's clock/frame counters advanced while valid-picture acceptance failed; 111 late compressed-block drops were observed. Paused native seek confirmation also preceded correct visible content. Never label operationalgreen or advancing counters as image acceptance.
+- User-approved temporary sample/captures were removed after tests from the relay server, emulator and cloud workspace; original USB and user-uploaded attachments were preserved. Continue physical vendor testing with the isolated candidate, not another unsupported hardware-incapability inference.
+- Cropped4K may be3840 pixels wide with height below2160. Quality badges must inspect both dimensions; this changes a label only, not source resolution or decoding.
+
+
+## 2026-11-12 · HDR21 final delivery evidence
+
+- Final runtime source `cbfb49c` compiles and passes162 local JVM tests. CI43108947930 passes the10 selected Android35 tests and ARM64 packaging, but its unchanged strict24fps Main10 color gate FAILS with gray/black output and progressing counters. Aggregate CI is failure; do not describe all tests as passing or the playback-corruption issue as fixed.
+- Independent0.6.60.21 is a target-device compatibility candidate only. Actual Qualcomm initialization and original HDR visible-frame acceptance remain untested; preserve0.6.60.20 and the verified source baseline. Local and CI APKs have separate signing/hashes; identify exactly which artifact is supplied.
+
+- After the Codex artifact-browser error, direct installer delivery supplies the CI43108947930 APK:78,583,553 bytes/SHA256 `10311476a8bb2d9ab6e0b74d7ea1eed7831177f6979c1dec36adb2cced7e388c`, runtime `cbfb49c`. External complete-download/hash and Range checks pass. This establishes delivery only; the strict picture failure and actual-device acceptance remain open.
