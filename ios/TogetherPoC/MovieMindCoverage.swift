@@ -28,14 +28,16 @@ struct MovieMindCoverage {
     }
     let old = previous
     previous = Sample(position: position, now: now, playing: playing, rate: rate)
-    guard let old, playing, old.playing, old.rate == rate else { return }
+    guard let old, playing, old.playing else { return }
     let dt = now - old.now
     let delta = position - old.position
+    let maximumRate = max(old.rate, rate)
+    let expected = Double(dt) * (old.rate + rate) / 2
     guard dt > 0, dt <= 2000, delta > 0,
-      abs(Double(delta) - Double(dt) * rate) <= max(80, Double(dt) * rate * 0.15),
-      intervals.isEmpty || batchRate == rate
+      abs(Double(delta) - expected) <= max(80, Double(dt) * maximumRate * 0.15)
     else { return }
-    batchRate = rate
+    // A conservative validation bound only; coverage always uses actual ranges.
+    batchRate = intervals.isEmpty ? maximumRate : max(batchRate, maximumRate)
     elapsed += dt
     if let last = intervals.last, last.end == old.position {
       intervals[intervals.count - 1] = Interval(start: last.start, end: position)

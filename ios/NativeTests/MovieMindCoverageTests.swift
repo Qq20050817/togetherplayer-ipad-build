@@ -3,6 +3,17 @@ import XCTest
 @testable import TogetherPoC
 
 final class MovieMindCoverageTests: XCTestCase {
+  func testCatchupRateChangesStayInOneActualMediaBatch() {
+    var c = MovieMindCoverage()
+    c.sample(position: 0, now: 0, playing: true, rate: 1)
+    c.sample(position: 1000, now: 1000, playing: true, rate: 1)
+    c.sample(position: 2500, now: 2000, playing: true, rate: 2)
+    c.sample(position: 4500, now: 3000, playing: true, rate: 2)
+    let b = c.drain()!
+    XCTAssertEqual(b.elapsedMs, 3000)
+    XCTAssertEqual(b.intervals, [.init(start: 0, end: 4500)])
+    XCTAssertEqual(b.rate, 2)
+  }
   func testExplicitSeekAndTailJumpDoNotCountSkippedMedia() {
     var c = MovieMindCoverage()
     c.sample(position: 0, now: 0, playing: true, rate: 1)

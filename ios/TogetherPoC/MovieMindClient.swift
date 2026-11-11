@@ -270,7 +270,6 @@ private actor MovieMindTransport {
   private var editionId = "", sessionId = ""
   private var duration: Int64 = 0
   private var lastFlush: Int64 = 0
-  private var lastRate = 1.0
   private var wasEnded = false
   private var collector = MovieMindCoverage()
   private lazy var transport = MovieMindTransport(report: { [weak self] message, suggestion in
@@ -345,11 +344,7 @@ private actor MovieMindTransport {
       return
     }
     let now = Int64(ProcessInfo.processInfo.systemUptime * 1000)
-    if rate != lastRate {
-      flush()
-      collector.discontinuity()
-      lastRate = rate
-    }
+
     if seeking || !foreground || abs(duration - Double(self.duration)) > 1000 {
       collector.discontinuity()
     }
