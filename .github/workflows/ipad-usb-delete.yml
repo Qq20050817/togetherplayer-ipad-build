@@ -48,6 +48,24 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee subtitle-device-build.log
+      - name: Annotate compiler diagnostics
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re
+          p=Path('subtitle-device-build.log')
+          lines=p.read_text(errors='replace').splitlines() if p.exists() else []
+          for line in [x for x in lines if 'error:' in x][:25]:
+              m=re.search(r'(ios/[^:]+):(\d+):(\d+): error: (.*)',line)
+              if m:
+                  path,number,column,message=m.groups()
+                  message=message.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                  print(f'::error file={path},line={number},col={column}::{message}')
+              else:
+                  message=line.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                  print(f'::error::{message}')
+          PYCODE
       - name: Run MovieMind and existing native regressions
         run: |
           set -o pipefail
@@ -71,6 +89,18 @@ jobs:
           assert str(p['CFBundleVersion'])=='145'
           assert p['CFBundleIdentifier']=='dev.together.poc.asrtest'
           print('Device app version verified: 0.6.85 / 145')
+          PYCODE
+      - name: Summarize test results
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          for p in [Path('subtitle-verify-tests.log'),Path('subtitle-ui-tests.log')]:
+              if p.exists():
+                  lines=p.read_text(errors='replace').splitlines()
+                  for line in [x for x in lines if 'Executed ' in x or '** TEST ' in x or "Test Case '-[" in x and 'failed' in x][-12:]:
+                      line=line.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                      print(f'::notice title={p.stem}::{line}')
           PYCODE
       - name: Preserve textual verification evidence
         if: always()
