@@ -67,6 +67,7 @@ struct PlaybackStartGate {
 final class AVPlayerAdapter: PlayerAdapter {
  let player: AVPlayer
  init(player: AVPlayer = AVPlayer()) {self.player=player}
+ var seekObserved:(()->Void)?
  var seekResult:((Bool,String)->Void)?
  private var seekDeadline:DispatchWorkItem?
  private var seekSerial=0
@@ -156,6 +157,7 @@ final class AVPlayerAdapter: PlayerAdapter {
   if deferToMain({$0.seekTo(milliseconds)}) {return}
   guard let item=player.currentItem,item.status != .failed,
         item.error == nil,player.error == nil else {seekResult?(false,"片源尚未就绪或读取失败");return}
+  seekObserved?()
   seekRetry=0
   let firstRequest = !isSeeking
   guard seekBuffer.replace(milliseconds,duration:duration) else {return}

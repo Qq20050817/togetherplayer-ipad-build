@@ -15,6 +15,9 @@ import CoreMedia
  @Published var localFileName=""
  @Published private(set) var videoRotationTurns=0
  func rotateVideo(){videoRotationTurns=VideoRotation.next(videoRotationTurns)}
+ let movieMind=MovieMindClient()
+ var movieMindSource:AVPlayerItem? {adapter.player.currentItem}
+ func bindMovieMind(movie:String,edition:String,duration:Int64,source:AVPlayerItem?)->Bool {guard source === adapter.player.currentItem else{return false};return movieMind.bind(movie:movie,edition:edition,duration:duration,source:source,actualDuration:adapter.duration)}
  let watchMemory=WatchMemory()
  private var watchCoverage=WatchCoverage()
  private var watchRecordedSource=""
@@ -477,6 +480,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   #if DEBUG
   if ProcessInfo.processInfo.environment["TOGETHER_ROOM_MEDIA_TEST"]=="1" {credentials=["roomId":"media-ui-test","userId":"media-ui-host","token":String(repeating:"a",count:64)];roomID="media-ui-test"}
   #endif
+  adapter.seekObserved={ [weak self] in self?.movieMind.discontinuity() }
   adapter.seekResult={ [weak self] success,reason in
    Task {@MainActor in
     guard let self else{return}
@@ -1296,6 +1300,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   control("SEEK",position:bounded)
  }
  func control(_ type: String,position: Double=0) {
+  if type=="SEEK" {movieMind.discontinuity()}
   if type == "SEEK" || type == "REPLAY" {bankNativePlaybackEnded=false;questionBankRuntime.playbackJumped()}
   if plotPollWaiting && type != "PAUSE" {requestStatus="请双方先回答剧情问题，再继续播放";feedback.showPlaybackAction(requestStatus);return}
   guard position.isFinite else {return}
@@ -1490,6 +1495,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
  }
  private func tick() {
+  movieMind.sample(source:adapter.player.currentItem,position:adapter.position,duration:adapter.duration,playing:adapter.nativePlaybackRunning && !adapter.buffering && adapter.player.error == nil && adapter.player.currentItem?.error == nil,rate:Double(adapter.player.rate),seeking:adapter.isSeeking,foreground:foreground,ended:bankNativePlaybackEnded)
   tickWatchMemory()
   if localVideoTest {ticks += 1;monitorLocalPlaybackRecovery();if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
@@ -1986,7 +1992,7 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {movieMind.discontinuity();movieMind.flush();stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleInactive() {inactiveAt=clock.localNow()}
  func handleForeground() {
   let wasForeground=foreground
