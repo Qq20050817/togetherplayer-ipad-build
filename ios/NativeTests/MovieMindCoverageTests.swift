@@ -3,7 +3,28 @@ import XCTest
 
 @testable import TogetherPoC
 
+#if canImport(AVFoundation)
+  import AVFoundation
+#endif
+
 final class MovieMindCoverageTests: XCTestCase {
+  #if canImport(AVFoundation)
+    @MainActor func testAccountLoginRequiresEndingExistingViewingBinding() async {
+      let client = MovieMindClient()
+      let item = AVPlayerItem(url: URL(fileURLWithPath: "/nonexistent-moviemind-account-fixture"))
+      XCTAssertTrue(
+        client.bind(
+          movie: "tmdb:99000009", edition: "edition_account_123", duration: 100000, source: item,
+          actualDuration: 100000))
+      let accepted = await client.login(
+        origin: "invalid origin", name: "other_account", password: "test-only-password-123")
+      XCTAssertFalse(accepted)
+      XCTAssertTrue(client.status.contains("当前观影绑定"))
+      XCTAssertEqual(client.boundMovie, "tmdb:99000009")
+      client.enabled = false
+      XCTAssertEqual(client.boundMovie, "")
+    }
+  #endif
   private func json(_ value: [String: Any]) throws -> Data {
     try JSONSerialization.data(withJSONObject: value)
   }

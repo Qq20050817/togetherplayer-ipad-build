@@ -15,7 +15,7 @@ import CoreMedia
  @Published var localFileName=""
  @Published private(set) var videoRotationTurns=0
  func rotateVideo(){videoRotationTurns=VideoRotation.next(videoRotationTurns)}
- let movieMind=MovieMindClient()
+ let movieMind=MovieMindClient.shared
  var movieMindSource:AVPlayerItem? {adapter.player.currentItem}
  func bindMovieMind(movie:String,edition:String,duration:Int64,source:AVPlayerItem?)->Bool {guard source === adapter.player.currentItem else{return false};return movieMind.bind(movie:movie,edition:edition,duration:duration,source:source,actualDuration:adapter.duration)}
  let watchMemory=WatchMemory()

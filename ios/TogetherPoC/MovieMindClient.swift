@@ -132,6 +132,9 @@ private actor MovieMindTransport {
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("1", forHTTPHeaderField: "X-MovieMind")
     req.setValue("native", forHTTPHeaderField: "X-MovieMind-Client")
+    req.setValue(
+      UserDefaults.standard.string(forKey: "movieMind.userId"),
+      forHTTPHeaderField: "X-MovieMind-Account")
     let auth = token ?? storedToken()
     if !auth.isEmpty { req.setValue("Bearer " + auth, forHTTPHeaderField: "Authorization") }
     let (data, response) = try await session.data(for: req)
@@ -161,7 +164,15 @@ private actor MovieMindTransport {
     UserDefaults.standard.set(user, forKey: "movieMind.userId")
     report("已登录独立 MovieMind 账号", nil)
   }
-  func enqueue(path: String, body: Data, method: String, movieId: String = "") async -> Bool {
+  func enqueue(
+    path: String, body: Data, method: String, movieId: String = "", account: String?, origin: String
+  ) async -> Bool {
+    guard account == UserDefaults.standard.string(forKey: "movieMind.userId"),
+      origin == (UserDefaults.standard.string(forKey: "movieMind.origin") ?? "")
+    else {
+      report("账号或服务已改变，尚未保存；请核对原评分草稿", nil)
+      return false
+    }
     do {
       try load()
       guard pending.count < 1000 else {
@@ -242,6 +253,7 @@ private actor MovieMindTransport {
 }
 
 @MainActor final class MovieMindClient: ObservableObject {
+  static let shared = MovieMindClient()
   struct Suggestion: Identifiable {
     let movieId: String
     let sessionId: String
@@ -292,6 +304,8 @@ private actor MovieMindTransport {
   }
   deinit { retryTask?.cancel() }
   private weak var source: AVPlayerItem?
+  private var bindingAccount: String?
+  private var bindingOrigin = ""
   private var editionId = "", sessionId = ""
   private var duration: Int64 = 0
   private var lastFlush: Int64 = 0
@@ -310,6 +324,7 @@ private actor MovieMindTransport {
     }
   })
   var origin: String { UserDefaults.standard.string(forKey: "movieMind.origin") ?? "" }
+  private var account: String? { UserDefaults.standard.string(forKey: "movieMind.userId") }
   private func updateFlags() {
     let e = enabled
     let w = watchEnabled
@@ -320,6 +335,10 @@ private actor MovieMindTransport {
     }
   }
   func login(origin: String, name: String, password: String) async -> Bool {
+    guard boundMovie.isEmpty else {
+      status = "请先关闭 MovieMind 结束当前观影绑定，再登录账号；播放继续"
+      return false
+    }
     do {
       try await transport.login(origin: origin, name: name, password: password)
       updateFlags()
@@ -329,7 +348,13 @@ private actor MovieMindTransport {
       return false
     }
   }
-  func get(_ path: String) async throws -> Data { try await transport.request(path) }
+  func get(_ path: String) async throws -> Data {
+    let owner = account
+    let service = origin
+    let data = try await transport.request(path)
+    guard owner == account, service == origin else { throw URLError(.userAuthenticationRequired) }
+    return data
+  }
   func bind(
     movie: String, edition: String, duration: Int64, source: AVPlayerItem?, actualDuration: Double
   ) -> Bool {
@@ -339,6 +364,8 @@ private actor MovieMindTransport {
     flush()
     self.source = source
     boundMovie = movie
+    bindingAccount = account
+    bindingOrigin = origin
     editionId = edition
     self.duration = duration
     sessionId = UUID().uuidString
@@ -354,6 +381,14 @@ private actor MovieMindTransport {
     seeking: Bool, foreground: Bool, ended: Bool = false
   ) {
     guard enabled else { return }
+    if !boundMovie.isEmpty && (bindingAccount != account || bindingOrigin != origin) {
+      self.source = nil
+      boundMovie = ""
+      collector = MovieMindCoverage()
+      suggestion = nil
+      status = "账号或服务已改变，请重新确认作品与版本"
+      return
+    }
     guard let current = source, self.source === current else {
       if !boundMovie.isEmpty {
         flush()
@@ -390,8 +425,12 @@ private actor MovieMindTransport {
     ]
     guard let data = try? JSONSerialization.data(withJSONObject: event) else { return }
     let movie = boundMovie
+    let owner = bindingAccount
+    let service = bindingOrigin
     Task {
-      await transport.enqueue(path: "watch/events", body: data, method: "POST", movieId: movie)
+      await transport.enqueue(
+        path: "watch/events", body: data, method: "POST", movieId: movie, account: owner,
+        origin: service)
     }
   }
   func retry() {
@@ -401,6 +440,8 @@ private actor MovieMindTransport {
   func saveRecord(
     movie: String, rating: Double?, comment: String, together: Bool, original: [String: Any]
   ) async -> Bool {
+    let owner = account
+    let service = origin
     var record: [String: Any] = ["movieId": movie, "source": "manual"]
     if !original.isEmpty { record = original }
     let revision = record["revision"] as? Int ?? 0
@@ -414,15 +455,19 @@ private actor MovieMindTransport {
         "record": record, "expectedRevision": revision, "mutationId": UUID().uuidString,
       ])
     else { return false }
-    return await transport.enqueue(path: "records/" + movie, body: body, method: "PUT")
+    return await transport.enqueue(
+      path: "records/" + movie, body: body, method: "PUT", account: owner, origin: service)
   }
   func completion(session: String, decision: String) {
     guard !session.isEmpty,
       let body = try? JSONSerialization.data(withJSONObject: ["decision": decision])
     else { return }
+    let owner = account
+    let service = origin
     Task {
       await transport.enqueue(
-        path: "watch/sessions/" + session + "/completion", body: body, method: "PUT")
+        path: "watch/sessions/" + session + "/completion", body: body, method: "PUT",
+        account: owner, origin: service)
     }
     suggestion = nil
   }
