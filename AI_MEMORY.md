@@ -122,3 +122,11 @@
 - User identifies installed failing trial as Android0.6.60.20 and confirms previous4K MKV/HDR playback plus clean playback in Xunlei. An OS capability declaration or failed app initialization does not establish physical hardware incapability; investigate configuration/API/output before abandoning hardware. This is user evidence, not an instrumented comparison of Xunlei's internal route.
 - For failed, clear Main10 hardware initialization on Android12+, try the same codec once with synchronous MediaCodec and without optional max-allocation/scheduling hints. Preserve MIME, dimensions, original Format/CSD/HDR, Surface, source identity and audio behavior. Do not use success creating an adapter as proof of valid HDR pixels.
 - Keep the existing bounded next-decoder policy and isolate candidate0.6.60.21 from installed apps. No source conversion, production deployment or successful physical playback claim is authorized by automated tests alone.
+
+
+## 2026-11-12 · Original-frame evidence and delivery boundary
+
+- HDR21's5 Android instrumentation checks pass with injected adapter failures after package precompilation resolved a software-emulator startup ANR. They prove retry/data-preservation behavior, not a Qualcomm driver repair. The162 JVM checks also passed.
+- The approved original-coded4K Main10/PQ sample strictly decoded1080 video frames and audio on the host without errors. In Android software emulation, the virtual goldfish decoder initialized then failed during decoding (not initialization), so this did not exercise the new retry. VLC fallback's clock/frame counters advanced while valid-picture acceptance failed; 111 late compressed-block drops were observed. Paused native seek confirmation also preceded correct visible content. Never label operationalgreen or advancing counters as image acceptance.
+- User-approved temporary sample/captures were removed after tests from the relay server, emulator and cloud workspace; original USB and user-uploaded attachments were preserved. Continue physical vendor testing with the isolated candidate, not another unsupported hardware-incapability inference.
+- Cropped4K may be3840 pixels wide with height below2160. Quality badges must inspect both dimensions; this changes a label only, not source resolution or decoding.
