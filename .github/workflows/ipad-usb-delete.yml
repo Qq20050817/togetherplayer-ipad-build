@@ -1,114 +1,212 @@
-name: MovieMind iPad 0.6.85 encrypted candidate package
-on:
+name: MovieMind iPad 0.6.86 login validation and private package
+permissions:
+  contents: read
+concurrency:
+  group: moviemind-ipad-package-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    steps:
+    - name: Select available Xcode 26
+      run: "set -euo pipefail\nfor version in 26.3 26.2 26.1.1 26.0.1; do\n  dev=\"/Applications/Xcode_$version.app/Contents/Developer\"\n  if [ -d \"$dev\"\
+        \ ]; then sudo xcode-select -s \"$dev\"; xcodebuild -version; exit 0; fi\ndone\necho 'Required Xcode 26 image not installed' >&2\nexit 1\n"
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Verify frozen client source and existing WebRTC ordering
+      run: 'test "$(git rev-parse HEAD:ios)" = "3bcaffb523f7c7f4d257e4a73a70ff842faef3fc"
+
+        node tools/test_p2p_channel_state.mjs
+
+        '
+    - name: Generate Xcode project and prepare public-key encryption
+      run: 'brew install xcodegen age
+
+        xcodegen generate --spec ios/project.yml
+
+        '
+    - name: Resolve pinned PrismCore and MPVKit
+      run: 'python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
+
+        python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
+
+        '
+    - name: Build unchanged Release application for physical iPad
+      run: 'set -o pipefail
+
+        xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination ''generic/platform=iOS'' -derivedDataPath
+        build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee moviemind-device-package.log
+
+        '
+    - name: Package and verify unsigned device IPA
+      run: "set -euo pipefail\npython3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.86-MovieMind-unsigned.ipa\
+        \ --notices ios/TogetherPoC.swiftpm/Licenses\npython3 - <<'PYCODE'\nfrom pathlib import Path\nimport hashlib,json,os,plistlib,struct,zipfile\np=Path('delivery/TogetherPlayer-iPad-0.6.86-MovieMind-unsigned.ipa')\n\
+        with zipfile.ZipFile(p) as z:\n    assert z.testzip() is None\n    root='Payload/TogetherPoC.app/'\n    info=plistlib.loads(z.read(root+'Info.plist'))\n\
+        \    assert info['CFBundleShortVersionString']=='0.6.86'\n    assert str(info['CFBundleVersion'])=='146'\n    assert info['CFBundleIdentifier']=='dev.together.poc.asrtest'\n\
+        \    assert info['CFBundleSupportedPlatforms']==['iPhoneOS']\n    assert 2 in info['UIDeviceFamily']\n    data=z.read(root+info['CFBundleExecutable'])\n\
+        \    header=struct.unpack_from('<8I',data)\n    assert header[0]==0xfeedfacf and header[1]==0x0100000c and header[3]==2\n    offset=32;platforms=[]\n\
+        \    for _ in range(header[4]):\n        cmd,size=struct.unpack_from('<II',data,offset)\n        assert size>=8 and offset+size<=len(data)\n   \
+        \     if cmd==0x32:platforms.append(struct.unpack_from('<I',data,offset+8)[0])\n        offset+=size\n    assert platforms==[2],platforms\n    assert\
+        \ any(n.startswith(root+'ThirdPartyNotices/') for n in z.namelist())\nresult={'file':p.name,'version':'0.6.86','build':146,'bundleId':info['CFBundleIdentifier'],'platform':'iOS\
+        \ device','architecture':'arm64','minimumOS':info['MinimumOSVersion'],'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'sourceCommit':os.environ['GITHUB_SHA'],'sourceRef':os.environ['GITHUB_REF_NAME'],'buildUrl':f\"\
+        https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}\",'unsigned':True,'signingRequiredBeforeInstallation':True,'iosSourceTree':'3bcaffb523f7c7f4d257e4a73a70ff842faef3fc','validationRun':os.environ['GITHUB_RUN_ID'],'validationRequiresAllJobsSuccess':True,'physicalDeviceAcceptance':False,'publicPlaintextInstallerUploaded':False,'transportEncryption':'age\
+        \ X25519'}\nPath('sealed').mkdir(exist_ok=True)\nPath('sealed/ipad-package.json').write_text(json.dumps(result,indent=2)+'\\n')\nprint('::notice\
+        \ title=Verified iPad IPA::0.6.86/146; iOS-device ARM64; unsigned; '+result['sha256'])\nPYCODE\n"
+    - name: Encrypt candidate for the requester before uploading
+      env:
+        MOVIEMIND_RECIPIENT: ${{ inputs.recipient }}
+      run: 'set -euo pipefail
+
+        age -r "$MOVIEMIND_RECIPIENT" -o sealed/TogetherPlayer-iPad-0.6.86-MovieMind-unsigned.ipa.age delivery/TogetherPlayer-iPad-0.6.86-MovieMind-unsigned.ipa
+
+        test -s sealed/TogetherPlayer-iPad-0.6.86-MovieMind-unsigned.ipa.age
+
+        '
+    - name: Preserve only encrypted candidate and non-secret provenance
+      uses: actions/upload-artifact@v4
+      with:
+        name: moviemind-ipad-086-encrypted-${{ github.run_attempt }}
+        path: 'sealed/*.age
+
+          sealed/ipad-package.json
+
+          '
+        if-no-files-found: error
+        retention-days: 7
+    - name: Remove transient plaintext IPA
+      if: always()
+      run: 'python3 - <<''PYCODE''
+
+        from pathlib import Path
+
+        Path(''delivery/TogetherPlayer-iPad-0.6.86-MovieMind-unsigned.ipa'').unlink(missing_ok=True)
+
+        PYCODE
+
+        '
+    - name: Report compiler diagnostics
+      if: always()
+      run: "python3 - <<'PYCODE'\nfrom pathlib import Path\np=Path('moviemind-device-package.log')\nlines=p.read_text(errors='replace').splitlines() if\
+        \ p.exists() else []\nfor line in [s for s in lines if 'error:' in s or '** BUILD ' in s][-15:]:\n    line=line[:5000].replace('%','%25').replace('\\\
+        r','%0D').replace('\\n','%0A')\n    print('::notice title=Device package diagnostic::'+line)\nPYCODE\n"
+  native:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+    - name: Select available Xcode 26
+      run: "set -euo pipefail\nfor version in 26.3 26.2 26.1.1 26.0.1; do\n  dev=\"/Applications/Xcode_$version.app/Contents/Developer\"\n  if [ -d \"$dev\"\
+        \ ]; then sudo xcode-select -s \"$dev\"; xcodebuild -version; exit 0; fi\ndone\necho 'Required Xcode 26 image not installed' >&2\nexit 1\n"
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Verify frozen client source and existing WebRTC ordering
+      run: 'test "$(git rev-parse HEAD:ios)" = "3bcaffb523f7c7f4d257e4a73a70ff842faef3fc"
+
+        node tools/test_p2p_channel_state.mjs
+
+        '
+    - name: Generate Xcode project
+      run: 'brew install xcodegen
+
+        xcodegen generate --spec ios/project.yml
+
+        '
+    - name: Resolve pinned PrismCore and MPVKit
+      run: 'python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
+
+        python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
+
+        '
+    - name: Run new login fixtures and preserved native regressions
+      run: 'set -o pipefail
+
+        device="$(xcrun simctl list devices available -j | python3 -c ''import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values()
+        for x in v if "iPad" in x["name"]))'')"
+
+        xcrun simctl boot "$device" || true
+
+        xcrun simctl bootstatus "$device" -b
+
+        xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath
+        build -resultBundlePath native-results.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCCoreTests/MovieMindCoverageTests -only-testing:TogetherPoCCoreTests/RouterUSBManagementTests
+        -only-testing:TogetherPoCCoreTests/USBPlaylistCatalogTests -only-testing:TogetherPoCCoreTests/RoomConnectionTests -only-testing:TogetherPoCCoreTests/PlaybackSeekSliderTests
+        -only-testing:TogetherPoCCoreTests/PlaybackClockTests -only-testing:TogetherPoCCoreTests/ThreeSecondSyncTests -only-testing:TogetherPoCCoreTests/SeekBurstTests
+        -only-testing:TogetherPoCCoreTests/FullscreenSpeedTests -only-testing:TogetherPoCCoreTests/PlaybackControlSafetyTests -only-testing:TogetherPoCCoreTests/ScrollRefreshTests
+        -only-testing:TogetherPoCCoreTests/P2PFastPathGateTests -only-testing:TogetherPoCCoreTests/FilmAudioCaptureTests -only-testing:TogetherPoCCoreTests/SubtitleVerificationPlanTests
+        -only-testing:TogetherPoCCoreTests/AudioSubtitleTests -only-testing:TogetherPoCCoreTests/RouterUSBSubtitleCatalogTests -only-testing:TogetherPoCCoreTests/MovieMindLoginTests
+        CODE_SIGNING_ALLOWED=NO test 2>&1 | tee native-tests.log
+
+        '
+    - name: Report actual test counts and compiler diagnostics
+      if: always()
+      run: "python3 - <<'PYCODE'\nfrom pathlib import Path\nimport json,subprocess\ndef notice(title,message):\n message=message.replace('%','%25').replace('\\\
+        r','%0D').replace('\\n','%0A')\n print(f'::notice title={title}::{message}')\np=Path('native-tests.log')\nlines=p.read_text(errors='replace').splitlines()\
+        \ if p.exists() else []\nfor s in [x for x in lines if 'error:' in x or '** TEST ' in x][-20:]:notice('native diagnostic',s[:5000])\nbundle=Path('native-results.xcresult')\n\
+        if bundle.exists():\n r=subprocess.run(['xcrun','xcresulttool','get','test-results','summary','--path',str(bundle)],capture_output=True,text=True)\n\
+        \ if r.returncode==0:\n  d=json.loads(r.stdout)\n  counts={k:v for k,v in d.items() if 'test' in k.lower() and isinstance(v,(str,int))}\n  notice('native\
+        \ actual summary',json.dumps(counts))\n  for fail in d.get('testFailures',[]):notice('native failure',json.dumps(fail)[:6000])\n else:notice('native\
+        \ result parser',r.stderr[:1000])\nPYCODE\n"
+  ui:
+    runs-on: macos-15-intel
+    timeout-minutes: 55
+    steps:
+    - name: Select available Xcode 26
+      run: "set -euo pipefail\nfor version in 26.3 26.2 26.1.1 26.0.1; do\n  dev=\"/Applications/Xcode_$version.app/Contents/Developer\"\n  if [ -d \"$dev\"\
+        \ ]; then sudo xcode-select -s \"$dev\"; xcodebuild -version; exit 0; fi\ndone\necho 'Required Xcode 26 image not installed' >&2\nexit 1\n"
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Verify frozen client source and existing WebRTC ordering
+      run: 'test "$(git rev-parse HEAD:ios)" = "3bcaffb523f7c7f4d257e4a73a70ff842faef3fc"
+
+        node tools/test_p2p_channel_state.mjs
+
+        '
+    - name: Generate Xcode project
+      run: 'brew install xcodegen
+
+        xcodegen generate --spec ios/project.yml
+
+        '
+    - name: Resolve pinned PrismCore and MPVKit
+      run: 'python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
+
+        python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
+
+        '
+    - name: Run MovieMind entry and unchanged fullscreen regression
+      run: 'set -o pipefail
+
+        device="$(xcrun simctl list devices available -j | python3 -c ''import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values()
+        for x in v if "iPad" in x["name"]))'')"
+
+        xcrun simctl boot "$device" || true
+
+        xcrun simctl bootstatus "$device" -b
+
+        xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination "platform=iOS Simulator,id=$device" -derivedDataPath
+        build -resultBundlePath ui-results.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/MovieMindUITests -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment
+        CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log
+
+        '
+    - name: Report actual test counts and compiler diagnostics
+      if: always()
+      run: "python3 - <<'PYCODE'\nfrom pathlib import Path\nimport json,subprocess\ndef notice(title,message):\n message=message.replace('%','%25').replace('\\\
+        r','%0D').replace('\\n','%0A')\n print(f'::notice title={title}::{message}')\np=Path('ui-tests.log')\nlines=p.read_text(errors='replace').splitlines()\
+        \ if p.exists() else []\nfor s in [x for x in lines if 'error:' in x or '** TEST ' in x][-20:]:notice('ui diagnostic',s[:5000])\nbundle=Path('ui-results.xcresult')\n\
+        if bundle.exists():\n r=subprocess.run(['xcrun','xcresulttool','get','test-results','summary','--path',str(bundle)],capture_output=True,text=True)\n\
+        \ if r.returncode==0:\n  d=json.loads(r.stdout)\n  counts={k:v for k,v in d.items() if 'test' in k.lower() and isinstance(v,(str,int))}\n  notice('ui\
+        \ actual summary',json.dumps(counts))\n  for fail in d.get('testFailures',[]):notice('ui failure',json.dumps(fail)[:6000])\n else:notice('ui result\
+        \ parser',r.stderr[:1000])\nPYCODE\n"
+'on':
   workflow_dispatch:
     inputs:
       recipient:
         description: Public age recipient; private identity stays with the requester
         required: true
         type: string
-permissions:
-  contents: read
-concurrency:
-  group: moviemind-ipad-package-${{ github.ref }}
-  cancel-in-progress: false
-jobs:
-  package:
-    runs-on: macos-15-intel
-    timeout-minutes: 35
-    steps:
-      - name: Select available Xcode 26
-        run: |
-          set -euo pipefail
-          for version in 26.3 26.2 26.1.1 26.0.1; do
-            dev="/Applications/Xcode_$version.app/Contents/Developer"
-            if [ -d "$dev" ]; then sudo xcode-select -s "$dev"; xcodebuild -version; exit 0; fi
-          done
-          echo 'Required Xcode 26 image not installed' >&2
-          exit 1
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify application source matches completed native and UI validation
-        run: |
-          git diff --exit-code 7410258eee4862b73f0d5eab40b7d3aba26b829a HEAD -- ios
-          node tools/test_p2p_channel_state.mjs
-      - name: Generate Xcode project and prepare public-key encryption
-        run: |
-          brew install xcodegen age
-          xcodegen generate --spec ios/project.yml
-      - name: Resolve pinned PrismCore and MPVKit
-        run: |
-          python3 tools/resolve_apple_packages.py -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -derivedDataPath build
-          python3 tools/patch_prism_swift61.py build/SourcePackages/checkouts/PrismCore
-      - name: Build unchanged Release application for physical iPad
-        run: |
-          set -o pipefail
-          xcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee moviemind-device-package.log
-      - name: Package and verify unsigned device IPA
-        run: |
-          set -euo pipefail
-          python3 tools/package_unsigned_ipa.py build/Build/Products/Release-iphoneos/TogetherPoC.app delivery/TogetherPlayer-iPad-0.6.85-MovieMind-unsigned.ipa --notices ios/TogetherPoC.swiftpm/Licenses
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          import hashlib,json,os,plistlib,struct,zipfile
-          p=Path('delivery/TogetherPlayer-iPad-0.6.85-MovieMind-unsigned.ipa')
-          with zipfile.ZipFile(p) as z:
-              assert z.testzip() is None
-              root='Payload/TogetherPoC.app/'
-              info=plistlib.loads(z.read(root+'Info.plist'))
-              assert info['CFBundleShortVersionString']=='0.6.85'
-              assert str(info['CFBundleVersion'])=='145'
-              assert info['CFBundleIdentifier']=='dev.together.poc.asrtest'
-              assert info['CFBundleSupportedPlatforms']==['iPhoneOS']
-              assert 2 in info['UIDeviceFamily']
-              data=z.read(root+info['CFBundleExecutable'])
-              header=struct.unpack_from('<8I',data)
-              assert header[0]==0xfeedfacf and header[1]==0x0100000c and header[3]==2
-              offset=32;platforms=[]
-              for _ in range(header[4]):
-                  cmd,size=struct.unpack_from('<II',data,offset)
-                  assert size>=8 and offset+size<=len(data)
-                  if cmd==0x32:platforms.append(struct.unpack_from('<I',data,offset+8)[0])
-                  offset+=size
-              assert platforms==[2],platforms
-              assert any(n.startswith(root+'ThirdPartyNotices/') for n in z.namelist())
-          result={'file':p.name,'version':'0.6.85','build':145,'bundleId':info['CFBundleIdentifier'],'platform':'iOS device','architecture':'arm64','minimumOS':info['MinimumOSVersion'],'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'sourceCommit':os.environ['GITHUB_SHA'],'sourceRef':os.environ['GITHUB_REF_NAME'],'buildUrl':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",'unsigned':True,'signingRequiredBeforeInstallation':True,'applicationSourceIdenticalToValidatedCommit':'7410258eee4862b73f0d5eab40b7d3aba26b829a','nativeValidationRun':43115075766,'uiValidationRun':43121394561,'physicalDeviceAcceptance':False,'publicPlaintextInstallerUploaded':False,'transportEncryption':'age X25519'}
-          Path('sealed').mkdir(exist_ok=True)
-          Path('sealed/ipad-package.json').write_text(json.dumps(result,indent=2)+'\n')
-          print('::notice title=Verified iPad IPA::0.6.85/145; iOS-device ARM64; unsigned; '+result['sha256'])
-          PYCODE
-      - name: Encrypt candidate for the requester before uploading
-        env:
-          MOVIEMIND_RECIPIENT: ${{ inputs.recipient }}
-        run: |
-          set -euo pipefail
-          age -r "$MOVIEMIND_RECIPIENT" -o sealed/TogetherPlayer-iPad-0.6.85-MovieMind-unsigned.ipa.age delivery/TogetherPlayer-iPad-0.6.85-MovieMind-unsigned.ipa
-          test -s sealed/TogetherPlayer-iPad-0.6.85-MovieMind-unsigned.ipa.age
-      - name: Preserve only encrypted candidate and non-secret provenance
-        uses: actions/upload-artifact@v4
-        with:
-          name: moviemind-ipad-085-encrypted-${{ github.run_attempt }}
-          path: |
-            sealed/*.age
-            sealed/ipad-package.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Remove transient plaintext IPA
-        if: always()
-        run: |
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          Path('delivery/TogetherPlayer-iPad-0.6.85-MovieMind-unsigned.ipa').unlink(missing_ok=True)
-          PYCODE
-      - name: Report compiler diagnostics
-        if: always()
-        run: |
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          p=Path('moviemind-device-package.log')
-          lines=p.read_text(errors='replace').splitlines() if p.exists() else []
-          for line in [s for s in lines if 'error:' in s or '** BUILD ' in s][-15:]:
-              line=line[:5000].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
-              print('::notice title=Device package diagnostic::'+line)
-          PYCODE

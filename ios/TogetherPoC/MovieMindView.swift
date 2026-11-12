@@ -20,6 +20,7 @@ private struct MovieMindEdition: Decodable, Identifiable {
   @State private var origin = ""
   @State private var name = ""
   @State private var password = ""
+  @State private var loggingIn = false
   @State private var movies = [MovieMindMovie]()
   @State private var editions = [MovieMindEdition]()
   @State private var selectedMovie = ""
@@ -41,19 +42,21 @@ private struct MovieMindEdition: Decodable, Identifiable {
         }
         Section("个人账号") {
           TextField("独立服务 HTTPS 地址", text: $origin).textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
+            .autocorrectionDisabled().keyboardType(.URL).disabled(loggingIn)
           TextField("用户名", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
-          SecureField("密码", text: $password)
-          Button("登录此服务") {
-            let secret = password
-            password = ""
-            Task {
-              if await client.login(origin: origin, name: name, password: secret) {
-                await loadMovies()
-              }
-            }
+            .disabled(loggingIn)
+          SecureField("密码", text: $password).disabled(loggingIn)
+          Button("登录此服务") { signIn(persistent: true) }.disabled(loginDisabled)
+          if client.temporaryLoginAvailable {
+            Button("仅本次登录") { signIn(persistent: false) }.disabled(loginDisabled)
+            Text("会话仅保留在当前 App 进程中，重启后需重新登录；待同步草稿仍保留。").font(.caption)
           }
-          Text(client.status).font(.caption).accessibilityIdentifier("moviemind-sync-status")
+          if client.temporarySession {
+            Text("当前为仅本次登录，App 重启后需要重新登录。").font(.caption)
+          }
+          if loggingIn { ProgressView("正在登录…") }
+          Text(client.status).font(.caption).textSelection(.enabled)
+            .accessibilityIdentifier("moviemind-sync-status")
         }
         if client.recommendationEnabled, let url = URL(string: client.origin),
           ["https", "http"].contains(url.scheme ?? "")
@@ -135,6 +138,22 @@ private struct MovieMindEdition: Decodable, Identifiable {
         }
         .sheet(item: $rating) { MovieMindRatingView(client: client, suggestion: $0) }
         .sheet(item: $conflict) { MovieMindConflictView(client: client, item: $0) }
+    }
+  }
+  private var loginDisabled: Bool {
+    loggingIn || origin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty
+  }
+  private func signIn(persistent: Bool) {
+    let secret = password
+    loggingIn = true
+    Task {
+      defer { loggingIn = false }
+      if await client.login(origin: origin, name: name, password: secret, persistent: persistent) {
+        password = ""
+        origin = client.origin
+        await loadMovies()
+      }
     }
   }
   private func loadMovies() async {

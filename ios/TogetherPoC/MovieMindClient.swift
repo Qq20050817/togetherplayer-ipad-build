@@ -43,29 +43,52 @@ enum MovieMindAcknowledgement {
     return reply
   }
 }
-private actor MovieMindTransport {
-  private let directory = FileManager.default.urls(
-    for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(
-      "MovieMind", isDirectory: true)
+actor MovieMindTransport {
+  private let directory: URL
+  private let defaults: UserDefaults
+  private let sessionStorage: (any MovieMindSessionStorage)?
   private var pending = [MovieMindPending]()
   private var loaded = false
   private var blocked = false
   private var flushing = false
+  private var authenticating = false
+  private var transientSession: MovieMindStoredSession?
   private var enabled = false
   private var watchEnabled = false
   private var ratingEnabled = true
   private let report: @Sendable (String, [String: String]?) -> Void
   private let session: URLSession
-  init(report: @escaping @Sendable (String, [String: String]?) -> Void) {
+  private let loginSession: URLSession
+  init(
+    report: @escaping @Sendable (String, [String: String]?) -> Void,
+    configuration: URLSessionConfiguration = .ephemeral,
+    defaults: UserDefaults = .standard, directory: URL? = nil,
+    sessionStorage: (any MovieMindSessionStorage)? = nil
+  ) {
     self.report = report
-    let config = URLSessionConfiguration.ephemeral
+    self.defaults = defaults
+    self.directory =
+      directory
+      ?? FileManager.default.urls(
+        for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(
+        "MovieMind", isDirectory: true)
+    self.sessionStorage = sessionStorage
+    let config = configuration.copy() as! URLSessionConfiguration
+    config.httpShouldSetCookies = false
+    config.httpCookieStorage = nil
     config.timeoutIntervalForRequest = 3
     config.timeoutIntervalForResource = 4
     session = URLSession(configuration: config, delegate: MovieMindNoRedirect(), delegateQueue: nil)
+    let loginConfig = configuration.copy() as! URLSessionConfiguration
+    loginConfig.httpShouldSetCookies = false
+    loginConfig.httpCookieStorage = nil
+    loginConfig.timeoutIntervalForRequest = 15
+    loginConfig.timeoutIntervalForResource = 20
+    loginSession = URLSession(
+      configuration: loginConfig, delegate: MovieMindNoRedirect(), delegateQueue: nil)
   }
   private func load() throws {
     if loaded { return }
-    loaded = true
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       let file = directory.appendingPathComponent("outbox.json")
@@ -74,6 +97,8 @@ private actor MovieMindTransport {
         guard data.count < 8 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
         pending = try JSONDecoder().decode([MovieMindPending].self, from: data)
       }
+      loaded = true
+      blocked = false
     } catch {
       blocked = true
       report("待同步文件无法读取，原文件已保留", nil)
@@ -86,7 +111,21 @@ private actor MovieMindTransport {
       to: directory.appendingPathComponent("outbox.json"),
       options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }
-  private func storedToken() -> String {
+  private func storedToken(origin: String) -> String {
+    let owner = defaults.string(forKey: "movieMind.userId")
+    guard
+      (try? MovieMindLoginFailure.canonicalOrigin(
+        defaults.string(forKey: "movieMind.origin") ?? "")) == origin
+    else { return "" }
+    if defaults.bool(forKey: "movieMind.transientSession") {
+      guard let transientSession, transientSession.origin == origin,
+        transientSession.userId == owner
+      else { return "" }
+      return transientSession.token
+    }
+    if let sessionStorage {
+      return MovieMindStoredSession.decode(sessionStorage.read(), origin: origin, userId: owner)
+    }
     let q: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "MovieMind",
       kSecAttrAccount as String: "session", kSecReturnData as String: true,
@@ -95,20 +134,32 @@ private actor MovieMindTransport {
     guard SecItemCopyMatching(q as CFDictionary, &result) == errSecSuccess,
       let data = result as? Data
     else { return "" }
-    return String(data: data, encoding: .utf8) ?? ""
+    return MovieMindStoredSession.decode(
+      String(data: data, encoding: .utf8) ?? "", origin: origin, userId: owner)
   }
   private func storeToken(_ value: String) throws {
+    if let sessionStorage {
+      try sessionStorage.write(value)
+      return
+    }
     let key: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "MovieMind",
       kSecAttrAccount as String: "session",
     ]
-    SecItemDelete(key as CFDictionary)
+    let attributes: [String: Any] = [
+      kSecValueData as String: Data(value.utf8),
+      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+    ]
+    let updated = SecItemUpdate(key as CFDictionary, attributes as CFDictionary)
+    if updated == errSecSuccess { return }
+    guard updated == errSecItemNotFound else {
+      throw MovieMindLoginFailure.sessionStorage(updated)
+    }
     var q = key
     q[kSecValueData as String] = Data(value.utf8)
     q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    guard SecItemAdd(q as CFDictionary, nil) == errSecSuccess else {
-      throw URLError(.userAuthenticationRequired)
-    }
+    let added = SecItemAdd(q as CFDictionary, nil)
+    guard added == errSecSuccess else { throw MovieMindLoginFailure.sessionStorage(added) }
   }
   func configure(enabled: Bool, watch: Bool, rating: Bool) {
     self.enabled = enabled
@@ -117,27 +168,26 @@ private actor MovieMindTransport {
   }
   func request(
     _ path: String, body: Data? = nil, method: String = "GET", origin: String? = nil,
-    token: String? = nil
+    token: String? = nil, isLogin: Bool = false
   ) async throws -> Data {
-    let root = origin ?? UserDefaults.standard.string(forKey: "movieMind.origin") ?? ""
-    guard let base = URLComponents(string: root), base.user == nil, base.password == nil,
-      base.query == nil, base.fragment == nil, base.path.isEmpty || base.path == "/",
-      base.scheme == "https"
-        || base.scheme == "http" && ["127.0.0.1", "localhost"].contains(base.host ?? ""),
-      let url = URL(string: root + "/api/" + path)
+    let root = try MovieMindLoginFailure.canonicalOrigin(
+      origin ?? defaults.string(forKey: "movieMind.origin") ?? "")
+    guard let url = URL(string: root + "/api/" + path)
     else { throw URLError(.badURL) }
     var req = URLRequest(url: url)
+    req.timeoutInterval = isLogin ? 15 : 3
     req.httpMethod = method
     req.httpBody = body
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("1", forHTTPHeaderField: "X-MovieMind")
     req.setValue("native", forHTTPHeaderField: "X-MovieMind-Client")
-    req.setValue(
-      UserDefaults.standard.string(forKey: "movieMind.userId"),
-      forHTTPHeaderField: "X-MovieMind-Account")
-    let auth = token ?? storedToken()
+    if !isLogin {
+      req.setValue(
+        defaults.string(forKey: "movieMind.userId"), forHTTPHeaderField: "X-MovieMind-Account")
+    }
+    let auth = token ?? storedToken(origin: root)
     if !auth.isEmpty { req.setValue("Bearer " + auth, forHTTPHeaderField: "Authorization") }
-    let (data, response) = try await session.data(for: req)
+    let (data, response) = try await (isLogin ? loginSession : session).data(for: req)
     guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
     guard response.statusCode >= 200, response.statusCode < 300 else {
       throw NSError(domain: "MovieMindHTTP", code: response.statusCode)
@@ -145,30 +195,53 @@ private actor MovieMindTransport {
     guard data.count < 2 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
     return data
   }
-  func login(origin: String, name: String, password: String) async throws {
-    try load()
-    let before = UserDefaults.standard.string(forKey: "movieMind.origin") ?? ""
-    let target = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    guard pending.isEmpty || before == target else { throw URLError(.userAuthenticationRequired) }
+  func login(origin: String, name: String, password: String, persistent: Bool = true) async throws {
+    guard !authenticating else { throw MovieMindLoginFailure.inProgress }
+    authenticating = true
+    defer { authenticating = false }
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, !password.isEmpty else { throw MovieMindLoginFailure.emptyCredentials }
+    let target = try MovieMindLoginFailure.canonicalOrigin(origin)
+    do { try load() } catch { throw MovieMindLoginFailure.unreadableOutbox }
+    let before = try? MovieMindLoginFailure.canonicalOrigin(
+      defaults.string(forKey: "movieMind.origin") ?? "")
+    guard pending.isEmpty || before == target else { throw MovieMindLoginFailure.pendingService }
     let data = try await request(
       "auth/login",
       body: JSONSerialization.data(withJSONObject: ["name": name, "password": password]),
-      method: "POST", origin: target, token: "")
+      method: "POST", origin: target, token: "", isLogin: true)
     guard let result = try JSONSerialization.jsonObject(with: data) as? [String: String],
-      let token = result["token"], let user = result["userId"]
-    else { throw URLError(.badServerResponse) }
-    let owner = UserDefaults.standard.string(forKey: "movieMind.userId")
-    guard pending.isEmpty || owner == user else { throw URLError(.userAuthenticationRequired) }
-    try storeToken(token)
-    UserDefaults.standard.set(target, forKey: "movieMind.origin")
-    UserDefaults.standard.set(user, forKey: "movieMind.userId")
-    report("已登录独立 MovieMind 账号", nil)
+      let token = result["token"], !token.isEmpty, let user = result["userId"], !user.isEmpty
+    else { throw MovieMindLoginFailure.invalidReceipt }
+    do {
+      guard pending.isEmpty || before == target else { throw MovieMindLoginFailure.pendingService }
+      let owner = defaults.string(forKey: "movieMind.userId")
+      guard pending.isEmpty || owner == user else { throw MovieMindLoginFailure.pendingAccount }
+      let stored = MovieMindStoredSession(origin: target, userId: user, token: token)
+      if persistent {
+        let value = String(decoding: try JSONEncoder().encode(stored), as: UTF8.self)
+        try storeToken(value)
+        defaults.set(false, forKey: "movieMind.transientSession")
+        transientSession = nil
+      } else {
+        // Persist only the mode/scope. A new process must never reuse an older Keychain receipt.
+        defaults.set(true, forKey: "movieMind.transientSession")
+        transientSession = stored
+      }
+    } catch {
+      // Revoke only the newly issued receipt; retain the original local session and drafts.
+      _ = try? await request("auth/logout", method: "POST", origin: target, token: token)
+      throw error
+    }
+    defaults.set(target, forKey: "movieMind.origin")
+    defaults.set(user, forKey: "movieMind.userId")
+    report(persistent ? "已登录独立 MovieMind 账号" : "仅本次登录成功；App 重启后需重新登录", nil)
   }
   func enqueue(
     path: String, body: Data, method: String, movieId: String = "", account: String?, origin: String
   ) async -> Bool {
-    guard account == UserDefaults.standard.string(forKey: "movieMind.userId"),
-      origin == (UserDefaults.standard.string(forKey: "movieMind.origin") ?? "")
+    guard account == defaults.string(forKey: "movieMind.userId"),
+      origin == (defaults.string(forKey: "movieMind.origin") ?? "")
     else {
       report("账号或服务已改变，尚未保存；请核对原评分草稿", nil)
       return false
@@ -289,6 +362,8 @@ private actor MovieMindTransport {
     UserDefaults.standard.object(forKey: "movieMind.recommend") as? Bool ?? true
   { didSet { UserDefaults.standard.set(recommendationEnabled, forKey: "movieMind.recommend") } }
   @Published var status = "MovieMind 未连接"
+  @Published private(set) var temporaryLoginAvailable = false
+  @Published private(set) var temporarySession = false
   @Published var suggestion: Suggestion?
   @Published private(set) var boundMovie = ""
   private var seenSuggestions = Set<String>()
@@ -334,17 +409,26 @@ private actor MovieMindTransport {
       if e { await transport.flush() }
     }
   }
-  func login(origin: String, name: String, password: String) async -> Bool {
+  func login(origin: String, name: String, password: String, persistent: Bool = true) async -> Bool
+  {
     guard boundMovie.isEmpty else {
       status = "请先关闭 MovieMind 结束当前观影绑定，再登录账号；播放继续"
       return false
     }
     do {
-      try await transport.login(origin: origin, name: name, password: password)
+      try await transport.login(
+        origin: origin, name: name, password: password, persistent: persistent)
+      temporaryLoginAvailable = false
+      temporarySession = !persistent
       updateFlags()
       return true
     } catch {
-      status = "登录失败，请核对地址和账号；待同步内容只能交给原账号和服务"
+      if let failure = error as? MovieMindLoginFailure, case .sessionStorage = failure {
+        temporaryLoginAvailable = true
+      } else {
+        temporaryLoginAvailable = false
+      }
+      status = MovieMindLoginFailure.message(for: error)
       return false
     }
   }
