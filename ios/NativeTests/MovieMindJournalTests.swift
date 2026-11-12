@@ -78,4 +78,22 @@ final class MovieMindJournalTests: XCTestCase {
     XCTAssertTrue(MovieMindJournal.validID("tmdb:100"))
     XCTAssertFalse(MovieMindJournal.validID("/private/movie.mkv"))
   }
+  func testConflictMergeKeepsDraftReviewTagsAndWithdrawalWithoutChangingServerIdentity() {
+    let current: [String: Any] = [
+      "movieId": "tmdb:100", "revision": 5, "source": "manual", "createdAt": "original",
+    ]
+    let draft: [String: Any] = [
+      "movieId": "tmdb:200", "revision": 1, "source": "wrong", "rating": NSNull(),
+      "comment": "updated", "likes": ["反转"], "watchedOn": "2026-11-12", "deleted": true,
+    ]
+    let merged = MovieMindJournal.mergeDraft(draft, into: current)
+    XCTAssertEqual(merged["movieId"] as? String, "tmdb:100")
+    XCTAssertEqual(merged["revision"] as? Int, 5)
+    XCTAssertEqual(merged["source"] as? String, "manual")
+    XCTAssertEqual(merged["likes"] as? [String], ["反转"])
+    XCTAssertEqual(merged["watchedOn"] as? String, "2026-11-12")
+    XCTAssertEqual(merged["deleted"] as? Bool, true)
+    XCTAssertTrue(merged["rating"] is NSNull)
+  }
+
 }

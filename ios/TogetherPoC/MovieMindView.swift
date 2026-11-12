@@ -288,7 +288,7 @@ private struct MovieMindEdition: Decodable, Identifiable {
               if merged.isEmpty {
                 merged = ["movieId": draft["movieId"] ?? "", "source": "manual"]
               }
-              for key in ["status", "rating", "comment", "together"] { merged[key] = draft[key] }
+              merged = MovieMindJournal.mergeDraft(draft, into: merged)
               let revision = current["revision"] as? Int ?? 0
               do {
                 let body = try JSONSerialization.data(withJSONObject: [

@@ -44,7 +44,7 @@ enum MovieMindJournalFailure: Error {
   var message: String {
     switch self {
     case .changedAccount: return "账号或服务已改变，请重新打开电影档案；原草稿保留"
-    case .invalidInput: return "请核对片名、年份、日期、半分评分及标签，评价最多约2000字节"
+    case .invalidInput: return "请核对片名、年份、日期、半分评分及标签，评价过长时请缩短后保存"
     case .invalidReply: return "服务回执不完整，原内容保留，请刷新核对"
     }
   }
@@ -135,6 +135,16 @@ enum MovieMindJournal {
       "record": record, "expectedRevision": revision,
       "mutationId": UUID().uuidString,
     ])
+  }
+  static func mergeDraft(_ draft: [String: Any], into current: [String: Any]) -> [String: Any] {
+    var result = current
+    for key in [
+      "status", "rating", "comment", "together", "watchedOn", "likes", "dislikes", "experience",
+      "favorite", "sharedWish", "deleted",
+    ] {
+      if let value = draft[key] { result[key] = value }
+    }
+    return result
   }
   static func workBody(
     id: String, title: String, originalTitle: String, year: Int, runtime: Int,

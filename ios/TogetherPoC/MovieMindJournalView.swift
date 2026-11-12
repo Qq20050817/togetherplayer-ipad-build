@@ -96,12 +96,20 @@ private struct MovieMindEditSelection: Identifiable {
   @ObservedObject var client: MovieMindClient
   @StateObject private var store: MovieMindJournalStore
   let page: MovieMindJournalPage
-  @State private var search = "", filter = "mine"
+  @State private var search = ""
+  @State private var filter = "mine"
   @State private var editor: MovieMindEditSelection?
-  @State private var minutes = "", mood = "", tonightAvoid = ""
-  @State private var pairRecommendation = false, rewatch = false, acceptUnknown = false
-  @State private var invite = "", invitation = ""
-  @State private var confirmUnpair = false, confirmPair = false, showPreferences = false
+  @State private var minutes = ""
+  @State private var mood = ""
+  @State private var tonightAvoid = ""
+  @State private var pairRecommendation = false
+  @State private var rewatch = false
+  @State private var acceptUnknown = false
+  @State private var invite = ""
+  @State private var invitation = ""
+  @State private var confirmUnpair = false
+  @State private var confirmPair = false
+  @State private var showPreferences = false
   init(client: MovieMindClient, page: MovieMindJournalPage) {
     self.client = client
     self.page = page
@@ -325,7 +333,8 @@ private struct MovieMindEditSelection: Identifiable {
       .caption)
   }
   private func voteName(_ value: String?) -> String {
-    ["yes": "愿意看", "maybe": "都可以", "skip": "跳过"][value ?? ""] ?? "尚未投票"
+    let plain = (value ?? "").components(separatedBy: "_").first ?? ""
+    return ["yes": "愿意看", "maybe": "都可以", "skip": "跳过"][plain] ?? "尚未投票"
   }
   private var pairing: some View {
     Group {
@@ -381,16 +390,34 @@ private struct MovieMindEditSelection: Identifiable {
   let work: MovieMindWork?
   let initialStatus: String
   @Environment(\.dismiss) private var dismiss
-  @State private var title = "", originalTitle = "", year = "", runtime = "", standardID = ""
-  @State private var present = "", absent = "", status = "seen", rating = "", comment = "",
-    date = ""
-  @State private var likes = "", dislikes = "", experience = ""
-  @State private var together = false, favorite = false, sharedWish = false, saving = false
+  @State private var title = ""
+  @State private var originalTitle = ""
+  @State private var year = ""
+  @State private var runtime = ""
+  @State private var standardID = ""
+  @State private var present = ""
+  @State private var absent = ""
+  @State private var status = "seen"
+  @State private var rating = ""
+  @State private var comment = ""
+  @State private var date = ""
+  @State private var likes = ""
+  @State private var dislikes = ""
+  @State private var experience = ""
+  @State private var together = false
+  @State private var favorite = false
+  @State private var sharedWish = false
+  @State private var saving = false
   @State private var confirmDelete = false
   @State private var message = ""
   @State private var created: MovieMindWork?
   @State private var manualID = "manual:" + UUID().uuidString
   @State private var original = [String: Any]()
+  init(store: MovieMindJournalStore, work: MovieMindWork?, initialStatus: String) {
+    _store = ObservedObject(wrappedValue: store)
+    self.work = work
+    self.initialStatus = initialStatus
+  }
   var body: some View {
     NavigationStack {
       Form {
@@ -521,8 +548,12 @@ private struct MovieMindEditSelection: Identifiable {
 @MainActor private struct MovieMindPreferencesView: View {
   @ObservedObject var store: MovieMindJournalStore
   @Environment(\.dismiss) private var dismiss
-  @State private var likes = "", avoid = "", anchor = "", message = ""
+  @State private var likes = ""
+  @State private var avoid = ""
+  @State private var anchor = ""
+  @State private var message = ""
   @State private var saving = false
+  init(store: MovieMindJournalStore) { _store = ObservedObject(wrappedValue: store) }
   var body: some View {
     NavigationStack {
       Form {
@@ -571,9 +602,21 @@ private struct MovieMindEditSelection: Identifiable {
   let title: String
   let saved: () -> Void
   @Environment(\.dismiss) private var dismiss
-  @State private var label = "", seconds = "", message = ""
+  @State private var label = ""
+  @State private var seconds = ""
+  @State private var message = ""
   @State private var saving = false
   @State private var identity = UUID().uuidString
+  init(
+    client: MovieMindClient, scope: MovieMindScope, movie: String, title: String,
+    saved: @escaping () -> Void
+  ) {
+    _client = ObservedObject(wrappedValue: client)
+    self.scope = scope
+    self.movie = movie
+    self.title = title
+    self.saved = saved
+  }
   var body: some View {
     NavigationStack {
       Form {
