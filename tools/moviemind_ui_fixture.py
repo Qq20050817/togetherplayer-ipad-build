@@ -7,7 +7,7 @@ from socketserver import TCPServer
 import json
 import threading
 
-MOVIE = {'id':'manual:ui_fixture_seen','title':'仅用于界面测试的电影','year':2020,'originalTitle':'','runtime':95,'poster':'','aliases':[],'tags':{},'source':'manual','revision':1}
+MOVIE = {'id':'manual:ui_fixture_seen','title':'仅用于界面测试的电影','year':2020,'originalTitle':'UI Fixture Seen','runtime':95,'poster':'','aliases':[],'tags':{},'source':'manual','revision':1}
 NEXT = dict(MOVIE,id='manual:ui_fixture_next',title='仅用于界面测试的下一部',year=2021)
 TOKEN='synthetic-native-ui-session-20261112'
 state={'movies':{MOVIE['id']:MOVIE},'records':{},'mutations':{},'active':False}
@@ -35,7 +35,12 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/movies':self.respond(200,list(state['movies'].values()));return
             if path=='/api/records':self.respond(200,list(state['records'].values()));return
             if path=='/api/pair':self.respond(200,{'paired':False});return
-            if path=='/api/recommend':self.respond(200,{'candidates':[{'movie':NEXT,'label':'值得尝试','reasons':['根据明确反馈筛选；此内容仅用于界面测试'],'gaps':[]}],'pending':[],'mode':'rules','hasMore':False});return
+            if path=='/api/recommend':
+                versions=list(state['mutations'].values())
+                comment='Tense and worth a rewatch. Synthetic UI review.'
+                assert any(v.get('rating') is None and v.get('comment')==comment for v in versions), 'unrated private review was not saved'
+                assert any(v.get('rating')==8.5 and v.get('comment')==comment for v in versions), 'half-step correction did not preserve review'
+                self.respond(200,{'candidates':[{'movie':NEXT,'label':'值得尝试','reasons':['根据明确反馈筛选；此内容仅用于界面测试'],'gaps':[]}],'pending':[],'mode':'rules','hasMore':False});return
             if path.startswith('/api/movies/') and self.command=='PUT':
                 data['revision']=1;state['movies'][data['id']]=data;self.respond(200,data);return
             if path.startswith('/api/records/') and self.command=='PUT':

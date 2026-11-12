@@ -53,36 +53,46 @@ extension MovieMindUITests {
           for: [XCTNSPredicateExpectation(predicate: accepted, object: status)], timeout: 10),
         .completed)
     }
-    let library = app.descendants(matching: .any).matching(identifier: "moviemind-native-library")
-      .firstMatch
-    reveal(library, in: app, upward: false)
+    // Reopen the sheet after login instead of swiping down through its
+    // scroll edge, which can interactively dismiss the presentation.
+    app.navigationBars["MovieMind"].buttons["完成"].tap()
+    XCTAssertTrue(app.buttons["moviemind-open"].waitForExistence(timeout: 10))
+    app.buttons["moviemind-open"].tap()
+    let library = app.descendants(matching: .any).matching(
+      NSPredicate(format: "identifier == %@ OR label == %@", "moviemind-native-library", "我的电影与评分")
+    ).firstMatch
+    XCTAssertTrue(library.waitForExistence(timeout: 10), app.debugDescription)
     library.tap()
     XCTAssertTrue(app.navigationBars["我的电影与评分"].waitForExistence(timeout: 10))
     app.buttons["moviemind-add-seen"].tap()
     XCTAssertTrue(app.textFields["moviemind-entry-title"].waitForExistence(timeout: 5))
     app.textFields["moviemind-entry-title"].tap()
-    app.textFields["moviemind-entry-title"].typeText("仅用于界面测试的电影")
+    app.textFields["moviemind-entry-title"].typeText("UI Fixture Seen")
     let existing = app.buttons["使用已有：仅用于界面测试的电影（2020）"]
     XCTAssertTrue(existing.waitForExistence(timeout: 5))
     existing.tap()
     let review = app.descendants(matching: .any).matching(identifier: "moviemind-entry-comment")
       .firstMatch
     review.tap()
-    review.typeText("节奏紧张，愿意再看。仅用于界面测试。")
+    review.typeText("Tense and worth a rewatch. Synthetic UI review.")
     reveal(app.buttons["moviemind-save-entry"], in: app)
     app.buttons["moviemind-save-entry"].tap()
     let unrated = app.buttons.matching(
       NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "仅用于界面测试的电影", "已看 · 未评分")
     ).firstMatch
-    XCTAssertTrue(unrated.waitForExistence(timeout: 15))
+    XCTAssertTrue(unrated.waitForExistence(timeout: 15), app.debugDescription)
+    XCTAssertTrue(unrated.label.contains("Tense and worth a rewatch."))
     unrated.tap()
     let score = app.descendants(matching: .any).matching(
       NSPredicate(format: "label BEGINSWITH %@", "个人评分")
     ).firstMatch
     XCTAssertTrue(score.waitForExistence(timeout: 5))
     score.tap()
-    XCTAssertTrue(app.buttons["8.5"].waitForExistence(timeout: 5))
-    app.buttons["8.5"].tap()
+    let halfScore = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label == %@", "8.5")
+    ).firstMatch
+    XCTAssertTrue(halfScore.waitForExistence(timeout: 5), app.debugDescription)
+    halfScore.tap()
     reveal(app.buttons["moviemind-save-entry"], in: app)
     app.buttons["moviemind-save-entry"].tap()
     let rated = app.buttons.matching(
@@ -90,8 +100,9 @@ extension MovieMindUITests {
     ).firstMatch
     XCTAssertTrue(rated.waitForExistence(timeout: 15))
     app.navigationBars.buttons["MovieMind"].tap()
-    let discover = app.descendants(matching: .any).matching(identifier: "moviemind-native-discover")
-      .firstMatch
+    let discover = app.descendants(matching: .any).matching(
+      NSPredicate(format: "identifier == %@ OR label == %@", "moviemind-native-discover", "为我们推荐")
+    ).firstMatch
     reveal(discover, in: app)
     discover.tap()
     XCTAssertTrue(app.navigationBars["推荐下一部"].waitForExistence(timeout: 5))
@@ -106,9 +117,21 @@ extension MovieMindUITests {
   private func reveal(_ element: XCUIElement, in app: XCUIApplication, upward: Bool = true) {
     for _ in 0..<7 {
       if element.exists && element.isHittable { return }
-      if upward { app.swipeUp() } else { app.swipeDown() }
+      let form = app.collectionViews.firstMatch
+      let scroll = form.exists ? form : app.scrollViews.firstMatch
+      if scroll.exists {
+        if upward { scroll.swipeUp() } else { scroll.swipeDown() }
+      } else {
+        if upward { app.swipeUp() } else { app.swipeDown() }
+      }
     }
-    XCTAssertTrue(element.exists && element.isHittable)
+    if !(element.exists && element.isHittable) {
+      let screenshot = XCTAttachment(screenshot: app.screenshot())
+      screenshot.name = "Synthetic MovieMind UI failure"
+      screenshot.lifetime = .keepAlways
+      add(screenshot)
+      XCTFail("Could not reveal native control. " + app.debugDescription)
+    }
   }
   private func replace(_ field: XCUIElement, with text: String) {
     field.tap()

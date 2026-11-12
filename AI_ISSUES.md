@@ -100,3 +100,7 @@ Actions42625161921 failed in device compilation: RouterUSBManagement.swift45 ass
 
 ## 2026-11-12 · Native navigation UI selectors
 - Run43227487440 device package PASS, native119/120 and UI2/3; keep unchanged early-subtitle timing failure. UI logged NavigationLink Cell/Button type mismatch. Test-only identifier queries now accept the actual accessibility element type and still assert null/8.5 ratings, native recommendations and App foreground. No app/player/assertion changes. Full validation pending.
+
+## 2026-11-12 · UI-only companion, immutable device/native inputs
+- Full43235729137 device package and120 native PASS; UI2/3 still fails revealing the library after login. Failed aggregate retained. Correct new test to reopen the authenticated sheet, identify exact link titles, scroll the active Form and capture synthetic failure diagnostics. ASCII alias/review input with Chinese title assertions; saved-review preservation is additionally checked.
+- This UI-only standard free job refuses any ios change except the one new test driver relative to device/native-verified990b649; unchanged original fullscreen/entry tests remain. Require actual3 UI PASS/0FAIL/0SKIP. No app/project/native-test/resource edit or redundant device/native rebuild; final proof must transparently compose immutable-source checks and retain the original failed aggregate. Only synthetic failure PNGs may upload, never IPA/key/config/data.
