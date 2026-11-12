@@ -17,6 +17,7 @@ struct MovieMindPending: Codable, Identifiable {
   let method: String
   var conflict: Bool
   let movieId: String
+  var userInitiated: Bool? = nil
 }
 enum MovieMindAcknowledgement {
   static func decode(_ data: Data, path: String, body: Data) throws -> [String: Any] {
@@ -195,6 +196,19 @@ actor MovieMindTransport {
     guard data.count < 2 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
     return data
   }
+  func scopedRequest(
+    _ path: String, body: Data? = nil, method: String = "GET", scope: MovieMindScope
+  ) async throws -> Data {
+    func current() -> MovieMindScope {
+      MovieMindScope(
+        origin: defaults.string(forKey: "movieMind.origin") ?? "",
+        account: defaults.string(forKey: "movieMind.userId") ?? "")
+    }
+    guard scope.configured, scope == current() else { throw MovieMindJournalFailure.changedAccount }
+    let data = try await request(path, body: body, method: method)
+    guard scope == current() else { throw MovieMindJournalFailure.changedAccount }
+    return data
+  }
   func login(origin: String, name: String, password: String, persistent: Bool = true) async throws {
     guard !authenticating else { throw MovieMindLoginFailure.inProgress }
     authenticating = true
@@ -238,7 +252,9 @@ actor MovieMindTransport {
     report(persistent ? "已登录独立 MovieMind 账号" : "仅本次登录成功；App 重启后需重新登录", nil)
   }
   func enqueue(
-    path: String, body: Data, method: String, movieId: String = "", account: String?, origin: String
+    path: String, body: Data, method: String, movieId: String = "", account: String?,
+    origin: String,
+    userInitiated: Bool = false
   ) async -> Bool {
     guard account == defaults.string(forKey: "movieMind.userId"),
       origin == (defaults.string(forKey: "movieMind.origin") ?? "")
@@ -255,7 +271,7 @@ actor MovieMindTransport {
       pending.append(
         MovieMindPending(
           id: UUID().uuidString, path: path, body: body, method: method, conflict: false,
-          movieId: movieId))
+          movieId: movieId, userInitiated: userInitiated))
       try persist()
       report("已保存在本机，等待同步", nil)
       await flush()
@@ -267,14 +283,15 @@ actor MovieMindTransport {
     }
   }
   func flush() async {
-    guard enabled, !flushing else { return }
+    guard !flushing else { return }
     flushing = true
     defer { flushing = false }
     do {
       try load()
       for item in pending {
+        if !enabled && item.userInitiated != true { continue }
         if item.conflict || item.path == "watch/events" && !watchEnabled
-          || item.path.hasPrefix("records/") && !ratingEnabled
+          || item.path.hasPrefix("records/") && !ratingEnabled && item.userInitiated != true
         {
           continue
         }
@@ -420,6 +437,7 @@ actor MovieMindTransport {
         origin: origin, name: name, password: password, persistent: persistent)
       temporaryLoginAvailable = false
       temporarySession = !persistent
+      invalidateWorkspace()
       updateFlags()
       return true
     } catch {
@@ -431,6 +449,28 @@ actor MovieMindTransport {
       status = MovieMindLoginFailure.message(for: error)
       return false
     }
+  }
+  @Published private(set) var workspaceGeneration = 0
+  var workspaceScope: MovieMindScope {
+    MovieMindScope(origin: origin, account: account ?? "")
+  }
+  func invalidateWorkspace() { workspaceGeneration += 1 }
+  func api(_ path: String, body: Data? = nil, method: String = "GET", scope: MovieMindScope)
+    async throws -> Data
+  {
+    let generation = workspaceGeneration
+    let data = try await transport.scopedRequest(path, body: body, method: method, scope: scope)
+    guard generation == workspaceGeneration else { throw MovieMindJournalFailure.changedAccount }
+    return data
+  }
+  func saveJournal(movie: String, body: Data, scope: MovieMindScope) async -> Bool {
+    guard scope == workspaceScope else {
+      status = MovieMindJournalFailure.changedAccount.message
+      return false
+    }
+    return await transport.enqueue(
+      path: "records/" + movie, body: body, method: "PUT", account: scope.account,
+      origin: scope.origin, userInitiated: true)
   }
   func get(_ path: String) async throws -> Data {
     let owner = account

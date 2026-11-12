@@ -27,12 +27,27 @@ private struct MovieMindEdition: Decodable, Identifiable {
   @State private var query = ""
   @State private var context: AVPlayerItem?
   @State private var drafts = [MovieMindPending]()
+  @State private var creatingEdition: MovieMindMovie?
   @State private var selectedEdition: MovieMindEdition?
   @State private var rating: MovieMindClient.Suggestion?
   @State private var conflict: MovieMindPending?
   var body: some View {
     NavigationStack {
       Form {
+        Section("电影记录与下一部") {
+          NavigationLink("我的电影与评分") {
+            MovieMindJournalView(client: client, page: .library).id(client.workspaceScope)
+          }.accessibilityIdentifier("moviemind-native-library")
+          if client.recommendationEnabled {
+            NavigationLink("为我们推荐") {
+              MovieMindJournalView(client: client, page: .recommendations).id(client.workspaceScope)
+            }.accessibilityIdentifier("moviemind-native-discover")
+          }
+          NavigationLink("两个人一起选") {
+            MovieMindJournalView(client: client, page: .pair).id(client.workspaceScope)
+          }.accessibilityIdentifier("moviemind-native-pair")
+          Text("在 App 内记录已看、评分和评价，再按各自的真实反馈推荐下一部。").font(.caption)
+        }
         Section("独立接入开关") {
           Toggle("启用 MovieMind", isOn: $client.enabled)
           Toggle("为我们推荐入口", isOn: $client.recommendationEnabled)
@@ -41,11 +56,15 @@ private struct MovieMindEdition: Decodable, Identifiable {
           Text("MovieMind 不接管播放器；关闭或服务失败时，原有同步、选片和播放继续运行。").font(.caption)
         }
         Section("个人账号") {
-          TextField("独立服务 HTTPS 地址", text: $origin).textInputAutocapitalization(.never)
+          TextField("独立服务 HTTPS 地址", text: $origin).accessibilityIdentifier("moviemind-origin")
+            .textInputAutocapitalization(.never)
             .autocorrectionDisabled().keyboardType(.URL).disabled(loggingIn)
-          TextField("用户名", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
+          TextField("用户名", text: $name).accessibilityIdentifier("moviemind-username")
+            .textInputAutocapitalization(.never).autocorrectionDisabled()
             .disabled(loggingIn)
-          SecureField("密码", text: $password).disabled(loggingIn)
+          SecureField("密码", text: $password).accessibilityIdentifier("moviemind-password").disabled(
+            loggingIn)
+          Text("普通登录会保持登录，重启 App 后继续使用；当前会话有效30天。").font(.caption)
           Button("登录此服务") { signIn(persistent: true) }.disabled(loginDisabled)
           if client.temporaryLoginAvailable {
             Button("仅本次登录") { signIn(persistent: false) }.disabled(loginDisabled)
@@ -57,14 +76,6 @@ private struct MovieMindEdition: Decodable, Identifiable {
           if loggingIn { ProgressView("正在登录…") }
           Text(client.status).font(.caption).textSelection(.enabled)
             .accessibilityIdentifier("moviemind-sync-status")
-        }
-        if client.recommendationEnabled, let url = URL(string: client.origin),
-          ["https", "http"].contains(url.scheme ?? "")
-        {
-          Section("选片前") {
-            Link("为我们推荐 / 打开个人电影档案", destination: url)
-            Text("双人先投票，再由房主在现有选片入口确认片源、手动播放。不会自动换片。").font(.caption)
-          }
         }
         Section("选片后：确认作品与剪辑版本") {
           Text("只绑定本机已经加载的影片。不同清晰度可关联同一版本；剪辑不同请分开记录。").font(.caption)
@@ -82,8 +93,9 @@ private struct MovieMindEdition: Decodable, Identifiable {
               }
             }
           }
-          if !selectedMovie.isEmpty && editions.isEmpty {
-            Text("先在网页为这部电影建立剪辑版本，并核对准确片长。").font(.caption)
+          if !selectedMovie.isEmpty {
+            Button("为此作品登记剪辑版本") { creatingEdition = movies.first { $0.id == selectedMovie } }
+            if editions.isEmpty { Text("登记准确片长后，在这里确认绑定本机影片。").font(.caption) }
           }
           ForEach(editions) { edition in
             Button("确认 \(edition.label) · \(edition.durationMs/1000) 秒") {
@@ -135,6 +147,19 @@ private struct MovieMindEdition: Decodable, Identifiable {
           Button("取消", role: .cancel) { selectedEdition = nil }
         } message: {
           Text("作品与版本由你确认；本机路径和播放链接不会上传。绑定不会开始播放或改变房间片源。")
+        }
+        .sheet(item: $creatingEdition) { movie in
+          MovieMindEditionEditor(
+            client: client, scope: client.workspaceScope, movie: movie.id, title: movie.title
+          ) {
+            Task {
+              if let data = try? await client.get("editions?movieId=" + movie.id),
+                let loaded = try? JSONDecoder().decode([MovieMindEdition].self, from: data)
+              {
+                editions = loaded
+              }
+            }
+          }
         }
         .sheet(item: $rating) { MovieMindRatingView(client: client, suggestion: $0) }
         .sheet(item: $conflict) { MovieMindConflictView(client: client, item: $0) }

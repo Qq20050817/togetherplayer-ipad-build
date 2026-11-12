@@ -299,4 +299,72 @@ final class MovieMindLoginTests: XCTestCase {
     XCTAssertEqual(authorization[0], "Bearer temporary-fixture-session")
     XCTAssertNil(authorization[1])
   }
+  func testNativeJournalCannotSendFromAnOldAccountScreen() async throws {
+    let storage = MovieMindFixtureStorage()
+    var count = 0
+    MovieMindLoginProtocol.handler = { _ in
+      count += 1
+      return (200, try self.json([]))
+    }
+    let client = transport(storage)
+    let scope = MovieMindScope(origin: "https://fixture.invalid", account: "old-fixture-user")
+    _ = try await client.scopedRequest("records", scope: scope)
+    defaults.set("other-fixture-user", forKey: "movieMind.userId")
+    do {
+      _ = try await client.scopedRequest("records", scope: scope)
+      XCTFail("An old screen cannot read the new account")
+    } catch { XCTAssertTrue(error is MovieMindJournalFailure) }
+    XCTAssertEqual(count, 1)
+  }
+
+  func testManualJournalPersistsAndRetriesWithSameMutationWhenPlaybackHooksAreOff() async throws {
+    let storage = MovieMindFixtureStorage()
+    var mutations = [String]()
+    var accept = false
+    MovieMindLoginProtocol.handler = { request in
+      let body = try self.requestBodyAny(request)
+      let id = try XCTUnwrap(body["mutationId"] as? String)
+      mutations.append(id)
+      if !accept { return (503, try self.json(["error": "fixture outage"])) }
+      return (200, try self.json(["mutationId": id, "movieId": "tmdb:100", "revision": 1]))
+    }
+    let data = try MovieMindJournal.recordBody(
+      movie: "tmdb:100", original: [:], status: "seen", rating: nil,
+      comment: "fixture only", date: "", together: false, likes: "", dislikes: "", experience: "",
+      favorite: false, sharedWish: false)
+    let first = transport(storage)
+    await first.configure(enabled: false, watch: false, rating: false)
+    let queued = await first.enqueue(
+      path: "records/tmdb:100", body: data, method: "PUT",
+      account: "old-fixture-user", origin: "https://fixture.invalid", userInitiated: true)
+    XCTAssertTrue(queued)
+    let retained = try await JSONDecoder().decode([MovieMindPending].self, from: first.drafts())
+    XCTAssertEqual(retained.count, 1)
+    XCTAssertEqual(retained.first?.userInitiated, true)
+    accept = true
+    let second = transport(storage)
+    await second.configure(enabled: false, watch: false, rating: false)
+    await second.flush()
+    let remaining = try await JSONDecoder().decode([MovieMindPending].self, from: second.drafts())
+    XCTAssertTrue(remaining.isEmpty)
+    XCTAssertEqual(mutations.count, 2)
+    XCTAssertEqual(mutations.first, mutations.last)
+  }
+
+  private func requestBodyAny(_ request: URLRequest) throws -> [String: Any] {
+    var data = request.httpBody ?? Data()
+    if data.isEmpty, let stream = request.httpBodyStream {
+      stream.open()
+      defer { stream.close() }
+      var buffer = [UInt8](repeating: 0, count: 2048)
+      while true {
+        let n = stream.read(&buffer, maxLength: buffer.count)
+        if n == 0 { break }
+        guard n > 0, data.count + n < 65536 else { throw URLError(.badServerResponse) }
+        data.append(contentsOf: buffer.prefix(n))
+      }
+    }
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+  }
+
 }
