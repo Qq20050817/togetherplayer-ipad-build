@@ -477,22 +477,30 @@ private struct MovieMindEditSelection: Identifiable {
         if !message.isEmpty { Text(message).foregroundStyle(.orange) }
         Text(store.client.status).font(.caption)
         Button("保存我的记录") { save(deleted: false) }.disabled(saving)
-          .accessibilityIdentifier("moviemind-save-entry")
+          .accessibilityIdentifier("moviemind-save-entry-footer")
         if !original.isEmpty {
           Button("撤回这条观影记录", role: .destructive) { confirmDelete = true }.disabled(saving)
         }
-      }.navigationTitle("记录与评价").toolbar { Button("取消") { dismiss() } }
-        .interactiveDismissDisabled(saving)
-        .task {
-          status = initialStatus
-          if let work { loadRecord(work.id) }
+      }.navigationTitle("记录与评价").toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消") { dismiss() }.disabled(saving)
         }
-        .alert("撤回这条记录？", isPresented: $confirmDelete) {
-          Button("确认撤回", role: .destructive) { save(deleted: true) }
-          Button("取消", role: .cancel) {}
-        } message: {
-          Text("保留电影资料和修订历史，不再用这条记录学习你的口味。")
+        ToolbarItem(placement: .confirmationAction) {
+          Button("保存") { save(deleted: false) }.disabled(saving)
+            .accessibilityIdentifier("moviemind-save-entry")
         }
+      }
+      .interactiveDismissDisabled(saving)
+      .task {
+        status = initialStatus
+        if let work { loadRecord(work.id) }
+      }
+      .alert("撤回这条记录？", isPresented: $confirmDelete) {
+        Button("确认撤回", role: .destructive) { save(deleted: true) }
+        Button("取消", role: .cancel) {}
+      } message: {
+        Text("保留电影资料和修订历史，不再用这条记录学习你的口味。")
+      }
     }
   }
   private func loadRecord(_ id: String) {
@@ -513,6 +521,7 @@ private struct MovieMindEditSelection: Identifiable {
     experience = (original["experience"] as? [String] ?? []).joined(separator: "，")
   }
   private func save(deleted: Bool) {
+    guard !saving else { return }
     saving = true
     Task {
       defer { saving = false }

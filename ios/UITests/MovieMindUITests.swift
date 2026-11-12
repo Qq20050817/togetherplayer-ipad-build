@@ -91,6 +91,7 @@ extension MovieMindUITests {
     let halfScore = app.descendants(matching: .any).matching(
       NSPredicate(format: "label == %@", "8.5")
     ).firstMatch
+    reveal(halfScore, in: app)
     XCTAssertTrue(halfScore.waitForExistence(timeout: 5), app.debugDescription)
     halfScore.tap()
     reveal(app.buttons["moviemind-save-entry"], in: app)
@@ -109,21 +110,33 @@ extension MovieMindUITests {
     reveal(app.buttons["moviemind-native-recommend"], in: app)
     app.buttons["moviemind-native-recommend"].tap()
     let next = app.staticTexts["仅用于界面测试的下一部 · 2021"]
+    reveal(next, in: app)
     XCTAssertTrue(next.waitForExistence(timeout: 10))
     XCTAssertEqual(app.state, .runningForeground)
     XCTAssertNotEqual(
       XCUIApplication(bundleIdentifier: "com.apple.mobilesafari").state, .runningForeground)
   }
   private func reveal(_ element: XCUIElement, in app: XCUIApplication, upward: Bool = true) {
+    let hide = app.keyboards.buttons["Hide keyboard"].firstMatch
+    if hide.exists && hide.isHittable { hide.tap() }
     for _ in 0..<7 {
       if element.exists && element.isHittable { return }
-      let form = app.collectionViews.firstMatch
-      let scroll = form.exists ? form : app.scrollViews.firstMatch
-      if scroll.exists {
-        if upward { scroll.swipeUp() } else { scroll.swipeDown() }
-      } else {
-        if upward { app.swipeUp() } else { app.swipeDown() }
+      var selected: XCUIElement?
+      if element.exists {
+        let marker = element.identifier.isEmpty ? element.label : element.identifier
+        selected =
+          (app.tables.containing(.any, identifier: marker).allElementsBoundByIndex
+          + app.collectionViews.containing(.any, identifier: marker).allElementsBoundByIndex
+          + app.scrollViews.containing(.any, identifier: marker).allElementsBoundByIndex)
+          .reversed().first(where: { $0.isHittable })
       }
+      if selected == nil {
+        selected =
+          (app.tables.allElementsBoundByIndex + app.collectionViews.allElementsBoundByIndex
+          + app.scrollViews.allElementsBoundByIndex).reversed().first(where: { $0.isHittable })
+      }
+      let scroll = selected ?? app
+      if upward { scroll.swipeUp() } else { scroll.swipeDown() }
     }
     if !(element.exists && element.isHittable) {
       let screenshot = XCTAttachment(screenshot: app.screenshot())
