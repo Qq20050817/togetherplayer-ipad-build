@@ -1,12 +1,13 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
  namespace = "dev.together.poc"
+ buildFeatures { buildConfig = true }
  compileSdk = 35
  if(providers.gradleProperty("deliveryCompressedNative").orNull=="true") {packaging {jniLibs {useLegacyPackaging=true}}}
- defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 141; versionName = "0.6.60.21"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
+ defaultConfig { testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"; applicationId = "dev.together.poc"; minSdk = 26; targetSdk = 35; versionCode = 142; versionName = "0.6.60.22-moviemind"; if(providers.gradleProperty("deliveryArm64").orNull=="true") {ndk {abiFilters += "arm64-v8a"}} }
  buildTypes { getByName("debug") {
   // Separate preview identity preserves every existing install and its data.
-  applicationIdSuffix = ".hdrtrial21"
+  applicationIdSuffix = ".moviemind"
  } }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = "17" }

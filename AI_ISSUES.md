@@ -201,3 +201,7 @@
 ### 2026-11-12 · Codex artifact-browser download failure worked around
 
 - Screenshot reports a Codex server error while opening the APK. Its internal cause is unknown; app playback is a separate issue. Browser delivery from the existing isolated installer endpoint is verified by external HEAD200, Range206 and complete CI-APK SHA256 match. The prior HDR20 download remains available. No app runtime changed and playback-corruption status remains OPEN.
+
+## 2026-11-12 · MovieMind native Android verification only
+- Android-only reviewed source from private985573f on actual HDR21fc12cbe baseline. New native scoped journal/review/recommendation and existing MovieMind queues; existing HDR21 factory/facts/renderers/journal remain byte-identical. Candidate0.6.60.22-moviemind/142. No private server/config/history, real account data, media, signing keys or credential files copied.
+- Local173 JVM PASS; real native API30 flow/persistence PASS, API35 software-only local image recorded system ANRs/failures and interruption. This standard free ubuntu24 accelerated API35 check retains all31 assertions and exact source fingerprint. Tests/build only: no APK artifact upload, public release, production mutation or paid runner.
