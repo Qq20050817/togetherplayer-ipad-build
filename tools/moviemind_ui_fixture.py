@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Synthetic stateful HTTP fixture for native UI tests only. Never bundled or deployed."""
+import faulthandler
+faulthandler.dump_traceback_later(5)
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from socketserver import TCPServer
 import json
 import threading
 
@@ -48,4 +51,14 @@ class Handler(BaseHTTPRequestHandler):
     do_POST=handle_request
     do_PUT=handle_request
     do_DELETE=handle_request
-if __name__=='__main__':ThreadingHTTPServer(('127.0.0.1',18089),Handler).serve_forever()
+class LoopbackFixtureServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # Avoid reverse DNS during HTTPServer construction on hosted macOS.
+        TCPServer.server_bind(self)
+        self.server_name='localhost'
+        self.server_port=self.server_address[1]
+if __name__=='__main__':
+    server=LoopbackFixtureServer(('127.0.0.1',18089),Handler)
+    faulthandler.cancel_dump_traceback_later()
+    print('Synthetic fixture listening on numeric loopback',flush=True)
+    server.serve_forever()
