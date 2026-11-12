@@ -24,6 +24,7 @@ final class MovieMindUITests: XCTestCase {
 
 extension MovieMindUITests {
   func testNativeRecordReviewEditAndRecommendationsStayInsideApp() {
+    continueAfterFailure = false
     let app = XCUIApplication()
     app.launchEnvironment["TOGETHER_UI_TEST"] = "1"
     app.launch()
@@ -52,8 +53,10 @@ extension MovieMindUITests {
           for: [XCTNSPredicateExpectation(predicate: accepted, object: status)], timeout: 10),
         .completed)
     }
-    reveal(app.buttons["moviemind-native-library"], in: app, upward: false)
-    app.buttons["moviemind-native-library"].tap()
+    let library = app.descendants(matching: .any).matching(identifier: "moviemind-native-library")
+      .firstMatch
+    reveal(library, in: app, upward: false)
+    library.tap()
     XCTAssertTrue(app.navigationBars["我的电影与评分"].waitForExistence(timeout: 10))
     app.buttons["moviemind-add-seen"].tap()
     XCTAssertTrue(app.textFields["moviemind-entry-title"].waitForExistence(timeout: 5))
@@ -68,18 +71,29 @@ extension MovieMindUITests {
     review.typeText("节奏紧张，愿意再看。仅用于界面测试。")
     reveal(app.buttons["moviemind-save-entry"], in: app)
     app.buttons["moviemind-save-entry"].tap()
-    XCTAssertTrue(app.staticTexts["已看 · 未评分"].waitForExistence(timeout: 15))
-    app.staticTexts["仅用于界面测试的电影 · 2020"].tap()
-    let score = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "个人评分")).firstMatch
+    let unrated = app.buttons.matching(
+      NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "仅用于界面测试的电影", "已看 · 未评分")
+    ).firstMatch
+    XCTAssertTrue(unrated.waitForExistence(timeout: 15))
+    unrated.tap()
+    let score = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label BEGINSWITH %@", "个人评分")
+    ).firstMatch
     XCTAssertTrue(score.waitForExistence(timeout: 5))
     score.tap()
     XCTAssertTrue(app.buttons["8.5"].waitForExistence(timeout: 5))
     app.buttons["8.5"].tap()
     reveal(app.buttons["moviemind-save-entry"], in: app)
     app.buttons["moviemind-save-entry"].tap()
-    XCTAssertTrue(app.staticTexts["已看 · 8.5 分"].waitForExistence(timeout: 15))
+    let rated = app.buttons.matching(
+      NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "仅用于界面测试的电影", "已看 · 8.5 分")
+    ).firstMatch
+    XCTAssertTrue(rated.waitForExistence(timeout: 15))
     app.navigationBars.buttons["MovieMind"].tap()
-    app.buttons["moviemind-native-discover"].tap()
+    let discover = app.descendants(matching: .any).matching(identifier: "moviemind-native-discover")
+      .firstMatch
+    reveal(discover, in: app)
+    discover.tap()
     XCTAssertTrue(app.navigationBars["推荐下一部"].waitForExistence(timeout: 5))
     reveal(app.buttons["moviemind-native-recommend"], in: app)
     app.buttons["moviemind-native-recommend"].tap()
