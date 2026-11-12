@@ -181,12 +181,14 @@ jobs:
         '
     - name: Run native record review edit recommendation and existing fullscreen UI workflows
       run: "set -o pipefail\npython3 tools/moviemind_ui_fixture.py > /tmp/moviemind-ui-fixture.log 2>&1 &\nfixture_pid=$!\ntrap 'kill \"$fixture_pid\" 2>/dev/null\
-        \ || true' EXIT\npython3 - <<'PYFIXTURE'\nimport time,urllib.request\nfor attempt in range(50):\n try:\n  with urllib.request.urlopen('http://127.0.0.1:18089/health',timeout=.2)\
-        \ as r:assert r.status==200\n  break\n except OSError:time.sleep(.1)\nelse:raise SystemExit('synthetic UI fixture did not start')\nPYFIXTURE\ndevice=\"\
-        $(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x[\"udid\"] for v in d[\"devices\"].values()\
-        \ for x in v if \"iPad\" in x[\"name\"]))')\"\nxcrun simctl boot \"$device\" || true\nxcrun simctl bootstatus \"$device\" -b\nxcodebuild -project\
-        \ ios/TogetherPoC.xcodeproj -scheme TogetherPoC -configuration Debug -destination \"platform=iOS Simulator,id=$device\" -derivedDataPath build -resultBundlePath\
-        \ ui-results.xcresult -parallel-testing-enabled NO -only-testing:TogetherPoCUITests/MovieMindUITests -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment\
+        \ || true' EXIT\npython3 - <<'PYFIXTURE'\nimport time,urllib.request\nfrom pathlib import Path\nopener=urllib.request.build_opener(urllib.request.ProxyHandler({}))\n\
+        last_error='none'\nfor attempt in range(50):\n try:\n  with opener.open('http://127.0.0.1:18089/health',timeout=.2) as r:assert r.status==200\n\
+        \  break\n except OSError as error:\n  last_error=type(error).__name__;time.sleep(.1)\nelse:\n print(Path('/tmp/moviemind-ui-fixture.log').read_text(errors='replace')[-4000:])\n\
+        \ raise SystemExit('synthetic UI fixture did not start: '+last_error)\nPYFIXTURE\ndevice=\"$(xcrun simctl list devices available -j | python3 -c\
+        \ 'import json,sys; d=json.load(sys.stdin); print(next(x[\"udid\"] for v in d[\"devices\"].values() for x in v if \"iPad\" in x[\"name\"]))')\"\n\
+        xcrun simctl boot \"$device\" || true\nxcrun simctl bootstatus \"$device\" -b\nxcodebuild -project ios/TogetherPoC.xcodeproj -scheme TogetherPoC\
+        \ -configuration Debug -destination \"platform=iOS Simulator,id=$device\" -derivedDataPath build -resultBundlePath ui-results.xcresult -parallel-testing-enabled\
+        \ NO -only-testing:TogetherPoCUITests/MovieMindUITests -only-testing:TogetherPoCUITests/WatchInterfaceTests/testFullscreenProgressAndRealMovieAdjustment\
         \ CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log\n"
     - name: Report actual test counts and compiler diagnostics
       if: always()
