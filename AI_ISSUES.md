@@ -112,3 +112,5 @@ Actions42625161921 failed in device compilation: RouterUSBManagement.swift45 ass
 
 ## IPAD-AV1-001 · M1 AV1 compatibility preparation
 - A probed 10-bit AV1 track on the remux-only route triggers videoCodecNotRemuxable/Unplayable before playback. Version 0.6.88/148 now selects software playback for non-copyable AV1. Synthetic seek, play and teardown coverage added. Apple CI and physical-device confirmation pending.
+
+- IPAD-AV1-001: software route implemented at 4935aa6fbd52b0fd6f438df9f94538c181524203 and simulator regression passed (run 44349487418). Device IPA and USB direct download verified. Await physical-device acceptance.
