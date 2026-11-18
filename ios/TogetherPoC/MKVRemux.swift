@@ -23,6 +23,8 @@ struct MKVAudioTrackPresentation: Equatable {
  /// Only expose exact source index when one PGS and no competing text track exist.
  private(set) var aiSubtitleStreamIndices:[Int]=[]
  private(set) var uniquePGSStreamIndex:Int?
+ // Raised only after probing the actual video stream.
+ struct SoftwareAV1: Error { let source: ProbedSource }
  enum Failure: LocalizedError {
   case replaced, preparation
   case diagnostic(String), temporary(String)
@@ -48,6 +50,9 @@ struct MKVAudioTrackPresentation: Equatable {
   } catch {throw Self.safeFailure(error)}
   guard g==generation else {throw Failure.replaced}
   let sourceInfo=probed.info
+  if let video=sourceInfo.video, video.codecName.lowercased()=="av1", video.copyability != .streamCopy {
+   throw SoftwareAV1(source:probed)
+  }
   // PrismCore (pinned revision) exposes bitmap renditions through OCR only
   // when there are no text subtitle streams in the source container.
   let hasPGS=sourceInfo.bitmapSubtitleTracks.contains {

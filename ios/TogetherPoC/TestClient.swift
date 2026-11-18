@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AVFoundation
 import CoreMedia
+import PrismCore
 
 @MainActor final class TestClient: ObservableObject {
  @Published var server=UserDefaults.standard.string(forKey: "server") ?? "https://together.xiaokai123.de5.net"
@@ -16,8 +17,8 @@ import CoreMedia
  @Published private(set) var videoRotationTurns=0
  func rotateVideo(){videoRotationTurns=VideoRotation.next(videoRotationTurns)}
  let movieMind=MovieMindClient.shared
- var movieMindSource:AVPlayerItem? {adapter.player.currentItem}
- func bindMovieMind(movie:String,edition:String,duration:Int64,source:AVPlayerItem?)->Bool {guard source === adapter.player.currentItem else{return false};return movieMind.bind(movie:movie,edition:edition,duration:duration,source:source,actualDuration:adapter.duration)}
+ var movieMindSource:AVPlayerItem? {softwareIdentity ?? adapter.player.currentItem}
+ func bindMovieMind(movie:String,edition:String,duration:Int64,source:AVPlayerItem?)->Bool {guard source === movieMindSource else{return false};return movieMind.bind(movie:movie,edition:edition,duration:duration,source:source,actualDuration:adapter.duration)}
  let watchMemory=WatchMemory()
  private var watchCoverage=WatchCoverage()
  private var watchRecordedSource=""
@@ -60,14 +61,14 @@ import CoreMedia
  }
  var bankCanPublish:Bool {
   isConnected && isRoomHost && clock.ready && supportsBlockingPolls && clock.localNow()-lastBankPollDispatch>=15_000 &&
-   variantDurationCheck == .compatible && adapter.player.rate>0 &&
+   variantDurationCheck == .compatible && adapter.actualRate>0 &&
    !adapter.isSeeking && engine.room?.state=="playing" &&
    (plotPoll == nil || plotPoll?["revealed"] as? Bool == true)
  }
  var bankPlaybackPositionMs:Double {max(0,adapter.position)}
  var bankCanFinish:Bool {
   isConnected && isRoomHost && clock.ready && supportsBlockingPolls &&
-  variantDurationCheck == .compatible && adapter.player.rate>0 &&
+  variantDurationCheck == .compatible && adapter.actualRate>0 &&
   !adapter.isSeeking && engine.room?.state == "playing" && !plotPollWaiting
  }
  var bankSafeRevealPositionMs:Double {
@@ -115,7 +116,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  var plotMyUserID:String {credentials?["userId"] as? String ?? ""}
 
  @Published var videoBadges: [String]=[]
- var requestedPlaying: Bool {localVideoTest ? adapter.player.timeControlStatus != .paused : (playbackNeedsRecovery ? false : (optimisticPlaying ?? (engine.room?.state == "playing")))}
+ var requestedPlaying: Bool {localVideoTest ? (adapter.software != nil ? adapter.nativePlaybackRunning : adapter.player.timeControlStatus != .paused) : (playbackNeedsRecovery ? false : (optimisticPlaying ?? (engine.room?.state == "playing")))}
  // Show the selected playback source, not a stale room title. Keep the
  // canonical room title untouched when a guest chooses another quality.
  var playbackTitle: String {
@@ -274,8 +275,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private var mediaLoadGeneration=0
  private var audioGroup: AVMediaSelectionGroup?
  @Published var pending: [String:Any]?
+ @Published private(set) var softwarePicture:SoftwarePicture?
+ private var softwareIdentity:AVPlayerItem?
  let adapter=AVPlayerAdapter()
- lazy var playback=PlaybackMonitor(player:adapter.player)
+ lazy var playback=PlaybackMonitor(player:adapter.player,adapter:adapter)
  lazy var externalSubtitles=ExternalSubtitles(player:adapter.player)
  lazy var visualSampler=PlotVisualSampler(player:adapter.player)
  let clock:ClockSync
@@ -373,7 +376,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    }
    let observed=self.externalSubtitles.observedPlotEvidence()
    let visuals=self.visualSampler.evidence(cutoff:position)
-   let duration=self.adapter.player.currentItem?.duration.seconds ?? .nan
+   let duration=self.adapter.duration/1000
    let checkpoint=self.plotIntelligence.wholeFilm.checkpoint(at:position,film:key) ?? self.externalSubtitles.plannedQuestionCheckpoint(at:position,duration:duration)
    return PlotFrame(key:key,position:position,evidence:observed+visuals,
     prediction:prediction,plannedCheckpoint:checkpoint)
@@ -453,6 +456,9 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
   externalSubtitles.nativeWindowRecovery={ [weak self] item,position in self?.recoverCurrentNativeSubtitleWindow(item:item,position:position) }
   externalSubtitles.nativeSelectionHealthCheck={ [weak self] in self?.restoreSelectedNativeSubtitleIfNeeded() }
+  externalSubtitles.softwareTime={ [weak self] in self?.adapter.software?.currentTime.seconds }
+  externalSubtitles.softwarePlaying={ [weak self] in self?.adapter.software.map{$0.state == .playing} }
+  externalSubtitles.softwareCue={ [weak self] in self?.adapter.software?.activeSubtitleCues.map(\.text).joined(separator:"\n") }
   voiceDucker=VoiceVolumeDucker(player:adapter.player)
   voice.sendText={ [weak self] text in self?.sendVoiceDanmaku(text) ?? false }
   voice.roomKey={ [weak self] in self?.engine.room?.roomId ?? "" }
@@ -497,14 +503,14 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  deinit {if let transport=initializedP2PTransport {Task {@MainActor in transport.dispose()}};timer?.invalidate();socketSession?.invalidateAndCancel();restoreMovieTask?.cancel();saveMovieTask?.cancel();if localFileSecurityScoped,let url=localFileURL {url.stopAccessingSecurityScopedResource()};for observer in observers {NotificationCenter.default.removeObserver(observer)}}
  private func plotDisplayPosition()->PlotDisplayPosition? {
-  guard adapter.player.currentItem != nil else{return nil}
+  guard movieMindSource != nil else{return nil}
   let identity=engine.room?.mediaUrl ?? currentOriginalURL?.absoluteString ?? loadedURL
   guard !identity.isEmpty else{return nil}
   var components=URLComponents(string:identity);components?.query=nil;components?.fragment=nil
   return PlotDisplayPosition(key:PlotMemoryStore.key(components?.string ?? identity),position:max(0,adapter.position/1000))
  }
  private func diagnostic(_ event: String) {
-  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.player.rate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+  var data: [String:Any]=["diagnostic":true,"event":event,"clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","version":engine.room?.version ?? 0,"positionMs":adapter.position,"playbackRate":adapter.actualRate,"timeControlStatus":adapter.player.timeControlStatus.rawValue,"localVideoTest":localVideoTest,"localTimeMs":clock.localNow(),"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
   data["disconnectCount"]=disconnectCount;data["lastDisconnectReason"]=lastDisconnectReason;data["ignoredFrames"]=ignoredFrames
   if let log=adapter.player.currentItem?.accessLog()?.events.last {
    data["droppedVideoFrames"]=log.numberOfDroppedVideoFrames;data["stalls"]=log.numberOfStalls;data["observedBitrate"]=log.observedBitrate
@@ -576,7 +582,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  private func fourCC(_ value: UInt32) -> String {
   String(bytes:[UInt8((value>>24)&255),UInt8((value>>16)&255),UInt8((value>>8)&255),UInt8(value&255)],encoding:.ascii) ?? "unknown"
  }
- private func loadMedia(_ url: URL,forceRemux: Bool=false) {
+ func loadMedia(_ url: URL,forceRemux: Bool=false) {
   // Rebuilding the same AVPlayerItem retains the film identity, selected
   // subtitle track and existing plot evidence. The room clock stays intact.
   playbackRecovery.reset();setPlaybackRecoveryVisible(false)
@@ -615,7 +621,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   let useAtmos=atmosReferenceOverride && url.absoluteString==appleReferenceURL
   let needsRemux=forceRemux || MKVRemux.needed(url:url,fileName:url==baiduPlaybackURL ? baiduFileName : nil)
   lastStepTarget=nil;clearOptimisticPlayback();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil)
-  mkvRemux.stop();remuxAudioLabelsByDisplayName=[:];remuxAudioTrackSummary=[]
+  clearSoftwarePlayback();mkvRemux.stop();remuxAudioLabelsByDisplayName=[:];remuxAudioTrackSummary=[]
   Task {
    let retryStarted=Date()
    var retryCount=0
@@ -628,7 +634,11 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
      let headers=url==baiduPlaybackURL ? ["User-Agent":"pan.baidu.com"] : [:]
      if let prepare=compatibilityPreparation {playbackURL=try await prepare(url,headers)}
      else {
-      playbackURL=try await mkvRemux.prepare(url,headers:headers)
+      do { playbackURL=try await mkvRemux.prepare(url,headers:headers) }
+      catch let route as MKVRemux.SoftwareAV1 {
+       try await installSoftwareAV1(route.source,original:url,generation:g)
+       return
+      }
       guard g==mediaLoadGeneration else {return}
       remuxAudioLabelsByDisplayName=mkvRemux.audioLabelsByDisplayName
       remuxAudioTrackSummary=mkvRemux.audioTrackSummary
@@ -656,6 +666,47 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     }
    }
   }
+ }
+ private func clearSoftwarePlayback() {
+  adapter.detachSoftware()
+  softwarePicture=nil
+  softwareIdentity=nil
+ }
+ private func installSoftwareAV1(_ source:ProbedSource,original:URL,generation:Int) async throws {
+  guard generation==mediaLoadGeneration else{return}
+  requestStatus="正在本机解码 AV1 视频…"
+  let pipeline=SoftwarePlaybackPipeline(allowHardwareDecode:false)
+  let resume=recoveryResumePosition
+  let start=resume.map {CMTime(seconds:$0/1000,preferredTimescale:600)}
+  do {
+   try await Task.detached(priority:.userInitiated) {try pipeline.load(probed:source,startAt:start)}.value
+  } catch {
+   throw MKVRemux.Failure.diagnostic("本机 AV1 软件解码启动失败，请检查片源或重新选片。")
+  }
+  guard generation==mediaLoadGeneration else {Task.detached {pipeline.stop()};return}
+  guard let layer=pipeline.displayLayer,let video=source.info.video else {
+   Task.detached {pipeline.stop()}
+   throw MKVRemux.Failure.diagnostic("本机 AV1 视频输出创建失败。")
+  }
+  recoveryResumePosition=nil
+  adapter.software=pipeline
+  softwareIdentity=AVPlayerItem(url:original)
+  softwarePicture=SoftwarePicture(layer:layer,size:CGSize(width:video.width,height:video.height))
+  pipeline.volume=adapter.player.volume
+  audioGroup=nil
+  subtitleGroup=nil
+  let audio=pipeline.selectableAudioTracks
+  audioLabels=audio.map{$0.title ?? $0.language ?? $0.codecName}
+  selectedAudioIndex=audio.firstIndex{$0.streamIndex==pipeline.selectedAudioStreamIndex} ?? -1
+  subtitleLabels=pipeline.selectableSubtitleTracks.map{$0.title ?? $0.language ?? $0.codecName}
+  if externalSubtitles.enabled {selectedSubtitleIndex = -2}
+  else {chooseSubtitle(requestedSubtitleIndex ?? -1)}
+  if MediaSourceCatalog.canShare(original.absoluteString),original != baiduPlaybackURL {library.played(original.absoluteString,title:movieTitle)}
+  videoBadges=["AV1"]
+  streamInfo="本机 AV1 软件解码 · "+pipeline.routeDescription
+  requestStatus=""
+  playback.refresh()
+  if localVideoTest && localPlayIntent {adapter.play()}
  }
  private func installMedia(_ playbackURL: URL,originalURL: URL,allowRemuxRetry: Bool) {
   prerollGeneration += 1;prerollPrepared=false;prerolling=false;recoveryStartedAt=nil;adapter.player.cancelPendingPrerolls()
@@ -1022,6 +1073,12 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   nativeIndexTask?.cancel();nativeIndexTask=nil;nativeIndexRequestKey=""
   filmMaterials.invalidateSubtitleSelection()
   externalSubtitles.nativeSelectionChanged(enabled:index != -2);externalSubtitles.enabled=false;selectedSubtitleIndex=index
+  if let pipeline=adapter.software {
+   let tracks=pipeline.selectableSubtitleTracks
+   let stream=tracks.indices.contains(index) ? tracks[index].streamIndex : nil
+   pipeline.selectSubtitleTrack(streamIndex:stream)
+   return
+  }
   guard let item=adapter.player.currentItem,let group=subtitleGroup else {return}
   if index == -1 {item.selectMediaOptionAutomatically(in:group)}
   else if index == -2 {item.select(nil,in:group)}
@@ -1034,6 +1091,18 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   }
  }
  func chooseAudio(_ index: Int) {
+  if let pipeline=adapter.software {
+   let tracks=pipeline.selectableAudioTracks
+   let candidate=index == -1 ? 0 : index
+   guard tracks.indices.contains(candidate) else{return}
+   pipeline.selectAudioTrack(streamIndex:tracks[candidate].streamIndex) { [weak self,weak pipeline] ok in
+    Task { @MainActor in
+     guard let self,let pipeline,self.adapter.software === pipeline,ok else{return}
+     self.selectedAudioIndex=index
+    }
+   }
+   return
+  }
   guard let item=adapter.player.currentItem,let group=audioGroup else {return}
   if index == -1 {item.selectMediaOptionAutomatically(in:group)}
   else {guard group.options.indices.contains(index) else {return};item.select(group.options[index],in:group)}
@@ -1088,7 +1157,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
  }
  func connect() {
   stopP2P()
-  supportsInstantControls=false;localVideoTest=false;localPlayIntent=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if adapter.player.currentItem==nil {loadedURL=""}
+  supportsInstantControls=false;localVideoTest=false;localPlayIntent=false;queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;operationRetry=0;mediaLoadGeneration += 1;if movieMindSource==nil {loadedURL=""}
   guard foreground,let token=credentials?["token"] as? String else {return}
   plotIntelligence.preserveCurrentFilmEvidence()
   generation += 1;let g=generation;closeRoomTransport();connected=false;engine.resetSession();pending=nil;requestStatus=""
@@ -1490,12 +1559,19 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   guard source != watchRecordedSource else{return}
   let story:Double? = questionBankRuntime.finalReport.isEmpty ? nil : questionBankRuntime.storyEndAtMs.map{Double($0)/1000}
   if watchCoverage.sample(source:source,position:adapter.position/1000,duration:adapter.duration/1000,
-   playing:adapter.player.rate>0 && !adapter.isSeeking,now:ProcessInfo.processInfo.systemUptime,storyEnd:story) {
+   playing:adapter.actualRate>0 && !adapter.isSeeking,now:ProcessInfo.processInfo.systemUptime,storyEnd:story) {
    watchMemory.record(playbackTitle);watchMemory.automaticTitle=playbackTitle;watchRecordedSource=source
   }
  }
  private func tick() {
-  movieMind.sample(source:adapter.player.currentItem,position:adapter.position,duration:adapter.duration,playing:adapter.nativePlaybackRunning && !adapter.buffering && adapter.player.error == nil && adapter.player.currentItem?.error == nil,rate:Double(adapter.player.rate),seeking:adapter.isSeeking,foreground:foreground,ended:bankNativePlaybackEnded)
+  if let pipeline=adapter.software {
+   if pipeline.volume != adapter.player.volume {pipeline.volume=adapter.player.volume}
+   if pipeline.subtitleDelaySeconds != externalSubtitles.delay {pipeline.setSubtitleDelaySeconds(externalSubtitles.delay)}
+   externalSubtitles.refresh()
+   bankNativePlaybackEnded=pipeline.state == .ended
+   if pipeline.state == .failed {requestStatus="AV1 软件播放中断，请重新载入片源。"}
+  }
+  movieMind.sample(source:movieMindSource,position:adapter.position,duration:adapter.duration,playing:adapter.nativePlaybackRunning && !adapter.buffering && adapter.player.error == nil && adapter.player.currentItem?.error == nil,rate:Double(adapter.actualRate),seeking:adapter.isSeeking,foreground:foreground,ended:bankNativePlaybackEnded)
   tickWatchMemory()
   if localVideoTest {ticks += 1;monitorLocalPlaybackRecovery();if ticks%50 == 0 {inspectFormats();updateMediaInfo()};return}
   chat.tick(clock.localNow())
@@ -1527,10 +1603,10 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
     // A pending host command must not be reverted by an outdated room snapshot.
     error=nil
     if holdingLocalPause {adapter.pause()}
-   } else if speedHoldID != nil && speedHoldID != "local" && adapter.player.rate>0 && !plotPollWaiting {
+   } else if speedHoldID != nil && speedHoldID != "local" && adapter.actualRate>0 && !plotPollWaiting {
     // Keep the local 2× rate while the server processes SPEED_HOLD.
     error=nil
-   } else if speedHoldReleaseUntil>clock.localNow() && adapter.player.rate>0 && engine.room?.state=="playing" && !plotPollWaiting {
+   } else if speedHoldReleaseUntil>clock.localNow() && adapter.actualRate>0 && engine.room?.state=="playing" && !plotPollWaiting {
     error=nil
    } else {
     if optimisticPlaying != nil {clearOptimisticPlayback()}
@@ -1541,7 +1617,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
   if ticks%100 == 0 {reviewPlotPredictionIfReady()}
   ticks += 1
   if clock.ready {flushOperations()}
-  if adapter.player.rate != lastLoggedSpeed {lastLoggedSpeed=adapter.player.rate;diagnostic("speedChanged")}
+  if adapter.actualRate != lastLoggedSpeed {lastLoggedSpeed=adapter.actualRate;diagnostic("speedChanged")}
   if engine.resyncCount != lastLoggedResync {lastLoggedResync=engine.resyncCount;diagnostic("automaticResync")}
   if ticks%10 == 0 {
    tickFilmBank()
@@ -1552,7 +1628,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    if recovering {if recoveryStartedAt==nil {recoveryStartedAt=clock.localNow()}} else {recoveryStartedAt=nil}
    let fallback=recovering && prerollPrepared && item?.isPlaybackLikelyToKeepUp == true && clock.localNow()-(recoveryStartedAt ?? clock.localNow())>=10000
    let bufferedAhead=adapter.bufferedAheadMs
-   let readiness=PlaybackReadinessPolicy.evaluate(prepared:adapter.ready,waiting:adapter.buffering,playing:adapter.player.timeControlStatus == .playing,bufferEmpty:item?.isPlaybackBufferEmpty ?? true,bufferedMs:bufferedAhead,positionMs:adapter.position,durationMs:adapter.duration,recovering:recovering && !usingLocalFile,preparedFallback:fallback)
+   let readiness=PlaybackReadinessPolicy.evaluate(prepared:adapter.ready,waiting:adapter.buffering,playing:adapter.nativePlaybackRunning,bufferEmpty:adapter.software == nil && (item?.isPlaybackBufferEmpty ?? true),bufferedMs:bufferedAhead,positionMs:adapter.position,durationMs:adapter.duration,recovering:recovering && !usingLocalFile && adapter.software == nil,preparedFallback:fallback)
    let bufferReady=sourceValid && variantDurationCheck == .compatible && readiness.ready
    // A host's alternate encode must not redefine the canonical room duration,
    // otherwise a mismatched cut could pass its own check on the next snapshot.
@@ -1560,9 +1636,9 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    send(["type":"PLAYER_STATUS","data":["sourceId":hasBaiduMatch ? baiduSourceID : "","ready":bufferReady,"buffering":readiness.buffering,"position":max(0,adapter.position-engine.timelineOffset),"duration":reportedDuration]])
    let safePreroll=RecoveryBufferPolicy.canPreroll(prepared:adapter.ready,
     pausedIntent:engine.target()?.1 == "paused",
-    nativePaused:adapter.player.timeControlStatus == .paused && adapter.player.rate == 0,
+    nativePaused:adapter.player.timeControlStatus == .paused && adapter.actualRate == 0,
     controlPending:clock.localNow()<controlSettleUntil || inFlight != nil || !queuedOperations.isEmpty)
-   if recovering && !usingLocalFile && !bufferReady && safePreroll && !prerolling && clock.localNow()-lastPrerollAt>=3000 {
+   if adapter.software == nil && recovering && !usingLocalFile && !bufferReady && safePreroll && !prerolling && clock.localNow()-lastPrerollAt>=3000 {
     prerolling=true;lastPrerollAt=clock.localNow();prerollGeneration += 1;let pg=prerollGeneration
     adapter.player.preroll(atRate:1) { [weak self] ready in Task { @MainActor in
      guard let self=self,self.prerollGeneration==pg,self.adapter.player.currentItem === item else {return}
@@ -1577,7 +1653,7 @@ questionBankRuntime.tick(filmKey:bankMovieKey,positionMs:bankPlaybackPositionMs,
    let target=engine.target();let position=adapter.position
    let expected: Any=target.map {$0.0 as Any} ?? NSNull()
    let measuredError: Any=(error != nil ? target.map {($0.0-position) as Any} : nil) ?? NSNull()
-   let telemetry: [String:Any]=["clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.player.rate,"resyncCount":engine.resyncCount,"bufferedAheadMs":bufferedAhead,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.player.timeControlStatus == .playing,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
+   let telemetry: [String:Any]=["clientVersion":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","timelineOffsetMs":engine.timelineOffset,"executeAtMs":engine.room?.executeAt ?? 0,"playbackRate":adapter.actualRate,"resyncCount":engine.resyncCount,"bufferedAheadMs":bufferedAhead,"recoveryReserveMs":12000,"positionMs":position,"expectedMs":expected,"errorMs":measuredError,"rttMs":clock.rtt,"version":engine.room?.version ?? 0,"ready":bufferReady,"itemReady":adapter.ready,"bufferEmpty":item?.isPlaybackBufferEmpty ?? true,"likelyToKeepUp":item?.isPlaybackLikelyToKeepUp ?? false,"prerollPrepared":prerollPrepared,"autoResume":recovering,"buffering":readiness.buffering,"waiting":adapter.buffering,"playing":adapter.nativePlaybackRunning,"serverTimeMs":clock.ready ? clock.serverNow() as Any : NSNull()]
    var connectionTelemetry=telemetry;connectionTelemetry["disconnectCount"]=disconnectCount;connectionTelemetry["lastDisconnectReason"]=lastDisconnectReason;connectionTelemetry["ignoredFrames"]=ignoredFrames
    send(["type":"TELEMETRY","data":connectionTelemetry])
    status="0.5.6 \(isHost ? "HOST" : "GUEST") room=\(credentials?["roomId"] as? String ?? "") v=\(engine.room?.version ?? 0)\n位置 \(Int(adapter.position/1000))s 误差 \(error.map {String(Int($0))} ?? "n/a")ms RTT \(Int(clock.rtt))ms \(adapter.buffering ? "BUFFERING" : "")\n已缓存 \(Int(bufferedAhead/1000))s"
@@ -1854,7 +1930,7 @@ extension TestClient {
   }
  }
  private func stopUnmatchedMedia() {
-  mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();resetRouterSubtitleDiscovery();visualSampler.clear();currentOriginalURL=nil
+  mediaLoadGeneration += 1;clearSoftwarePlayback();mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);externalSubtitles.clear();resetRouterSubtitleDiscovery();visualSampler.clear();currentOriginalURL=nil
  }
  func useBaiduSource(_ url: URL,file: BaiduFile,confirmedRoomID: String? = nil,confirmedMediaURL: String? = nil) -> Bool {
   guard connected,let room=engine.room else {requestStatus="请先创建或加入房间，再选择百度影片";return false}
@@ -1892,7 +1968,7 @@ extension TestClient {
   baiduPlaybackURL=nil;baiduFileName="";baiduSourceID="";baiduSourceRoom=""
   if activeLocalSource==url.absoluteString {
    activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
-   mediaLoadGeneration += 1;mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL=""
+   mediaLoadGeneration += 1;clearSoftwarePlayback();mkvRemux.stop();adapter.pause();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL=""
    requestStatus="百度本机片源已清除；恢复房间片源请点应用本机片源"
   }
  }
@@ -1946,14 +2022,14 @@ extension TestClient {
   localSelectionGeneration += 1;pendingLocalFile=nil;localSelectionRoom="";localSelectionMedia=""
   externalSubtitles.clear();resetRouterSubtitleDiscovery()
   visualSampler.clear()
-  releaseLocalFileAccess();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
+  releaseLocalFileAccess();clearSoftwarePlayback();mkvRemux.stop();baiduSourceID="";baiduSourceRoom="";baiduPlaybackURL=nil;baiduFileName="";activeLocalSource="";localMediaURL="";localSourceRoomURL="";localSourceRoomID=""
   mediaLoadGeneration += 1;generation += 1;connected=false;clearOptimisticPlayback();closeRoomTransport();credentials=nil;UserDefaults.standard.removeObject(forKey:"credentials")
   plotPoll=nil
   outbox=[:];outboxRoom="";queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;isHost=false;isRoomHost=false;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);loadedURL="";roomID="";members=[];chat.reset("");roomNotice="";roomTitle="一起看电影";status="已离开房间";requestStatus=""
  }
  private func applyOptimisticPlayback(_ type:String,position:Double) {
   guard isHost,connected,engine.room != nil,variantDurationCheck == .compatible,
-        adapter.player.currentItem?.status == .readyToPlay,!plotPollWaiting else {return}
+        adapter.ready,!plotPollWaiting else {return}
   // The server schedules room PLAY 750 ms ahead so both devices start together.
   // Starting the host AVPlayer now plays ~750 ms ahead, then the next room
   // snapshot forces correction (and can stall decoding at the 1 s mark).
@@ -1992,7 +2068,7 @@ extension TestClient {
   }
  }
  private func sendSpeedHold() {guard connected,let id=speedHoldID else {setSpeedHold(false);return};send(["type":"SPEED_HOLD","data":["active":true,"holdId":id]])}
- func handleBackground() {movieMind.discontinuity();movieMind.flush();stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
+ func handleBackground() {movieMind.discontinuity();movieMind.flush();stopP2P();plotPredictionReviewTask?.cancel();plotPredictionReviewTask=nil;plotIntelligence.preserveCurrentFilmEvidence();visualSampler.setForeground(false);setSpeedHold(false);clearOptimisticPlayback();voice.disable();clearSoftwarePlayback();mkvRemux.stop();mediaLoadGeneration += 1;loadedURL="";adapter.player.cancelPendingPrerolls();prerolling=false;foreground=false;chat.visible=false;generation += 1;connected=false;closeRoomTransport();queuedOperations=[];inFlight=nil;inFlightStartedAt=nil;engine.resetSession();adapter.resetPendingSeeks();adapter.player.replaceCurrentItem(with:nil);status="后台暂停，返回后自动同步";if pendingRoomMedia != nil {mediaFeedback.requestStatus="换片请求已保留，返回房间后继续确认…"}}
  func handleInactive() {inactiveAt=clock.localNow()}
  func handleForeground() {
   let wasForeground=foreground

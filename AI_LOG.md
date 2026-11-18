@@ -214,3 +214,8 @@ Actions42625161921 failed in device compilation: RouterUSBManagement.swift45 ass
 - UI43241023130 progressed through actual login/native archive/existing work/private review, then failed to reveal footer Save. Hierarchy proves keyboard covers y406–834 while Save is y660 and the driver scrolls an underlying CollectionView. Original entry/fullscreen still pass; retain aggregate failure.
 - New MovieMind-only navigation-bar Save plus duplicate-submit guard makes submission accessible above the keyboard. Footer retained; driver hides keyboard and scrolls the target's actual container. No player/room/source/policy change.
 - Application input changed, so supersede the temporary immutable-composition approach: restore full device/native/UI jobs and require all3 jobs,120 native and3 UI success before private IPA delivery. No previous compiled IPA is delivered as this change. Synthetic case-level attachments export without issue-only filtering; only image suffixes may upload.
+
+## 2026-11-19 · iPad AV1 software playback candidate
+- Forked the successful 0.6.87/147 device and simulator baseline f93e22d4c5189650c1940cecd4076410ffcafe6c (run 43249027593). 0.6.88/148 routes probed AV1 that cannot be stream-copied to the pinned PrismCore software pipeline.
+- Updated iPad preparation, transport, clock, render surfaces, subtitle clock and native regressions. Generated a three-second synthetic 10-bit AV1 fixture for the iPad simulator. Standard remux remains the default on hardware-capable devices. Encrypted device packaging and existing regressions run on the isolation branch.
+- Pending Apple build, simulator results, physical display/audio and live paired-room verification. Roll back by reinstalling the previous signed candidate; no server migration.

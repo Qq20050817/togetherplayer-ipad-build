@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import PrismCore
 
 // Timer callbacks may queue while decoding or a UI transition holds the main
 // actor. Keep one pending refresh, rather than replaying stale refreshes later.
@@ -67,6 +68,17 @@ struct PlaybackStartGate {
 final class AVPlayerAdapter: PlayerAdapter {
  let player: AVPlayer
  init(player: AVPlayer = AVPlayer()) {self.player=player}
+ var software: SoftwarePlaybackPipeline?
+ private var softwareSeekID=0
+ private var requestedSoftwareRate:Float?
+ var actualRate:Float { software.map { $0.state == .playing ? speed : 0 } ?? player.rate }
+ func detachSoftware() {
+  softwareSeekID += 1
+  let old=software
+  software=nil
+  requestedSoftwareRate=nil
+  if let old { Task.detached { old.stop() } }
+ }
  var seekObserved:(()->Void)?
  var seekResult:((Bool,String)->Void)?
  private var seekDeadline:DispatchWorkItem?
@@ -79,8 +91,8 @@ final class AVPlayerAdapter: PlayerAdapter {
  private var startGate=PlaybackStartGate()
  private var resumeAfterSeek=false
  var isSeeking:Bool {seeking || seekBuffer.pending != nil}
- var position: Double { let n = player.currentTime().seconds*1000; return n.isFinite ? n : 0 }
- var duration: Double { let n=(player.currentItem?.duration.seconds ?? 0)*1000;return n.isFinite && n>0 ? n : 0 }
+ var position: Double { let n = (software?.currentTime ?? player.currentTime()).seconds*1000; return n.isFinite ? n : 0 }
+ var duration: Double { let n=(software?.durationSeconds ?? player.currentItem?.duration.seconds ?? 0)*1000;return n.isFinite && n>0 ? n : 0 }
  // Only contiguous data at the playhead can cover playback; later disjoint ranges cannot.
  var bufferedAheadMs: Double {
   let position=player.currentTime().seconds
@@ -94,22 +106,29 @@ final class AVPlayerAdapter: PlayerAdapter {
   }
   return max(0,(end-position)*1000)
  }
- var buffering: Bool { player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
- var ready: Bool { player.currentItem?.status == .readyToPlay && !isSeeking }
- var nativePlaybackRunning: Bool { player.timeControlStatus == .playing }
+ var buffering: Bool { if let software {return software.state == .loading}; return player.timeControlStatus == .waitingToPlayAtSpecifiedRate }
+ var ready: Bool { if let software {return [.paused,.playing,.ended].contains(software.state) && !isSeeking}; return player.currentItem?.status == .readyToPlay && !isSeeking }
+ var nativePlaybackRunning: Bool { if let software {return software.state == .playing}; return player.timeControlStatus == .playing }
  // All mutations use one queue. An off-main request belongs to the item it
  // saw, and must never execute against a replacement film.
  private func deferToMain(_ action:@escaping(AVPlayerAdapter)->Void)->Bool {
   guard !Thread.isMainThread else {return false}
-  let item=player.currentItem
+  let item=player.currentItem, route=software
   DispatchQueue.main.async { [weak self] in
-   guard let self,self.player.currentItem === item else {return}
+   guard let self,self.player.currentItem === item,self.software === route else {return}
    action(self)
   }
   return true
  }
  func play() {
   if deferToMain({$0.play()}) {return}
+  if let software {
+   if software.state == .paused || software.state == .playing, requestedSoftwareRate != speed {
+    requestedSoftwareRate=speed
+    software.play(atRate:speed)
+   }
+   return
+  }
   guard let item=player.currentItem,item.status == .readyToPlay,
         item.error == nil,player.error == nil else {return}
   if isSeeking {
@@ -124,6 +143,13 @@ final class AVPlayerAdapter: PlayerAdapter {
  }
  func pause() {
   if deferToMain({$0.pause()}) {return}
+  if let software {
+   if requestedSoftwareRate != nil || software.state == .playing {
+    requestedSoftwareRate=nil
+    software.pause()
+   }
+   return
+  }
   resumeAfterSeek=false
   if startGate.requested || player.rate != 0 {player.pause()}
   startGate.reset()
@@ -132,6 +158,10 @@ final class AVPlayerAdapter: PlayerAdapter {
   guard value.isFinite,value>0,value<=2.5 else {return}
   if deferToMain({$0.setPlaybackSpeed(value)}) {return}
   speed=value
+  if software != nil {
+   if requestedSoftwareRate != nil { play() }
+   return
+  }
   // Keep the requested rate, but do not reconfigure the decoder during seek
   // or item preparation. play()/itemBecameReady applies it at a safe boundary.
   guard !isSeeking,player.error == nil,
@@ -145,6 +175,7 @@ final class AVPlayerAdapter: PlayerAdapter {
  func resetPendingSeeks() {
   if deferToMain({$0.resetPendingSeeks()}) {return}
   seekDeadline?.cancel();seekDeadline=nil;seekSerial &+= 1;seekRetry=0
+  softwareSeekID += 1
   seekEpoch &+= 1
   seekBuffer.clear()
   seeking=false
@@ -155,6 +186,23 @@ final class AVPlayerAdapter: PlayerAdapter {
  func seekTo(_ milliseconds: Double) {
   guard milliseconds.isFinite else {return}
   if deferToMain({$0.seekTo(milliseconds)}) {return}
+  if let software {
+   let target=max(0,min(duration>0 ? duration : milliseconds,milliseconds))
+   softwareSeekID += 1
+   let ticket=softwareSeekID
+   seeking=true
+   seekObserved?()
+   software.seek(to:CMTime(seconds:target/1000,preferredTimescale:600))
+   software.afterPendingTransport { [weak self,weak software] in
+    DispatchQueue.main.async {
+     guard let self,let software,self.software === software,self.softwareSeekID==ticket else{return}
+     self.seeking=false
+     let ok=software.state != .failed && abs(self.position-target)<=750
+     self.seekResult?(ok,ok ? "" : "软件播放器未确认跳转")
+    }
+   }
+   return
+  }
   guard let item=player.currentItem,item.status != .failed,
         item.error == nil,player.error == nil else {seekResult?(false,"片源尚未就绪或读取失败");return}
   seekObserved?()

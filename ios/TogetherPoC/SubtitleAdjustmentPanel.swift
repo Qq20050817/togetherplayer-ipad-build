@@ -4,6 +4,7 @@ import AVFoundation
 @MainActor struct SubtitleAdjustmentPanel:View {
  @ObservedObject var subtitles:ExternalSubtitles
  let player:AVPlayer
+ var software:SoftwarePicture?=nil
  let chat:ChatEngine
  @Environment(\.dismiss) private var dismiss
  var body:some View {
@@ -12,7 +13,7 @@ import AVFoundation
    let wide=geometry.size.width>=700
    let layout=wide ? AnyLayout(HStackLayout(spacing:0)) : AnyLayout(VStackLayout(spacing:0))
    layout {
-    PlaybackCanvas(player:player,subtitles:subtitles,chat:chat).accessibilityIdentifier("subtitle-live-movie").frame(maxWidth:.infinity,maxHeight:wide ? .infinity : geometry.size.height*0.42)
+    PlaybackCanvas(player:player,software:software,subtitles:subtitles,chat:chat).accessibilityIdentifier("subtitle-live-movie").frame(maxWidth:.infinity,maxHeight:wide ? .infinity : geometry.size.height*0.42)
     Form {
     if subtitles.text.isEmpty {Section {Text("当前没有正在显示的字幕。播放到有字幕的位置后，可直接观察画面中的变化。").font(.caption)}}
     Section("时间偏移") {

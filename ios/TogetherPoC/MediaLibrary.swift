@@ -27,11 +27,13 @@ struct SavedMedia: Codable, Identifiable {
  @Published private(set) var duration=0.0
  @Published private(set) var playing=false
  @Published private(set) var buffering=false
+ private weak var adapter:AVPlayerAdapter?
  private let player: AVPlayer
  private var timer: Timer?
  private var timeObserver:Any?
  private let pulse=MainActorPulse()
- init(player: AVPlayer) {
+ init(player: AVPlayer,adapter:AVPlayerAdapter?=nil) {
+  self.adapter=adapter
   self.player=player
   let pulse=self.pulse
   let timer=Timer(timeInterval:0.5,repeats:true) {[weak self] _ in pulse.request {[weak self] in self?.refresh()}}
@@ -45,9 +47,9 @@ struct SavedMedia: Codable, Identifiable {
  }
  deinit {timer?.invalidate();if let timeObserver {player.removeTimeObserver(timeObserver)}}
  func refresh() {
-  let time=player.currentTime().seconds;let nextPosition=time.isFinite ? max(0,time) : 0;if position != nextPosition {position=nextPosition}
-  let length=player.currentItem?.duration.seconds ?? 0;let nextDuration=length.isFinite ? max(0,length) : 0;if duration != nextDuration {duration=nextDuration}
-  let nextPlaying=player.timeControlStatus == .playing;let nextBuffering=player.timeControlStatus == .waitingToPlayAtSpecifiedRate;if playing != nextPlaying {playing=nextPlaying};if buffering != nextBuffering {buffering=nextBuffering}
+  let time=adapter.map{$0.position/1000} ?? player.currentTime().seconds;let nextPosition=time.isFinite ? max(0,time) : 0;if position != nextPosition {position=nextPosition}
+  let length=adapter.map{$0.duration/1000} ?? player.currentItem?.duration.seconds ?? 0;let nextDuration=length.isFinite ? max(0,length) : 0;if duration != nextDuration {duration=nextDuration}
+  let nextPlaying=adapter?.nativePlaybackRunning ?? (player.timeControlStatus == .playing);let nextBuffering=adapter?.buffering ?? (player.timeControlStatus == .waitingToPlayAtSpecifiedRate);if playing != nextPlaying {playing=nextPlaying};if buffering != nextBuffering {buffering=nextBuffering}
  }
  static func time(_ seconds: Double) -> String {
   PlaybackTime.clock(seconds)

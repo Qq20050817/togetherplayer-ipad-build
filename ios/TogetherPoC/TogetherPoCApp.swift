@@ -147,7 +147,7 @@ import UniformTypeIdentifiers
  }
  private func watchCard(height: CGFloat) -> some View {
   VStack(alignment:.leading,spacing:12) {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,rotationTurns:model.videoRotationTurns).frame(height:height)
+   PlaybackCanvas(player:model.adapter.player,software:model.softwarePicture,subtitles:model.externalSubtitles,chat:chat,rotationTurns:model.videoRotationTurns).frame(height:height)
     .overlay(alignment:.topLeading) {
      VStack(alignment:.leading,spacing:8) {
       Text(model.playbackTitle).font(.headline).lineLimit(1)
@@ -414,6 +414,7 @@ import UniformTypeIdentifiers
 
 @MainActor struct PlaybackCanvas: View {
  let player: AVPlayer
+ var software:SoftwarePicture?=nil
  @ObservedObject var subtitles: ExternalSubtitles
  let chat: ChatEngine
  var bottomInset: Double=0
@@ -427,12 +428,15 @@ import UniformTypeIdentifiers
   let _=InterfaceRenderTrace.record("canvas")
   #endif
   GeometryReader {geometry in
-   let presentation=VideoRotation.presentation(player.currentItem?.presentationSize ?? .zero,turns:rotationTurns)
+   let presentation=VideoRotation.presentation(software?.size ?? player.currentItem?.presentationSize ?? .zero,turns:rotationTurns)
    let picture=SubtitlePictureLayout.picture(container:geometry.size,presentation:presentation)
    let render=VideoRotation.renderingSize(picture:picture,turns:rotationTurns)
    ZStack(alignment:.bottom) {
     Color.black
-    StableVideo(player:player).equatable()
+    Group {
+     if let software { SoftwarePictureView(picture:software) }
+     else { StableVideo(player:player).equatable() }
+    }
      .frame(width:render.width,height:render.height)
      .rotationEffect(.degrees(Double(VideoRotation.degrees(rotationTurns))))
      .frame(width:geometry.size.width,height:geometry.size.height).clipped().allowsHitTesting(false)
@@ -558,7 +562,7 @@ struct SubtitleHeightKey:PreferenceKey {
    .sheet(isPresented:$importing) {
     SubtitleDocumentPicker(onPick:{url in importing=false;DispatchQueue.main.async {model.importSubtitle(url)}},onCancel:{importing=false;subtitles.cancelImport()})
    }
-   .fullScreenCover(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles,player:model.adapter.player,chat:model.chat)}
+   .fullScreenCover(isPresented:$adjustingSubtitles) {SubtitleAdjustmentPanel(subtitles:subtitles,player:model.adapter.player,software:model.softwarePicture,chat:model.chat)}
    .sheet(isPresented:$showingCaptureSetup) {
     NavigationStack {
      Form {
@@ -748,7 +752,7 @@ struct FullscreenToolStyle:ButtonStyle {
   HStack(spacing:questionOpen || plotPollOpen || recapOpen ? 10 : 0) {
   VStack(spacing:0) {
    ZStack(alignment:.top) {
-   PlaybackCanvas(player:model.adapter.player,subtitles:model.externalSubtitles,chat:chat,bottomInset:0,rotationTurns:model.videoRotationTurns)
+   PlaybackCanvas(player:model.adapter.player,software:model.softwarePicture,subtitles:model.externalSubtitles,chat:chat,bottomInset:0,rotationTurns:model.videoRotationTurns)
     .accessibilityElement(children:.contain)
     .accessibilityIdentifier("fullscreen-movie")
     .contentShape(Rectangle()).onTapGesture {

@@ -109,3 +109,6 @@ Actions42625161921 failed in device compilation: RouterUSBManagement.swift45 ass
 - UI43241023130 progressed through actual login/native archive/existing work/private review, then failed to reveal footer Save. Hierarchy proves keyboard covers y406–834 while Save is y660 and the driver scrolls an underlying CollectionView. Original entry/fullscreen still pass; retain aggregate failure.
 - New MovieMind-only navigation-bar Save plus duplicate-submit guard makes submission accessible above the keyboard. Footer retained; driver hides keyboard and scrolls the target's actual container. No player/room/source/policy change.
 - Application input changed, so supersede the temporary immutable-composition approach: restore full device/native/UI jobs and require all3 jobs,120 native and3 UI success before private IPA delivery. No previous compiled IPA is delivered as this change. Synthetic case-level attachments export without issue-only filtering; only image suffixes may upload.
+
+## IPAD-AV1-001 · M1 AV1 compatibility preparation
+- A probed 10-bit AV1 track on the remux-only route triggers videoCodecNotRemuxable/Unplayable before playback. Version 0.6.88/148 now selects software playback for non-copyable AV1. Synthetic seek, play and teardown coverage added. Apple CI and physical-device confirmation pending.

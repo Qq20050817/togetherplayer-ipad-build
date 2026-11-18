@@ -71,3 +71,24 @@ if source.count(before) != 1:
 file.chmod(file.stat().st_mode | 0o200)
 file.write_text(source.replace(before, after).replace('        let describes = title.map { t in kindWords.contains { t.lowercased().contains($0) } } ?? false', '').replace('        let kindWords = ["sdh", "cc", "hearing", "forced", "signs", "songs", "commentary"]', ''))
 print('Preserved codec/layout and original subtitle titles in HLS selection names')
+
+# The pinned software renderer otherwise hard-codes 1x on play and after seeks.
+file = root / 'Sources/PrismCore/Software/SoftwarePlaybackPipeline.swift'
+source = file.read_text()
+anchor = '    public func play() {'
+assert source.count(anchor) == 1 and source.count('timeline.setRate(1,') == 3
+source = source.replace(anchor, '''    private var requestedPlaybackRate: Float = 1
+
+    public func afterPendingTransport(_ completion: @escaping @Sendable () -> Void) {
+        feedQueue.async(execute: completion)
+    }
+
+    public func play() { play(atRate: 1) }
+
+    public func play(atRate rate: Float) {
+        guard rate.isFinite, rate > 0, rate <= 2.5 else { return }''')
+anchor = '            guard storedStateIsResumable else { return }\n            timeline.setRate(1,'
+assert source.count(anchor) == 1
+source = source.replace(anchor, '            guard storedStateIsResumable else { return }\n            requestedPlaybackRate = rate\n            timeline.setRate(1,')
+file.chmod(file.stat().st_mode | 0o200)
+file.write_text(source.replace('timeline.setRate(1,', 'timeline.setRate(requestedPlaybackRate,'))

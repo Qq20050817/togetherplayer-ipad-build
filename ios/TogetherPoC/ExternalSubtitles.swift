@@ -59,6 +59,10 @@ import CoreFoundation
  private(set) var nativeIndexAIOnly=false
  private(set) var nativeAISRT:String?
  @Published private(set) var nativeIndexStatus=""
+ var softwareTime:(()->Double?)?
+ var softwarePlaying:(()->Bool?)?
+ var softwareCue:(()->String?)?
+ private var clockSeconds:Double { softwareTime?() ?? player.currentTime().seconds }
  private let player: AVPlayer
  private var observer: Any?
  private var generation=0
@@ -146,7 +150,7 @@ import CoreFoundation
  // Only subtitles strictly at/before the current player time may enter a
  // generative question prompt; never pass the whole movie's subtitle file.
  func observedPlotExcerpt() -> String {
-  let cutoff=min(player.currentTime().seconds,player.currentTime().seconds-delay)
+  let cutoff=min(clockSeconds,clockSeconds-delay)
   guard cutoff.isFinite && cutoff>=0 else {return ""}
   let past:[String]
   if enabled {past=document?.cues.filter{$0.start<=cutoff && $0.end<=cutoff}.suffix(22).map{$0.text} ?? []}
@@ -161,7 +165,7 @@ import CoreFoundation
   return past.joined(separator:"\n")
  }
  func observedPlotEvidence()->[PlotEvidence] {
-  let cutoff=min(player.currentTime().seconds,player.currentTime().seconds-delay)
+  let cutoff=min(clockSeconds,clockSeconds-delay)
   guard cutoff.isFinite,cutoff>=0 else {return []}
   func watched(_ start:Double,_ end:Double)->Bool {plotWatched.contains{$0.lowerBound<=start+0.2 && $0.upperBound>=end}}
   if let completeEmbeddedForAI {
@@ -235,7 +239,7 @@ import CoreFoundation
   originalPGSTrack=track
   originalPGSTimeline.replace(with:events)
   originalPGSEventTime = -.infinity
-  updateOriginalPGS(at:player.currentTime().seconds)
+  updateOriginalPGS(at:clockSeconds)
  }
  func clearOriginalPGS() {
   originalPGSTrack=nil;originalPGSTimeline.clear()
@@ -326,14 +330,14 @@ import CoreFoundation
   if indexAIOnly {return ""}
   return indexed ?? ""
  }
- private func refresh() {
-  let actual=player.currentTime().seconds
+ func refresh() {
+  let actual=clockSeconds
   if actual.isFinite,actual>=0 {
-   if player.rate>0,plotLastWasPlaying,let last=plotLastTime,actual>last,actual-last<=2.5 {
+   if (softwarePlaying?() ?? (player.rate>0)),plotLastWasPlaying,let last=plotLastTime,actual>last,actual-last<=2.5 {
     PlotWatchedIntervals.record(&plotWatched,from:last,to:actual)
    }
    plotLastTime=actual
-   plotLastWasPlaying=player.rate>0
+   plotLastWasPlaying=softwarePlaying?() ?? (player.rate>0)
   }
   // AVFoundation can silently reset the selected legible option when HLS
   // variants or decoder state change. Verify the requested native track
@@ -358,9 +362,9 @@ import CoreFoundation
     attachNativeOutput(to:item)
    }
   }
-  updateOriginalPGS(at:player.currentTime().seconds)
-  let time=player.currentTime().seconds-delay
-  let live=nativeEnabled ? nativeTimeline.text(at:time) : ""
+  updateOriginalPGS(at:clockSeconds)
+  let time=clockSeconds-delay
+  let live=nativeEnabled ? (softwareCue?() ?? nativeTimeline.text(at:time)) : ""
   let next=enabled ? document?.text(at:time) ?? "" :
    (nativeEnabled ? Self.nativeDisplayText(live:live,indexed:nativeIndexedDocument?.text(at:time),indexAIOnly:nativeIndexAIOnly) : "")
   // When a genuine PGS composition is visible, never draw OCR/WebVTT on top.
